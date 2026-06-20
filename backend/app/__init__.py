@@ -1,0 +1,1 @@
+"""SoloFinanzas backend package."""

@@ -1,0 +1,70 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * {
+    box-sizing: border-box;
+  }
+
+  html {
+    color-scheme: light;
+  }
+
+  body {
+    margin: 0;
+    min-width: 320px;
+    min-height: 100vh;
+    background:
+      radial-gradient(circle at top left, rgba(207, 235, 195, 0.35), transparent 22%),
+      radial-gradient(circle at bottom right, rgba(122, 74, 44, 0.08), transparent 18%),
+      linear-gradient(180deg, #fdfbf6 0%, #fbf9f1 100%);
+    color: #1b1c17;
+    font-family: "Geist", "Aptos", "Segoe UI", sans-serif;
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  button,
+  input,
+  select,
+  textarea,
+  table {
+    font: inherit;
+  }
+
+  button {
+    cursor: pointer;
+  }
+
+  a {
+    color: inherit;
+  }
+
+  #root {
+    min-height: 100vh;
+  }
+
+  ::selection {
+    background: rgba(52, 75, 46, 0.15);
+  }
+}
+
+@layer components {
+  .surface-card {
+    @apply rounded-[1.5rem] border border-outline/80 bg-white shadow-paper;
+  }
+
+  .surface-card-soft {
+    @apply rounded-[1.5rem] border border-outline/70 bg-paper-soft;
+  }
+
+  .eyebrow {
+    @apply text-sm font-semibold uppercase tracking-[0.18em] text-primary/80;
+  }
+
+  .subtle-divider {
+    @apply border-b border-outline/70;
+  }
+}
