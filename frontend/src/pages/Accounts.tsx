@@ -6,6 +6,7 @@ import {
   ArrowUpIcon,
   BankIcon,
   Button,
+  DeleteStatementModal,
   EmptyState,
   ErrorState,
   InstitutionLogo,
@@ -16,6 +17,8 @@ import {
   PlusIcon,
   ReceiptIcon,
   StatCard,
+  StatusNotice,
+  TrashIcon,
   cn,
 } from "../components";
 import { useFormatCurrency } from "../hooks";
@@ -27,7 +30,13 @@ import {
   TransactionService,
 } from "../services";
 import { InstitutionLabels, StatementStatus } from "../types";
-import type { Account, Category, Statement, Transaction } from "../types";
+import type {
+  Account,
+  Category,
+  Statement,
+  StatementDeletionImpact,
+  Transaction,
+} from "../types";
 
 type DetailTab = "statements" | "transactions";
 const PAGE_SIZE = 1000;
@@ -82,6 +91,12 @@ export function AccountsPage() {
   const [loading, setLoading] = useState(true);
   const [loadingDetails, setLoadingDetails] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [feedback, setFeedback] = useState<string | null>(null);
+  const [statementPendingDelete, setStatementPendingDelete] = useState<Statement | null>(null);
+  const [deletionImpact, setDeletionImpact] = useState<StatementDeletionImpact | null>(null);
+  const [loadingDeletionImpact, setLoadingDeletionImpact] = useState(false);
+  const [deletingStatementId, setDeletingStatementId] = useState<number | null>(null);
+  const [deletionError, setDeletionError] = useState<string | null>(null);
   const formatCurrency = useFormatCurrency();
 
   useEffect(() => {
@@ -168,6 +183,81 @@ export function AccountsPage() {
     const nextIndex = (selectedIndex + direction + accounts.length) % accounts.length;
     selectAccount(accounts[nextIndex].id);
   };
+  const openDeleteStatementModal = async (statement: Statement) => {
+    setStatementPendingDelete(statement);
+    setDeletionImpact(null);
+    setDeletionError(null);
+    setFeedback(null);
+    setLoadingDeletionImpact(true);
+
+    try {
+      const impact = await StatementService.getDeletionImpact(statement.id);
+      setDeletionImpact(impact);
+    } catch (err) {
+      setDeletionError(
+        err instanceof Error
+          ? err.message
+          : "No fue posible calcular el impacto de esta eliminacion.",
+      );
+    } finally {
+      setLoadingDeletionImpact(false);
+    }
+  };
+
+  const closeDeleteStatementModal = () => {
+    if (loadingDeletionImpact || deletingStatementId !== null) return;
+    setStatementPendingDelete(null);
+    setDeletionImpact(null);
+    setDeletionError(null);
+  };
+
+  const confirmDeleteStatement = async () => {
+    if (!statementPendingDelete || !deletionImpact || selectedAccountId === null) return;
+
+    const statement = statementPendingDelete;
+    const accountId = selectedAccountId;
+    setDeletingStatementId(statement.id);
+    setDeletionError(null);
+    setError(null);
+
+    try {
+      const result = await StatementService.deleteStatement(statement.id);
+      setStatements((current) => current.filter((item) => item.id !== statement.id));
+      setTransactions((current) =>
+        current.filter((transaction) => transaction.statement_id !== statement.id),
+      );
+      setStatementPendingDelete(null);
+      setDeletionImpact(null);
+      setFeedback(
+        `Importacion deshecha: ${result.transaction_count} movimiento${
+          result.transaction_count === 1 ? "" : "s"
+        } eliminado${result.transaction_count === 1 ? "" : "s"}.${
+          result.raw_file_deleted ? " El PDF original tambien fue eliminado." : ""
+        }`,
+      );
+
+      try {
+        const [statementData, transactionData] = await Promise.all([
+          StatementService.getStatements(accountId),
+          loadTransactions(accountId),
+        ]);
+        setStatements(statementData);
+        setTransactions(transactionData);
+      } catch (refreshError) {
+        setError(
+          refreshError instanceof Error
+            ? `La cartola fue eliminada, pero no se pudo actualizar la vista: ${refreshError.message}`
+            : "La cartola fue eliminada, pero no se pudo actualizar la vista.",
+        );
+      }
+    } catch (err) {
+      setDeletionError(
+        err instanceof Error ? err.message : "No fue posible deshacer esta importacion.",
+      );
+    } finally {
+      setDeletingStatementId(null);
+    }
+  };
 
   return (
     <div className="space-y-8">
@@ -187,6 +277,7 @@ export function AccountsPage() {
 
       {loading ? <LoadingState message="Cargando cuentas..." /> : null}
       {error ? <ErrorState message={error} /> : null}
+      {feedback ? <StatusNotice tone="success">{feedback}</StatusNotice> : null}
 
       {!loading && accounts.length === 0 ? (
         <EmptyState
@@ -353,14 +444,14 @@ export function AccountsPage() {
 
               {!loadingDetails && activeTab === "statements" && statements.length > 0 ? (
                 <div className="overflow-x-auto">
-                  <table className="w-full min-w-[720px] border-collapse">
+                  <table className="w-full min-w-[840px] border-collapse">
                     <thead className="text-left text-sm text-muted">
                       <tr className="border-b border-outline">
                         <th className="px-4 py-3 font-medium">Nombre</th>
                         <th className="px-4 py-3 font-medium">Periodo</th>
                         <th className="px-4 py-3 font-medium">Importada</th>
                         <th className="px-4 py-3 font-medium">Estado</th>
-                        <th className="px-4 py-3 text-right font-medium">Movimientos</th>
+                        <th className="px-4 py-3 text-right font-medium">Acciones</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -389,12 +480,26 @@ export function AccountsPage() {
                             </span>
                           </td>
                           <td className="px-4 py-4 text-right">
-                            <Button
-                              tone="ghost"
-                              onClick={() => navigate(`/transactions?statement_id=${statement.id}`)}
-                            >
-                              Ver movimientos
-                            </Button>
+                            <div className="flex items-center justify-end gap-2">
+                              <Button
+                                className="px-3 py-2 text-sm"
+                                tone="ghost"
+                                onClick={() => navigate(`/transactions?statement_id=${statement.id}`)}
+                              >
+                                Ver movimientos
+                              </Button>
+                              <Button
+                                aria-label={`Deshacer importacion de ${statement.file_name}`}
+                                className="px-3 py-2 text-sm text-danger hover:bg-danger-soft"
+                                disabled={deletingStatementId !== null}
+                                onClick={() => void openDeleteStatementModal(statement)}
+                                title={`Deshacer importacion de ${statement.file_name}`}
+                                tone="ghost"
+                              >
+                                <TrashIcon className="h-4 w-4" />
+                                {deletingStatementId === statement.id ? "Eliminando..." : "Deshacer"}
+                              </Button>
+                            </div>
                           </td>
                         </tr>
                       ))}
@@ -462,6 +567,17 @@ export function AccountsPage() {
             </div>
           </Panel>
         </>
+      ) : null}
+      {statementPendingDelete ? (
+        <DeleteStatementModal
+          deleting={deletingStatementId === statementPendingDelete.id}
+          error={deletionError}
+          impact={deletionImpact}
+          loadingImpact={loadingDeletionImpact}
+          onCancel={closeDeleteStatementModal}
+          onConfirm={() => void confirmDeleteStatement()}
+          statement={statementPendingDelete}
+        />
       ) : null}
     </div>
   );

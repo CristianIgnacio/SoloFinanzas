@@ -1,5 +1,6 @@
 export { Hero } from "./Hero";
 export { AccountFormModal } from "./AccountFormModal";
+export { DeleteStatementModal } from "./DeleteStatementModal";
 export { InstitutionLogo } from "./InstitutionLogo";
 export { LoadingState } from "./LoadingState";
 export { ErrorState } from "./ErrorState";

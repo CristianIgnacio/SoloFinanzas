@@ -1,7 +1,9 @@
 import hashlib
+import logging
 from collections import Counter
+from pathlib import Path
 
-from sqlalchemy import func
+from sqlalchemy import func, or_
 from sqlmodel import Session, select
 
 from app.domain.enums import (
@@ -13,17 +15,29 @@ from app.domain.enums import (
 from app.models.account import AccountModel
 from app.models.category import CategoryModel
 from app.models.categorization_rule import CategorizationRuleModel
+from app.models.internal_transfer_match import InternalTransferMatchModel
 from app.models.statement import StatementModel
 from app.models.transaction import TransactionModel
 from app.domain.normalizer import normalize_description
 from app.schemas.shared import ImportTransactionsResult
-from app.schemas.statement import PdfImportResponse, Statement, StatementCreate
+from app.schemas.statement import (
+    PdfImportResponse,
+    Statement,
+    StatementCreate,
+    StatementDeletionImpact,
+    StatementDeletionResult,
+)
 from app.schemas.transaction import TransactionCandidate
 from app.schemas.transaction import (
     TransactionCandidateReview,
     TransactionPreviewCandidate,
 )
 from app.services.internal_transfers import refresh_internal_transfer_matches
+
+
+logger = logging.getLogger(__name__)
+BACKEND_DIR = Path(__file__).resolve().parents[2]
+RAW_DIR = BACKEND_DIR / "data" / "raw"
 
 
 def create_statement(session: Session, payload: StatementCreate) -> Statement:
@@ -77,6 +91,160 @@ def update_statement_status(
         session.refresh(statement)
         return Statement.model_validate(statement)
     return None
+
+
+def get_statement_deletion_impact(
+    session: Session,
+    statement_id: int,
+) -> StatementDeletionImpact | None:
+    """Resume los datos que desaparecerian al deshacer una importacion."""
+    statement = session.get(StatementModel, statement_id)
+    if statement is None:
+        return None
+
+    transactions = session.exec(
+        select(TransactionModel).where(TransactionModel.statement_id == statement_id)
+    ).all()
+    transaction_ids = [transaction.id for transaction in transactions if transaction.id]
+    matches = _get_transfer_matches_for_transactions(session, transaction_ids)
+    raw_target = _resolve_managed_raw_path(statement.raw_path)
+
+    return StatementDeletionImpact(
+        statement_id=statement_id,
+        transaction_count=len(transactions),
+        income_total_clp=sum(
+            transaction.amount_clp
+            for transaction in transactions
+            if transaction.transaction_type == TransactionType.INCOME
+        ),
+        expense_total_clp=sum(
+            abs(transaction.amount_clp)
+            for transaction in transactions
+            if transaction.transaction_type == TransactionType.EXPENSE
+        ),
+        net_total_clp=sum(transaction.amount_clp for transaction in transactions),
+        affected_periods=sorted(
+            {transaction.date.strftime("%Y-%m") for transaction in transactions}
+        ),
+        internal_transfer_match_count=len(matches),
+        raw_file_delete_eligible=(
+            raw_target is not None
+            and raw_target.is_file()
+            and not _raw_path_is_shared(session, statement_id, raw_target)
+        ),
+    )
+
+
+def delete_statement(
+    session: Session,
+    statement_id: int,
+) -> StatementDeletionResult | None:
+    """Deshace una importacion y reconstruye sus datos derivados."""
+    statement = session.get(StatementModel, statement_id)
+    if statement is None:
+        return None
+
+    impact = get_statement_deletion_impact(session, statement_id)
+    if impact is None:
+        return None
+
+    raw_path = statement.raw_path
+    transactions = session.exec(
+        select(TransactionModel).where(TransactionModel.statement_id == statement_id)
+    ).all()
+    transaction_ids = [transaction.id for transaction in transactions if transaction.id]
+    matches = _get_transfer_matches_for_transactions(session, transaction_ids)
+
+    try:
+        # Este orden tambien funciona cuando SQLite aplica las claves foraneas.
+        for match in matches:
+            session.delete(match)
+        session.flush()
+
+        for transaction in transactions:
+            session.delete(transaction)
+        session.flush()
+
+        session.delete(statement)
+        session.flush()
+        refresh_internal_transfer_matches(session)
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
+
+    raw_file_deleted = _delete_raw_file_if_unreferenced(session, raw_path)
+    return StatementDeletionResult(
+        **impact.model_dump(),
+        raw_file_deleted=raw_file_deleted,
+    )
+
+
+def _get_transfer_matches_for_transactions(
+    session: Session,
+    transaction_ids: list[int],
+) -> list[InternalTransferMatchModel]:
+    if not transaction_ids:
+        return []
+    return session.exec(
+        select(InternalTransferMatchModel).where(
+            or_(
+                InternalTransferMatchModel.outgoing_transaction_id.in_(transaction_ids),
+                InternalTransferMatchModel.incoming_transaction_id.in_(transaction_ids),
+            )
+        )
+    ).all()
+
+
+def _resolve_managed_raw_path(raw_path: str | None) -> Path | None:
+    """Acepta solamente archivos ubicados dentro del directorio raw administrado."""
+    if not raw_path:
+        return None
+
+    configured_path = Path(raw_path)
+    target = (
+        configured_path if configured_path.is_absolute() else BACKEND_DIR / configured_path
+    ).resolve()
+    raw_root = RAW_DIR.resolve()
+    if target == raw_root or raw_root not in target.parents:
+        return None
+    return target
+
+
+def _raw_path_is_shared(
+    session: Session,
+    statement_id: int,
+    target: Path,
+) -> bool:
+    raw_paths = session.exec(
+        select(StatementModel.raw_path).where(
+            StatementModel.id != statement_id,
+            StatementModel.raw_path.is_not(None),
+        )
+    ).all()
+    return any(_resolve_managed_raw_path(raw_path) == target for raw_path in raw_paths)
+
+
+def _delete_raw_file_if_unreferenced(
+    session: Session,
+    raw_path: str | None,
+) -> bool:
+    target = _resolve_managed_raw_path(raw_path)
+    if target is None or not target.is_file():
+        return False
+
+    remaining_paths = session.exec(
+        select(StatementModel.raw_path).where(StatementModel.raw_path.is_not(None))
+    ).all()
+    if any(_resolve_managed_raw_path(path) == target for path in remaining_paths):
+        return False
+
+    try:
+        target.unlink()
+    except OSError:
+        logger.exception("No se pudo eliminar el PDF sin referencias %s", target)
+        return False
+    return True
 
 
 class DuplicateStatementError(ValueError):

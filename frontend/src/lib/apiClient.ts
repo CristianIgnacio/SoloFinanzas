@@ -81,7 +81,8 @@ export const apiClient = {
     return response.data;
   },
 
-  async delete(endpoint: string, config?: AxiosRequestConfig): Promise<void> {
-    await axiosClient.delete(endpoint, config);
+  async delete<T = void>(endpoint: string, config?: AxiosRequestConfig): Promise<T> {
+    const response = await axiosClient.delete<T>(endpoint, config);
+    return response.data;
   },
 };

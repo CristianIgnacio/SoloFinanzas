@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import Iterator
 from pathlib import Path
 
-from sqlalchemy import text
+from sqlalchemy import event, text
 from sqlmodel import Session, SQLModel, create_engine, select
 
 from app.core.config import settings
@@ -36,6 +36,14 @@ engine = create_engine(
     f"sqlite:///{DB_PATH}",
     connect_args={"check_same_thread": False},
 )
+
+
+@event.listens_for(engine, "connect")
+def _enable_sqlite_foreign_keys(dbapi_connection, _) -> None:
+    """Activa las restricciones declaradas en cada conexion SQLite."""
+    cursor = dbapi_connection.cursor()
+    cursor.execute("PRAGMA foreign_keys=ON")
+    cursor.close()
 
 
 def get_session() -> Iterator[Session]:

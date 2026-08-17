@@ -138,6 +138,21 @@ export type Statement = {
 
 export type StatementCreate = Omit<Statement, "id" | "uploaded_at">;
 
+export type StatementDeletionImpact = {
+  statement_id: number;
+  transaction_count: number;
+  income_total_clp: number;
+  expense_total_clp: number;
+  net_total_clp: number;
+  affected_periods: string[];
+  internal_transfer_match_count: number;
+  raw_file_delete_eligible: boolean;
+};
+
+export type StatementDeletionResult = StatementDeletionImpact & {
+  raw_file_deleted: boolean;
+};
+
 export type TransactionCandidate = {
   source_id: string | null;
   source_line: string;

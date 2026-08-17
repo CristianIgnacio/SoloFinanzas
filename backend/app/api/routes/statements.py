@@ -8,7 +8,14 @@ from sqlmodel import Session
 from app.core.database import get_session
 from app.domain.enums import StatementStatus
 from app.models.account import AccountModel
-from app.schemas.statement import PdfImportResponse, PdfPreview, Statement, StatementCreate
+from app.schemas.statement import (
+    PdfImportResponse,
+    PdfPreview,
+    Statement,
+    StatementCreate,
+    StatementDeletionImpact,
+    StatementDeletionResult,
+)
 from app.schemas.transaction import TransactionCandidateReview
 from app.services.pdf_importer import PdfImportError, inspect_pdf, save_raw_pdf
 from app.services.statements import (
@@ -16,7 +23,9 @@ from app.services.statements import (
     apply_transaction_reviews,
     build_transaction_previews,
     create_statement,
+    delete_statement,
     get_statement,
+    get_statement_deletion_impact,
     import_pdf_transactions,
     list_statements,
     update_statement_status,
@@ -70,6 +79,35 @@ def patch_statement_status(
         from fastapi import HTTPException
         raise HTTPException(status_code=404, detail="Statement not found")
     return statement
+
+@router.get(
+    "/statements/{statement_id}/deletion-impact",
+    response_model=StatementDeletionImpact,
+)
+def get_statement_deletion_impact_endpoint(
+    statement_id: int,
+    session: SessionDep,
+) -> StatementDeletionImpact:
+    """Informa el alcance de deshacer una importacion antes de confirmarla."""
+    impact = get_statement_deletion_impact(session, statement_id)
+    if impact is None:
+        raise HTTPException(status_code=404, detail="Statement not found")
+    return impact
+
+
+@router.delete(
+    "/statements/{statement_id}",
+    response_model=StatementDeletionResult,
+)
+def delete_statement_endpoint(
+    statement_id: int,
+    session: SessionDep,
+) -> StatementDeletionResult:
+    """Elimina una cartola, sus movimientos y sus datos derivados."""
+    result = delete_statement(session, statement_id)
+    if result is None:
+        raise HTTPException(status_code=404, detail="Statement not found")
+    return result
 
 
 @router.post("/statement-imports/pdf/preview", response_model=PdfPreview)
