@@ -405,6 +405,48 @@ class StatementImportTests(unittest.TestCase):
         self.assertEqual(transaction.category_id, expense_category_id)
         self.assertEqual(transaction.category_source, "manual")
 
+    def test_review_preserves_identical_rows_as_distinct_movements(self) -> None:
+        source_line = "15/06 3769370 401 TRANSF A CLEO CHILE 20.000"
+        candidates = [
+            TransactionCandidate(
+                source_id=f"row-{index:06d}",
+                source_line=source_line,
+                date=date(2026, 6, 15),
+                description="Transf a CLEO CHILE",
+                normalized_description="transf a cleo chile",
+                amount_clp=-20000,
+                transaction_type=TransactionType.EXPENSE,
+            )
+            for index in (1, 2)
+        ]
+
+        with Session(self.engine) as session:
+            reviews = [
+                TransactionCandidateReview(
+                    source_id=candidate.source_id,
+                    source_line=candidate.source_line,
+                    transaction_type=TransactionType.EXPENSE,
+                    category_id=None,
+                )
+                for candidate in candidates
+            ]
+            reviewed_candidates, category_overrides = apply_transaction_reviews(
+                session, candidates, reviews
+            )
+            imported = import_pdf_transactions(
+                session,
+                account_id=1,
+                file_name="identical-rows.pdf",
+                file_checksum="checksum-identical-rows",
+                raw_path="data/raw/identical-rows.pdf",
+                period_month="2026-06",
+                candidates=reviewed_candidates,
+                category_overrides=category_overrides,
+            )
+
+        self.assertEqual(imported.result.inserted_count, 2)
+        self.assertEqual(imported.result.omitted_internal_count, 0)
+
 
 if __name__ == "__main__":
     unittest.main()

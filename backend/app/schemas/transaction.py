@@ -9,6 +9,7 @@ from app.domain.enums import CategorySource, TransactionType
 
 
 class TransactionCandidate(SQLModel):
+    source_id: str | None = None
     source_line: str
     date: date
     description: str
@@ -24,6 +25,7 @@ class TransactionPreviewCandidate(TransactionCandidate):
 
 
 class TransactionCandidateReview(SQLModel):
+    source_id: str | None = None
     source_line: str
     transaction_type: TransactionType
     category_id: int | None = None

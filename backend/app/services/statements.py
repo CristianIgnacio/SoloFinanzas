@@ -154,8 +154,9 @@ def import_pdf_transactions(
             omitted_existing += 1
             continue
 
-        if category_overrides is not None and candidate.source_line in category_overrides:
-            category_id = category_overrides[candidate.source_line]
+        candidate_key = _candidate_source_key(candidate)
+        if category_overrides is not None and candidate_key in category_overrides:
+            category_id = category_overrides[candidate_key]
             if category_id is not None:
                 _validate_category_for_type(session, category_id, candidate.transaction_type)
             category_source = CategorySource.MANUAL
@@ -180,7 +181,10 @@ def import_pdf_transactions(
                 category_source=category_source,
                 rule_id_applied=rule_id,
                 fingerprint=fingerprint,
-                raw_data={"source_line": candidate.source_line},
+                raw_data={
+                    "source_id": candidate.source_id,
+                    "source_line": candidate.source_line,
+                },
             )
         )
         inserted += 1
@@ -236,22 +240,25 @@ def apply_transaction_reviews(
     reviews: list[TransactionCandidateReview],
 ) -> tuple[list[TransactionCandidate], dict[str, int | None]]:
     """Aplica cambios de tipo/categoria revisados contra candidatos parseados."""
-    candidate_by_source = {candidate.source_line: candidate for candidate in candidates}
+    candidate_by_source = {
+        _candidate_source_key(candidate): candidate for candidate in candidates
+    }
     reviewed_sources: set[str] = set()
     category_overrides: dict[str, int | None] = {}
 
     for review in reviews:
-        candidate = candidate_by_source.get(review.source_line)
+        review_key = _review_source_key(review)
+        candidate = candidate_by_source.get(review_key)
         if candidate is None:
             raise ValueError(
                 "La revision incluye un movimiento que no existe en la vista previa."
             )
-        if review.source_line in reviewed_sources:
+        if review_key in reviewed_sources:
             raise ValueError("La revision contiene movimientos duplicados.")
-        reviewed_sources.add(review.source_line)
+        reviewed_sources.add(review_key)
         if review.category_id is not None:
             _validate_category_for_type(session, review.category_id, review.transaction_type)
-        category_overrides[review.source_line] = review.category_id
+        category_overrides[review_key] = review.category_id
 
     reviewed_candidates: list[TransactionCandidate] = []
     for candidate in candidates:
@@ -259,7 +266,7 @@ def apply_transaction_reviews(
             (
                 item
                 for item in reviews
-                if item.source_line == candidate.source_line
+                if _review_source_key(item) == _candidate_source_key(candidate)
             ),
             None,
         )
@@ -273,6 +280,7 @@ def apply_transaction_reviews(
 
         reviewed_candidates.append(
             TransactionCandidate(
+                source_id=candidate.source_id,
                 source_line=candidate.source_line,
                 date=candidate.date,
                 description=candidate.description,
@@ -297,18 +305,28 @@ def _build_fingerprint(account_id: int, candidate: TransactionCandidate) -> str:
 def _deduplicate_source_lines(
     candidates: list[TransactionCandidate],
 ) -> tuple[list[TransactionCandidate], int]:
-    """Elimina candidatos duplicados dentro del mismo archivo por linea fuente."""
+    """Elimina candidatos repetidos por identidad, preservando filas iguales reales."""
     unique: list[TransactionCandidate] = []
     seen: set[str] = set()
     omitted = 0
     for candidate in candidates:
-        source_line = candidate.source_line.strip()
-        if source_line in seen:
+        source_key = _candidate_source_key(candidate)
+        if source_key in seen:
             omitted += 1
             continue
-        seen.add(source_line)
+        seen.add(source_key)
         unique.append(candidate)
     return unique, omitted
+
+
+def _candidate_source_key(candidate: TransactionCandidate) -> str:
+    """Identifica una ocurrencia del PDF sin confundir filas de igual contenido."""
+    return candidate.source_id or candidate.source_line.strip()
+
+
+def _review_source_key(review: TransactionCandidateReview) -> str:
+    """Obtiene la identidad enviada por la vista previa, con compatibilidad previa."""
+    return review.source_id or review.source_line.strip()
 
 
 def _categorize(

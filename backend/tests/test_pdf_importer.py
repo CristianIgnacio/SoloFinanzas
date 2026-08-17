@@ -558,6 +558,51 @@ class PdfImporterTests(unittest.TestCase):
         self.assertEqual(uber_refund.amount_clp, 3733)
         self.assertEqual(uber_refund.date.isoformat(), "2026-03-30")
 
+    def test_santander_restarts_movements_on_second_page_header_variant(self) -> None:
+        second_page_variant = SANTANDER_MULTILINE_SAMPLE.replace(
+            "CARGOS ABONOS\n23/03 93 Compra",
+            "Y CARGOS Y ABONOS\n23/03 93 Compra",
+        )
+
+        candidates, errors, period_month = _parse_document(
+            ParserKey.BANCO_SANTANDER,
+            second_page_variant,
+            layout_lines=SANTANDER_REAL_LAYOUT,
+        )
+
+        self.assertEqual(errors, [])
+        self.assertEqual(period_month, "2026-03")
+        self.assertEqual(len(candidates), 23)
+        self.assertEqual(candidates[-1].date.isoformat(), "2026-03-30")
+
+    def test_santander_accepts_summary_header_without_abonos_word(self) -> None:
+        summary_variant = SANTANDER_MULTILINE_SAMPLE.replace(
+            "Depositos o Abonos Saldo Final",
+            "Depositos o Saldo Final",
+        )
+
+        candidates, errors, _ = _parse_document(
+            ParserKey.BANCO_SANTANDER,
+            summary_variant,
+            layout_lines=SANTANDER_REAL_LAYOUT,
+        )
+
+        self.assertEqual(errors, [])
+        self.assertEqual(len(candidates), 23)
+
+    def test_santander_rejects_declared_summary_that_cannot_be_read(self) -> None:
+        unreadable_summary = SANTANDER_MULTILINE_SAMPLE.replace(
+            "Saldo Inicial Cheques o Cargos Depositos o Abonos Saldo Final",
+            "Saldo Inicial Resumen no compatible Saldo Final",
+        )
+
+        with self.assertRaisesRegex(PdfImportError, "validar los totales declarados"):
+            _parse_document(
+                ParserKey.BANCO_SANTANDER,
+                unreadable_summary,
+                layout_lines=SANTANDER_REAL_LAYOUT,
+            )
+
     def test_santander_uses_layout_to_discard_balance_amounts(self) -> None:
         candidates, errors, period_month = _parse_document(
             ParserKey.BANCO_SANTANDER,
@@ -717,6 +762,18 @@ class PdfImporterTests(unittest.TestCase):
                         parser_key,
                         "CARTOLA DE OTRA INSTITUCION",
                     )
+
+    def test_document_validation_accepts_doubled_bank_name_glyphs(self) -> None:
+        _validate_document(
+            ParserKey.BANCO_DE_CHILE,
+            "EENN WWWWWW..BBAANNCCOOCCHHIILLEE..CCLL",
+        )
+
+        with self.assertRaisesRegex(PdfImportError, "no parece pertenecer"):
+            _validate_document(
+                ParserKey.BANCO_SANTANDER,
+                "EENN WWWWWW..BBAANNCCOOCCHHIILLEE..CCLL",
+            )
 
 
 if __name__ == "__main__":

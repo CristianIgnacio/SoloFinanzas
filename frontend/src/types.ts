@@ -139,6 +139,7 @@ export type Statement = {
 export type StatementCreate = Omit<Statement, "id" | "uploaded_at">;
 
 export type TransactionCandidate = {
+  source_id: string | null;
   source_line: string;
   date: string;
   description: string;
@@ -154,6 +155,7 @@ export type TransactionPreviewCandidate = TransactionCandidate & {
 };
 
 export type TransactionCandidateReview = {
+  source_id: string | null;
   source_line: string;
   transaction_type: TransactionType;
   category_id: number | null;

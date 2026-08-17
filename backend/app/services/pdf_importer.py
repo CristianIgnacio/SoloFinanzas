@@ -353,14 +353,30 @@ def _build_institution_validator(
     """Crea un validador que confirma marcadores de la institucion esperada."""
     def validate(extracted_text: str) -> None:
         """Valida que el texto del PDF contenga marcadores del perfil."""
-        upper_text = extracted_text.upper()
-        if not any(marker in upper_text for marker in profile.document_markers):
+        normalized_text = _normalize_document_marker(extracted_text)
+        if not any(
+            variant in normalized_text
+            for marker in profile.document_markers
+            for variant in _document_marker_variants(marker)
+        ):
             raise PdfImportError(
                 f"El PDF no parece pertenecer a {profile.display_name}, que es la "
                 "institucion de la cuenta seleccionada."
             )
 
     return validate
+
+
+def _normalize_document_marker(text: str) -> str:
+    """Ignora espacios y puntuacion al comparar nombres institucionales."""
+    return re.sub(r"[^A-Z0-9]", "", text.upper())
+
+
+def _document_marker_variants(marker: str) -> tuple[str, str]:
+    """Acepta el marcador normal o con cada glifo extraido dos veces."""
+    normalized = _normalize_document_marker(marker)
+    doubled = "".join(character * 2 for character in normalized)
+    return normalized, doubled
 
 
 def _parse_tabular_document(
@@ -387,6 +403,7 @@ def _parse_tabular_document(
                 errors.append(f"{line.text} -> {error}")
             continue
         if candidate is not None:
+            candidate.source_id = f"row-{len(candidates) + 1:06d}"
             candidates.append(candidate)
 
     if explicit_period is not None:
@@ -1105,7 +1122,7 @@ def _extract_santander_summary_totals(
     """Extrae cargos y abonos totales del resumen de Banco Santander."""
     match = re.search(
         r"SALDO\s+INICIAL\s+CHEQUES\s+O\s+CARGOS\s+"
-        r"DEP[OÓ]SITOS\s+O\s+ABONOS\s+SALDO\s+FINAL\s+"
+        r"DEP\S*SITOS\s+O(?:\s+ABONOS)?\s+SALDO\s+FINAL\s+"
         r"([\d.]+)\s+([\d.]+)\s+([\d.]+)\s+([\d.]+)",
         extracted_text,
         re.IGNORECASE,
@@ -1147,6 +1164,12 @@ def _validate_summary_totals(
 
     expected_totals = profile.summary_totals_extractor(extracted_text)
     if expected_totals is None:
+        upper_text = extracted_text.upper()
+        if "SALDO INICIAL" in upper_text and "SALDO FINAL" in upper_text:
+            raise PdfImportError(
+                f"No se pudieron validar los totales declarados en la cartola "
+                f"{profile.display_name}."
+            )
         return
 
     expected_expenses, expected_income = expected_totals
@@ -1216,7 +1239,13 @@ SANTANDER_PROFILE = TabularParserProfile(
         "PAT",
     ),
     continuation_lines=True,
-    movement_start_markers=("CARGOS ABONOS", "CARGO ABONO"),
+    movement_start_markers=(
+        "MOVIMIENTO DE SU CUENTA",
+        "CARGOS ABONOS",
+        "CARGOS Y ABONOS",
+        "CARGO ABONO",
+        "CARGO Y ABONO",
+    ),
     movement_end_markers=("MENSAJES", "RESUMEN DE COMISIONES"),
     summary_totals_extractor=_extract_santander_summary_totals,
     layout_columns=LayoutColumnProfile(
