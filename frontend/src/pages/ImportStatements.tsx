@@ -194,6 +194,7 @@ export function ImportStatementsPage() {
         Number(selectedAccount),
         selectedFile,
         editableTransactions.map((transaction) => ({
+          source_id: transaction.source_id,
           source_line: transaction.source_line,
           transaction_type: transaction.transaction_type,
           category_id: transaction.category_id,
@@ -213,12 +214,12 @@ export function ImportStatementsPage() {
   };
 
   const updateTransactionType = (
-    sourceLine: string,
+    sourceId: string | null,
     transactionType: TransactionType,
   ) => {
     setEditableTransactions((transactions) =>
       transactions.map((transaction) => {
-        if (transaction.source_line !== sourceLine) {
+        if (transaction.source_id !== sourceId) {
           return transaction;
         }
 
@@ -242,12 +243,12 @@ export function ImportStatementsPage() {
   };
 
   const updateTransactionCategory = (
-    sourceLine: string,
+    sourceId: string | null,
     categoryId: number | null,
   ) => {
     setEditableTransactions((transactions) =>
       transactions.map((transaction) =>
-        transaction.source_line === sourceLine
+        transaction.source_id === sourceId
           ? { ...transaction, category_id: categoryId }
           : transaction,
       ),
@@ -417,8 +418,8 @@ export function ImportStatementsPage() {
                 {summary.count} movimientos detectados
               </h2>
               <p className="text-muted">
-                Periodo {preview.period_month} Â· {preview.page_count} pagina
-                {preview.page_count === 1 ? "" : "s"} Â·{" "}
+                Periodo {preview.period_month} · {preview.page_count} pagina
+                {preview.page_count === 1 ? "" : "s"} ·{" "}
                 {preview.is_encrypted ? "PDF protegido" : "PDF sin contrasena"}
               </p>
             </div>
@@ -480,7 +481,7 @@ export function ImportStatementsPage() {
                         value={transaction.transaction_type}
                         onChange={(event) =>
                           updateTransactionType(
-                            transaction.source_line,
+                            transaction.source_id,
                             event.target.value as TransactionType,
                           )
                         }
@@ -495,7 +496,7 @@ export function ImportStatementsPage() {
                         value={transaction.category_id ?? ""}
                         onChange={(event) =>
                           updateTransactionCategory(
-                            transaction.source_line,
+                            transaction.source_id,
                             event.target.value ? Number(event.target.value) : null,
                           )
                         }
