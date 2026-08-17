@@ -2,6 +2,7 @@
 import { RootLayout } from "./RootLayout";
 import {
   DashboardPage,
+  AnalyticsPage,
   AccountsPage,
   SettingsPage,
   TransactionsPage,
@@ -19,6 +20,10 @@ export const router = createBrowserRouter([
       {
         index: true,
         element: <DashboardPage />,
+      },
+      {
+        path: "analytics",
+        element: <AnalyticsPage />,
       },
       {
         path: "accounts",

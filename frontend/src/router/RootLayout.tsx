@@ -8,12 +8,14 @@ import {
   PdfIcon,
   ReportIcon,
   SettingsIcon,
+  TrendLineIcon,
   UserCircleIcon,
   cn,
 } from "../components";
 
 const navItems = [
   { to: "/", label: "Dashboard", icon: DashboardIcon },
+  { to: "/analytics", label: "An\u00e1lisis", icon: TrendLineIcon },
   { to: "/accounts", label: "Cuentas", icon: BankIcon },
   { to: "/import", label: "Importar PDF", icon: PdfIcon },
   { to: "/transactions", label: "Movimientos", icon: ReportIcon },
