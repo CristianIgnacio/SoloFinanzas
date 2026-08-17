@@ -13,6 +13,7 @@ import {
   EmptyState,
   ErrorState,
   HouseIcon,
+  InstitutionLogo,
   InvestmentIcon,
   LightningIcon,
   LoadingState,
@@ -771,7 +772,7 @@ export function DashboardPage() {
           };
           return `<strong>${item.name ?? ""}</strong><br/>${formatCurrency(
             Number(item.value ?? 0),
-          )} Â· ${Number(item.percent ?? 0).toFixed(1)}%`;
+          )} · ${Number(item.percent ?? 0).toFixed(1)}%`;
         },
       },
       series: [
@@ -920,7 +921,7 @@ export function DashboardPage() {
                   Gastos por Categoria
                 </h2>
                 <p className="text-sm text-muted">
-                  {dashboardPeriod} Â· sin transferencias internas
+                  {dashboardPeriod} · sin transferencias internas
                 </p>
               </div>
               {expenseBreakdown.length > 0 ? (
@@ -1067,7 +1068,7 @@ export function DashboardPage() {
                       className="surface-card-soft flex min-h-[220px] flex-col justify-between p-6 transition hover:-translate-y-1 hover:border-primary/30 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-primary"
                     >
                       <div className="flex items-center justify-between gap-3">
-                        <BankIcon className="h-9 w-9 text-primary" />
+                        <InstitutionLogo institution={account.institution} />
                         <span className="rounded-full bg-primary-soft px-3 py-1 text-sm font-medium text-primary">
                           {account.account_type}
                         </span>

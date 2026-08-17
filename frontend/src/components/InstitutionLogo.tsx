@@ -37,8 +37,11 @@ export function InstitutionLogo({
   const containerClass =
     size === "sm"
       ? "flex h-5 w-8 shrink-0 items-center justify-center rounded-md bg-white"
-      : "flex h-12 w-12 shrink-0 items-center justify-center rounded-xl border border-outline bg-white shadow-sm";
-  const imageClass = size === "sm" ? "max-h-4 max-w-7" : "max-h-8 max-w-10";
+      : size === "lg"
+        ? "flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl border border-outline bg-white shadow-sm"
+        : "flex h-12 w-12 shrink-0 items-center justify-center rounded-xl border border-outline bg-white shadow-sm";
+  const imageClass =
+    size === "sm" ? "max-h-4 max-w-7" : size === "lg" ? "max-h-10 max-w-12" : "max-h-8 max-w-10";
   const fallbackClass =
     size === "sm"
       ? "text-[0.6rem] font-bold tracking-[0.04em] text-primary"

@@ -1,5 +1,6 @@
 ﻿import { useEffect, useMemo, useState } from "react";
 import { Link, useLocation, useSearchParams } from "react-router-dom";
+import { useRef } from "react";
 
 import {
   Button,
@@ -16,6 +17,7 @@ import {
   SaveIcon,
   StatusNotice,
   Tag,
+  cn,
   UtensilsIcon,
 } from "../components";
 import { parseLocalDate } from "../lib";
@@ -119,6 +121,31 @@ export function TransactionsPage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [showStickySaveBar, setShowStickySaveBar] = useState(false);
+  const headerSaveRef = useRef<HTMLSpanElement>(null);
+
+  useEffect(() => {
+    const headerSave = headerSaveRef.current;
+
+    if (!headerSave) {
+      return;
+    }
+
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry) {
+          setShowStickySaveBar(!entry.isIntersecting);
+        }
+      },
+      {
+        rootMargin: "-84px 0px 0px 0px",
+        threshold: 0,
+      },
+    );
+
+    observer.observe(headerSave);
+    return () => observer.disconnect();
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -298,6 +325,25 @@ export function TransactionsPage() {
     });
   };
 
+  const updateDraftCategory = (transaction: Transaction, categoryId: string) => {
+    const originalCategoryId = transaction.category_id
+      ? String(transaction.category_id)
+      : "";
+
+    setSuccessMessage(null);
+    setDraftCategories((current) => {
+      const next = { ...current };
+
+      if (categoryId === originalCategoryId) {
+        delete next[transaction.id];
+      } else {
+        next[transaction.id] = categoryId;
+      }
+
+      return next;
+    });
+  };
+
   const pendingChanges = Object.keys(draftCategories).length;
 
   const exportMarkdown = () => {
@@ -329,6 +375,7 @@ export function TransactionsPage() {
       return;
     }
 
+    const updatedMovementCount = pendingChanges;
     setSaving(true);
     setSuccessMessage(null);
     setError(null);
@@ -347,7 +394,11 @@ export function TransactionsPage() {
       const refreshed = await loadAllTransactions(statementId);
       setTransactions(refreshed);
       setDraftCategories({});
-      setSuccessMessage("Movimientos actualizados correctamente.");
+      setSuccessMessage(
+        updatedMovementCount === 1
+          ? "1 movimiento actualizado correctamente."
+          : `${updatedMovementCount} movimientos actualizados correctamente.`,
+      );
     } catch (err) {
       setError(err instanceof Error ? err.message : "No se pudieron guardar los cambios.");
     } finally {
@@ -395,23 +446,84 @@ export function TransactionsPage() {
                 ? "Exportar todos los periodos"
                 : "Exportar movimientos"}
             </Button>
-            <Button
-              onClick={() => void saveAllChanges()}
-              disabled={saving || pendingChanges === 0}
-            >
-              <SaveIcon className="h-5 w-5" />
-              {saving ? "Guardando..." : "Guardar cambios"}
-            </Button>
+            <span ref={headerSaveRef} className="inline-flex">
+              <Button
+                onClick={() => void saveAllChanges()}
+                disabled={saving || pendingChanges === 0}
+              >
+                <SaveIcon className="h-5 w-5" />
+                {saving ? "Guardando..." : "Guardar cambios"}
+              </Button>
+            </span>
           </>
         }
       />
 
       {loading ? <LoadingState message="Cargando movimientos..." /> : null}
       {error ? <ErrorState message={error} /> : null}
-      {successMessage ? <StatusNotice tone="success">{successMessage}</StatusNotice> : null}
       {typeof location.state?.importMessage === "string" ? (
         <StatusNotice tone="success">{location.state.importMessage}</StatusNotice>
       ) : null}
+      {successMessage && !showStickySaveBar ? (
+        <StatusNotice tone="success">{successMessage}</StatusNotice>
+      ) : null}
+      {!loading && showStickySaveBar ? (
+        <div className="sticky top-[5.25rem] z-10">
+          <div
+            className={cn(
+              "surface-card flex flex-col gap-3 border px-4 py-3 shadow-[0_16px_35px_rgba(38,55,34,0.12)] backdrop-blur-md sm:flex-row sm:items-center sm:justify-between",
+              successMessage
+                ? "border-primary/25 bg-primary-mist/95"
+                : pendingChanges > 0
+                  ? "border-primary/20 bg-white/95"
+                  : "border-outline bg-white/90",
+            )}
+          >
+            <div className="flex min-w-0 items-center gap-3" aria-live="polite">
+              <span
+                className={cn(
+                  "flex h-10 w-10 shrink-0 items-center justify-center rounded-full",
+                  successMessage || pendingChanges > 0
+                    ? "bg-primary text-white"
+                    : "bg-paper-soft text-muted",
+                )}
+              >
+                <SaveIcon className="h-4 w-4" />
+              </span>
+              <div className="min-w-0">
+                <p className={cn("font-semibold", successMessage ? "text-primary" : "text-ink")}>
+                  {successMessage ??
+                    (pendingChanges === 0
+                      ? "Sin cambios pendientes"
+                      : pendingChanges === 1
+                        ? "1 cambio pendiente"
+                        : `${pendingChanges} cambios pendientes`)}
+                </p>
+                <p className="mt-0.5 text-sm text-muted">
+                  {successMessage
+                    ? "La lista ya se encuentra sincronizada."
+                    : pendingChanges > 0
+                      ? "Puedes continuar editando y guardar todo de una vez."
+                      : "Cambia una categoria para habilitar el guardado."}
+                </p>
+              </div>
+            </div>
+            <Button
+              className="w-full whitespace-nowrap sm:w-auto sm:shrink-0"
+              onClick={() => void saveAllChanges()}
+              disabled={saving || pendingChanges === 0}
+            >
+              <SaveIcon className="h-5 w-5" />
+              {saving
+                ? "Guardando..."
+                : pendingChanges === 0
+                  ? "Guardar cambios"
+                  : `Guardar ${pendingChanges} ${pendingChanges === 1 ? "cambio" : "cambios"}`}
+            </Button>
+          </div>
+        </div>
+      ) : null}
+
 
       <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
         <div className="flex flex-wrap items-center gap-3">
@@ -559,12 +671,10 @@ export function TransactionsPage() {
 
                         <div className="relative min-w-[250px]">
                           <select
+                            aria-label={`Categoria de ${transaction.description}`}
                             value={categoryValue}
                             onChange={(event) =>
-                              setDraftCategories((current) => ({
-                                ...current,
-                                [transaction.id]: event.target.value,
-                              }))
+                              updateDraftCategory(transaction, event.target.value)
                             }
                             className="w-full appearance-none rounded-2xl border border-outline bg-paper-soft px-4 py-3 pr-10 text-base outline-none transition focus:border-primary"
                           >

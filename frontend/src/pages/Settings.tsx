@@ -7,6 +7,7 @@ import {
   Button,
   EmptyState,
   ErrorState,
+  InstitutionLogo,
   LoadingState,
   PageIntro,
   Panel,
@@ -410,9 +411,7 @@ export function SettingsPage() {
                 <Panel className="h-full space-y-6">
                 <div className="flex items-start justify-between gap-4">
                   <div className="flex items-center gap-4">
-                    <span className="flex h-14 w-14 items-center justify-center rounded-2xl bg-primary-mist text-primary">
-                      <BankIcon className="h-7 w-7" />
-                    </span>
+                    <InstitutionLogo institution={account.institution} size="lg" />
                     <div>
                       <h2 className="text-3xl font-medium tracking-[-0.03em]">
                         {account.name}
