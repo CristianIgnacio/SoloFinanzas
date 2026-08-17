@@ -72,7 +72,7 @@ flowchart LR
     I --> J["_iter_tabular_lines"]
     I --> K["_parse_tabular_line"]
     K --> L["_resolve_tabular_amount"]
-    L --> M["_resolve_layout_column_amount"]
+    L --> M["_resolve_layout_column_candidate_amount"]
     I --> N["_validate_summary_totals"]
 ```
 
