@@ -42,6 +42,7 @@ DEFAULT_CATEGORIES = [
         type=CategoryType.EXPENSE,
         is_default=True,
     ),
+    CategoryCreate(name="Estacionamiento", type=CategoryType.EXPENSE, is_default=True),
     CategoryCreate(name="Otros", type=CategoryType.EXPENSE, is_default=True),
 ]
 
