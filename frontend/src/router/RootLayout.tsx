@@ -32,18 +32,18 @@ export function RootLayout() {
     )?.label ?? "SoloFinanzas";
 
   return (
-    <div className="min-h-screen bg-paper text-ink lg:grid lg:grid-cols-[19rem_minmax(0,1fr)]">
-      <aside className="hidden border-r border-outline/70 bg-paper/90 lg:sticky lg:top-0 lg:flex lg:h-screen lg:self-start lg:flex-col lg:justify-between lg:px-6 lg:py-7">
-        <div className="space-y-10">
-          <div className="flex items-center gap-4">
+    <div className="min-h-screen bg-paper text-ink lg:grid lg:grid-cols-[17.5rem_minmax(0,1fr)]">
+      <aside className="hidden border-r border-outline/70 bg-paper/90 lg:sticky lg:top-0 lg:flex lg:h-screen lg:self-start lg:flex-col lg:justify-between lg:px-5 lg:py-7">
+        <div className="space-y-9">
+          <div className="flex items-center gap-3">
             <span className="text-primary">
-              <LogoMark className="h-14 w-14" />
+              <LogoMark className="h-12 w-12" />
             </span>
             <div>
-              <p className="text-[2.1rem] font-semibold tracking-[-0.05em] text-primary">
+              <p className="text-[1.8rem] font-semibold tracking-[-0.05em] text-primary">
                 SoloFinanzas
               </p>
-              <p className="text-lg text-muted">Gestion Personal</p>
+              <p className="text-base text-muted">Gestion Personal</p>
             </div>
           </div>
 
@@ -55,7 +55,7 @@ export function RootLayout() {
                 end={to === "/"}
                 className={({ isActive }) =>
                   cn(
-                    "group relative flex items-center gap-4 rounded-2xl px-4 py-4 text-[1.15rem] font-medium transition",
+                    "group relative flex items-center gap-3 rounded-2xl px-3.5 py-3.5 text-[1.05rem] font-medium transition",
                     isActive
                       ? "bg-primary/10 text-primary"
                       : "text-ink/75 hover:bg-white hover:text-ink",
@@ -77,7 +77,7 @@ export function RootLayout() {
         </div>
 
         <div className="space-y-6">
-          <p className="max-w-[14rem] text-lg leading-7 text-muted">
+          <p className="max-w-[13rem] text-base leading-6 text-muted">
             Tu informacion nunca sale de esta computadora.
           </p>
           <div className="subtle-divider" />
@@ -95,7 +95,7 @@ export function RootLayout() {
 
       <div className="flex min-h-screen flex-col">
         <header className="subtle-divider sticky top-0 z-20 bg-paper/90 backdrop-blur-sm">
-          <div className="mx-auto flex max-w-[1280px] items-center justify-between gap-4 px-4 py-5 sm:px-6 lg:px-10 xl:px-12">
+          <div className="mx-auto flex max-w-[1280px] items-center justify-between gap-4 px-4 py-4 sm:px-6 lg:px-10 xl:px-12">
             <div className="flex items-center gap-4">
               <span className="text-primary lg:hidden">
                 <LogoMark className="h-11 w-11" />

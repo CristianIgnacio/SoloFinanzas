@@ -138,7 +138,7 @@ export function TransactionsPage() {
         }
       },
       {
-        rootMargin: "-84px 0px 0px 0px",
+        rootMargin: "-72px 0px 0px 0px",
         threshold: 0,
       },
     );
@@ -468,7 +468,7 @@ export function TransactionsPage() {
         <StatusNotice tone="success">{successMessage}</StatusNotice>
       ) : null}
       {!loading && showStickySaveBar ? (
-        <div className="sticky top-[5.25rem] z-10">
+        <div className="sticky top-[4.5rem] z-10">
           <div
             className={cn(
               "surface-card flex flex-col gap-3 border px-4 py-3 shadow-[0_16px_35px_rgba(38,55,34,0.12)] backdrop-blur-md sm:flex-row sm:items-center sm:justify-between",
@@ -719,5 +719,4 @@ export function TransactionsPage() {
     </div>
   );
 }
-
 
