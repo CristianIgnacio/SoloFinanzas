@@ -108,9 +108,18 @@ class LayoutLine:
 
 
 @dataclass(frozen=True)
+class LayoutVerticalEdge:
+    page_index: int
+    x: float
+    top: float
+    bottom: float
+
+
+@dataclass(frozen=True)
 class PdfContent:
     text: str
     layout_lines: tuple[LayoutLine, ...]
+    vertical_edges: tuple[LayoutVerticalEdge, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -183,6 +192,7 @@ def inspect_pdf(
         parser_key,
         extracted_text,
         layout_lines=pdf_content.layout_lines,
+        vertical_edges=pdf_content.vertical_edges,
     )
 
     return PdfPreview(
@@ -246,20 +256,38 @@ def _build_reader(
 
 
 def _extract_pdf_content(file_bytes: bytes, password: str | None) -> PdfContent:
-    """Extrae texto plano y palabras con posicion desde un PDF en una pasada."""
+    """Extrae texto, palabras posicionadas y bordes desde un PDF en una pasada."""
     try:
         with pdfplumber.open(BytesIO(file_bytes), password=password) as pdf:
             page_texts: list[str] = []
             layout_lines: list[LayoutLine] = []
+            vertical_edges: list[LayoutVerticalEdge] = []
             for page_index, page in enumerate(pdf.pages):
                 page_texts.append(page.extract_text() or "")
                 layout_lines.extend(_extract_layout_lines(page, page_index))
+                vertical_edges.extend(_extract_vertical_edges(page, page_index))
             return PdfContent(
                 text="\n".join(page_texts).strip(),
                 layout_lines=tuple(layout_lines),
+                vertical_edges=tuple(vertical_edges),
             )
     except Exception as error:
         raise PdfImportError(f"No se pudo extraer texto del PDF: {error}") from error
+
+
+def _extract_vertical_edges(page, page_index: int) -> list[LayoutVerticalEdge]:
+    """Conserva divisiones verticales de lineas, rectangulos y otros trazos PDF."""
+    return [
+        LayoutVerticalEdge(
+            page_index=page_index,
+            x=(float(edge["x0"]) + float(edge["x1"])) / 2,
+            top=float(edge["top"]),
+            bottom=float(edge["bottom"]),
+        )
+        for edge in page.edges
+        if abs(edge["x0"] - edge["x1"]) <= 1
+        and edge["bottom"] > edge["top"]
+    ]
 
 
 def _extract_layout_lines(page, page_index: int) -> list[LayoutLine]:
@@ -336,6 +364,7 @@ def _parse_document(
     parser_key: ParserKey,
     extracted_text: str,
     layout_lines: tuple[LayoutLine, ...] = (),
+    vertical_edges: tuple[LayoutVerticalEdge, ...] = (),
 ) -> ParserResult:
     """Despacha el texto extraido al parser registrado para la institucion."""
     try:
@@ -344,7 +373,9 @@ def _parse_document(
         raise PdfImportError(
             f"El parser {parser_key.value} no tiene una implementacion configurada."
         ) from error
-    return parser(extracted_text, layout_lines=layout_lines)
+    return parser(
+        extracted_text, layout_lines=layout_lines, vertical_edges=vertical_edges
+    )
 
 
 def _build_institution_validator(
@@ -383,10 +414,11 @@ def _parse_tabular_document(
     extracted_text: str,
     profile: TabularParserProfile,
     layout_lines: tuple[LayoutLine, ...] = (),
+    vertical_edges: tuple[LayoutVerticalEdge, ...] = (),
 ) -> ParserResult:
     """Parsea cartolas tabulares y devuelve candidatos, errores y periodo."""
     explicit_period = _extract_optional_period(extracted_text, profile)
-    layout_context = _build_layout_context(layout_lines, profile)
+    layout_context = _build_layout_context(layout_lines, profile, vertical_edges)
     candidates: list[TransactionCandidate] = []
     errors: list[str] = []
 
@@ -475,6 +507,7 @@ def _iter_tabular_lines(
 def _build_layout_context(
     layout_lines: tuple[LayoutLine, ...],
     profile: TabularParserProfile,
+    vertical_edges: tuple[LayoutVerticalEdge, ...] = (),
 ) -> dict[str, object]:
     """Construye indices para cruzar filas de texto con rangos de columnas PDF."""
     lines_by_text: dict[str, list[LayoutLine]] = {}
@@ -483,7 +516,9 @@ def _build_layout_context(
 
     return {
         "lines_by_text": lines_by_text,
-        "column_ranges_by_page": _build_column_ranges_by_page(layout_lines, profile),
+        "column_ranges_by_page": _build_column_ranges_by_page(
+            layout_lines, profile, vertical_edges
+        ),
     }
 
 
@@ -506,6 +541,7 @@ def _normalize_layout_text(text: str) -> str:
 def _build_column_ranges_by_page(
     layout_lines: tuple[LayoutLine, ...],
     profile: TabularParserProfile,
+    vertical_edges: tuple[LayoutVerticalEdge, ...] = (),
 ) -> dict[int, LayoutColumnRanges]:
     """Infiere rangos de columnas de cargos, abonos y saldo por pagina."""
     if profile.layout_columns is None:
@@ -536,16 +572,74 @@ def _build_column_ranges_by_page(
         if None in (expense_center, income_center, balance_center):
             continue
 
-        ranges_by_page[page_index] = _build_ordered_column_ranges(
-            {
-                "expense": expense_center,
-                "income": income_center,
-                "balance": balance_center,
-            },
-            description_center,
+        column_centers = {
+            "expense": expense_center,
+            "income": income_center,
+            "balance": balance_center,
+        }
+        border_ranges = _build_bordered_column_ranges(
+            page_lines, vertical_edges, column_centers, description_center
+        )
+        ranges_by_page[page_index] = border_ranges or _build_ordered_column_ranges(
+            column_centers, description_center
         )
 
     return ranges_by_page
+
+
+def _build_bordered_column_ranges(
+    header_lines: list[LayoutLine],
+    vertical_edges: tuple[LayoutVerticalEdge, ...],
+    column_centers: dict[str, float],
+    description_center: float | None,
+) -> LayoutColumnRanges | None:
+    """Usa celdas contiguas del cuerpo de la tabla cuando delimitan los titulos."""
+    header_words = [word for line in header_lines for word in line.words]
+    if not header_words:
+        return None
+
+    header_bottom = max(word.bottom for word in header_words)
+    row_height = max(word.bottom - word.top for word in header_words)
+    page_index = header_lines[0].page_index
+    # Algunas cartolas comienzan sus divisiones justo debajo del encabezado.
+    # Excluimos bordes del resumen, subrayados y tablas ubicadas mas abajo.
+    positions = sorted(
+        edge.x
+        for edge in vertical_edges
+        if edge.page_index == page_index
+        and edge.top <= header_bottom + 3
+        and edge.bottom >= header_bottom + row_height
+    )
+    boundaries: list[float] = []
+    for position in positions:
+        if not boundaries or position - boundaries[-1] > 1:
+            boundaries.append(position)
+
+    cells = list(zip(boundaries, boundaries[1:]))
+    ranges: dict[str, tuple[float, float]] = {}
+    for column, center in column_centers.items():
+        cell = next((cell for cell in cells if cell[0] <= center < cell[1]), None)
+        if cell is None:
+            return None
+        ranges[column] = cell
+
+    ordered_ranges = sorted(ranges.values())
+    if any(
+        left[1] != right[0]
+        for left, right in zip(ordered_ranges, ordered_ranges[1:])
+    ):
+        # Bordes incompletos o decorativos no bastan para separar las columnas.
+        return None
+    if description_center is not None and any(
+        left <= description_center < right for left, right in ordered_ranges
+    ):
+        return None
+
+    return LayoutColumnRanges(
+        expense=ranges["expense"],
+        income=ranges["income"],
+        balance=ranges["balance"],
+    )
 
 
 def _build_ordered_column_ranges(
