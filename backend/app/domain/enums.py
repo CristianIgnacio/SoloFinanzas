@@ -13,6 +13,7 @@ class InstitutionCode(StrEnum):
     COPECPAY = "copecpay"
     MERCADOPAGO = "mercadopago"
     BANCO_ESTADO = "banco_estado"
+    BANCO_FALABELLA = "banco_falabella"
 
 
 class StatementStatus(StrEnum):

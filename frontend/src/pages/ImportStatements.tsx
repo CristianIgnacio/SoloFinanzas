@@ -271,7 +271,7 @@ export function ImportStatementsPage() {
       <PageIntro
         eyebrow="Importar PDF"
         title="Subir Cartola"
-        description="Importa cartolas PDF de Banco de Chile, Banco Santander, CopecPay, Mercado Pago y BancoEstado."
+        description="Importa cartolas PDF de Banco de Chile, Banco Santander, Banco Falabella (cuenta corriente), CopecPay, Mercado Pago y BancoEstado."
       />
 
       {error ? <StatusNotice tone="error">{error}</StatusNotice> : null}

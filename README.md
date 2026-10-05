@@ -24,10 +24,13 @@ Aplicación web para centralizar finanzas personales en Chile. Permite registrar
 - Banco de Chile
 - Banco Santander
 - BancoEstado
+- Banco Falabella (Cartola de Movimientos de Cuenta Corriente)
 - Mercado Pago
 - CopecPay
 
 Los parsers admiten distintos formatos de cartola: montos con signo, indicadores de cargo/abono y tablas con columnas separadas. El parser de Santander también valida los totales detectados contra el resumen de la cartola.
+
+Para Falabella, crea una cuenta o tarjeta seleccionando **Banco Falabella** y luego usa **Importar PDF**. El formato compatible es la **Cartola de Movimientos de Cuenta Corriente**, con columnas fecha, descripción, cargo, abono y saldo. Los estados de cuenta de crédito CMR todavía no están soportados. Cuando el rango de consulta abarca varios meses, la cartola se registra en el mes del último movimiento y cada transacción conserva su fecha.
 
 ## Tecnologías
 

@@ -1,5 +1,7 @@
 ﻿import bancoDeChileLogo from "../assets/institutions/banco_de_chile.png";
 import bancoEstadoLogo from "../assets/institutions/banco_estado.png";
+// Fuente oficial: https://www.bancofalabella.cl/_next/static/media/logo.686cc6de.svg
+import bancoFalabellaLogo from "../assets/institutions/banco_falabella.svg";
 import bancoSantanderLogo from "../assets/institutions/banco_santander.png";
 import copecPayLogo from "../assets/institutions/copec_pay.webp";
 import mercadoPagoLogo from "../assets/institutions/mercadopago.png";
@@ -14,12 +16,14 @@ type InstitutionLogoProps = {
 const institutionLogos: Partial<Record<InstitutionCode, string>> = {
   [InstitutionCode.BANCO_DE_CHILE]: bancoDeChileLogo,
   [InstitutionCode.BANCO_ESTADO]: bancoEstadoLogo,
+  [InstitutionCode.BANCO_FALABELLA]: bancoFalabellaLogo,
   [InstitutionCode.BANCO_SANTANDER]: bancoSantanderLogo,
   [InstitutionCode.COPECPAY]: copecPayLogo,
   [InstitutionCode.MERCADOPAGO]: mercadoPagoLogo,
 };
 
 const fallbackLabels: Record<InstitutionCode, string> = {
+  [InstitutionCode.BANCO_FALABELLA]: "BF",
   [InstitutionCode.BANCO_DE_CHILE]: "BC",
   [InstitutionCode.BANCO_ESTADO]: "BE",
   [InstitutionCode.BANCO_SANTANDER]: "ST",

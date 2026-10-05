@@ -150,6 +150,8 @@ class TabularParserProfile:
     summary_totals_extractor: SummaryTotalsExtractor | None = None
     layout_columns: LayoutColumnProfile | None = None
     description_normalizer: DescriptionNormalizer | None = None
+    movement_columns_pattern: re.Pattern[str] | None = None
+    period_from_transactions: bool = False
 
 
 @dataclass(frozen=True)
@@ -438,7 +440,9 @@ def _parse_tabular_document(
             candidate.source_id = f"row-{len(candidates) + 1:06d}"
             candidates.append(candidate)
 
-    if explicit_period is not None:
+    if profile.period_from_transactions and candidates:
+        period_month = max(candidate.date for candidate in candidates).strftime("%Y-%m")
+    elif explicit_period is not None:
         period_month = explicit_period[1].strftime("%Y-%m")
     elif candidates:
         period_month = max(candidate.date for candidate in candidates).strftime("%Y-%m")
@@ -780,30 +784,35 @@ def _parse_tabular_line(
     if upper_remainder.startswith(IGNORED_MOVEMENT_PREFIXES):
         return None
 
-    amount_matches = list(AMOUNT_PATTERN.finditer(remainder))
-    if not amount_matches:
-        raise PdfImportError("No se detecto un monto interpretable.")
+    if profile.movement_columns_pattern is not None:
+        description, signed_amount = _parse_explicit_movement_columns(
+            remainder, profile.movement_columns_pattern
+        )
+    else:
+        amount_matches = list(AMOUNT_PATTERN.finditer(remainder))
+        if not amount_matches:
+            raise PdfImportError("No se detecto un monto interpretable.")
 
-    selected_matches = _select_amount_block(
-        remainder,
-        amount_matches,
-        layout_line=line.layout_line,
-        layout_context=layout_context,
-    )
-    raw_amounts = [amount_match.group(0) for amount_match in selected_matches]
-    amounts = [normalize_amount_clp(raw_amount) for raw_amount in raw_amounts]
-    description = remainder[: selected_matches[0].start()].strip(" :-")
-    if not description:
-        raise PdfImportError("No se pudo reconstruir la descripcion.")
+        selected_matches = _select_amount_block(
+            remainder,
+            amount_matches,
+            layout_line=line.layout_line,
+            layout_context=layout_context,
+        )
+        raw_amounts = [amount_match.group(0) for amount_match in selected_matches]
+        amounts = [normalize_amount_clp(raw_amount) for raw_amount in raw_amounts]
+        description = remainder[: selected_matches[0].start()].strip(" :-")
+        if not description:
+            raise PdfImportError("No se pudo reconstruir la descripcion.")
 
-    signed_amount = _resolve_tabular_amount(
-        description=description,
-        raw_amounts=raw_amounts,
-        amounts=amounts,
-        profile=profile,
-        layout_line=line.layout_line,
-        layout_context=layout_context,
-    )
+        signed_amount = _resolve_tabular_amount(
+            description=description,
+            raw_amounts=raw_amounts,
+            amounts=amounts,
+            profile=profile,
+            layout_line=line.layout_line,
+            layout_context=layout_context,
+        )
     cleaned_description = _normalize_profile_description(description, profile)
     normalized_date = raw_date.replace("-", "/")
     if len(normalized_date.split("/")) == 3:
@@ -836,6 +845,26 @@ def _parse_tabular_line(
             else TransactionType.EXPENSE
         ),
     )
+
+
+def _parse_explicit_movement_columns(
+    remainder: str,
+    pattern: re.Pattern[str],
+) -> tuple[str, int]:
+    """Lee cargo/abono/saldo completos, incluidos guiones como celdas vacias."""
+    match = pattern.fullmatch(remainder)
+    if match is None:
+        raise PdfImportError("No se pudieron leer las columnas cargo, abono y saldo.")
+
+    expense, income = (
+        0 if match[name] == "-" else normalize_amount_clp(match[name])
+        for name in ("expense", "income")
+    )
+    # El saldo se valida pero nunca se usa como importe de la transaccion.
+    normalize_amount_clp(match["balance"])
+    if expense < 0 or income < 0 or (expense == 0) == (income == 0):
+        raise PdfImportError("La fila debe contener un unico cargo o abono positivo.")
+    return match["description"].strip(), income - expense
 
 
 def _select_amount_block(
@@ -1286,6 +1315,45 @@ def _validate_summary_totals(
         )
 
 
+def _validate_falabella_document(extracted_text: str) -> None:
+    """Reconoce la estructura de cuenta corriente: el logo puede ser una imagen."""
+    required_headers = (
+        r"^\s*Cartola de Movimientos\s*$",
+        r"^\s*Cuenta Corriente\s*$",
+        r"^\s*Saldo Disponible\s+\$",
+        r"^\s*Saldo Contable\s+\$",
+        r"^\s*Listado de movimientos\s*$",
+        r"^\s*FECHA\s+DESCRIPCI[OÓ]N\s+CARGO\s+ABONO\s+SALDO\s*$",
+    )
+    header_text = re.split(
+        r"Listado de movimientos", extracted_text, maxsplit=1, flags=re.IGNORECASE
+    )[0]
+    normalized_header_lines = [
+        _normalize_document_marker(line) for line in header_text.splitlines()
+    ]
+    other_institution = any(
+        line.startswith(variant)
+        for parser_key, profile in PARSER_PROFILES.items()
+        if parser_key != ParserKey.BANCO_FALABELLA
+        for marker in profile.document_markers
+        for variant in _document_marker_variants(marker)
+        for line in normalized_header_lines
+    )
+    if (
+        other_institution
+        or not all(
+            re.search(pattern, extracted_text, re.IGNORECASE | re.MULTILINE)
+            for pattern in required_headers
+        )
+        or _extract_optional_period(extracted_text, FALABELLA_PROFILE) is None
+    ):
+        raise PdfImportError(
+            "El PDF no corresponde al formato compatible de Banco Falabella: "
+            "Cartola de Movimientos de Cuenta Corriente. "
+            "Los estados de cuenta CMR aun no estan soportados."
+        )
+
+
 BANCO_CHILE_PROFILE = TabularParserProfile(
     display_name="Banco de Chile",
     document_markers=("BANCO DE CHILE", "BANCOCHILE"),
@@ -1449,18 +1517,46 @@ BANCO_ESTADO_PROFILE = TabularParserProfile(
     ),
 )
 
+FALABELLA_PROFILE = TabularParserProfile(
+    display_name="Banco Falabella",
+    document_markers=("BANCO FALABELLA", "BANCOFALABELLA"),
+    period_patterns=(
+        re.compile(
+            r"PER[IÍ]ODO\s+DE\s+MOVIMIENTOS\s*:?\s*"
+            r"(\d{1,2}/\d{1,2}/\d{4})\s+AL\s+(\d{1,2}/\d{1,2}/\d{4})",
+            re.IGNORECASE,
+        ),
+    ),
+    income_keywords=(),
+    expense_keywords=(),
+    movement_start_markers=("FECHA DESCRIPCI",),
+    # La celda vacia se conserva como '-'; asi no se confunde con el saldo
+    # ni se depende de keywords como COMPRA, ABONO o TRANSF. en la descripcion.
+    movement_columns_pattern=re.compile(
+        r"(?P<description>.+?)\s+"
+        r"(?P<expense>-|\$\s*[+-]?\s*\d[\d.,]*)\s+"
+        r"(?P<income>-|\$\s*[+-]?\s*\d[\d.,]*)\s+"
+        r"(?P<balance>\$\s*[+-]?\s*\d[\d.,]*)"
+    ),
+    # Es un rango de consulta que puede terminar en una fecha futura,
+    # no un mes de facturacion. Se conserva para validar las fechas.
+    period_from_transactions=True,
+)
+
 PARSER_PROFILES: dict[ParserKey, TabularParserProfile] = {
     ParserKey.BANCO_DE_CHILE: BANCO_CHILE_PROFILE,
     ParserKey.BANCO_SANTANDER: SANTANDER_PROFILE,
     ParserKey.COPECPAY: COPECPAY_PROFILE,
     ParserKey.MERCADOPAGO: MERCADOPAGO_PROFILE,
     ParserKey.BANCO_ESTADO: BANCO_ESTADO_PROFILE,
+    ParserKey.BANCO_FALABELLA: FALABELLA_PROFILE,
 }
 
 PDF_DOCUMENT_VALIDATORS: dict[ParserKey, DocumentValidator] = {
     parser_key: _build_institution_validator(profile)
     for parser_key, profile in PARSER_PROFILES.items()
 }
+PDF_DOCUMENT_VALIDATORS[ParserKey.BANCO_FALABELLA] = _validate_falabella_document
 
 PDF_PARSERS: dict[ParserKey, ParserHandler] = {
     parser_key: partial(_parse_tabular_document, profile=profile)

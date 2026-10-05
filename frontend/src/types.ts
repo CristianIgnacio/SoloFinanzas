@@ -29,6 +29,7 @@ export enum InstitutionCode {
   COPECPAY = "copecpay",
   MERCADOPAGO = "mercadopago",
   BANCO_ESTADO = "banco_estado",
+  BANCO_FALABELLA = "banco_falabella",
 }
 
 export enum ParserKey {
@@ -37,6 +38,7 @@ export enum ParserKey {
   COPECPAY = "copecpay",
   MERCADOPAGO = "mercadopago",
   BANCO_ESTADO = "banco_estado",
+  BANCO_FALABELLA = "banco_falabella",
 }
 
 export enum StatementStatus {
@@ -77,6 +79,7 @@ export type AccountCreate = Omit<Account, "id" | "created_at">;
 export type AccountUpdate = AccountCreate;
 
 export const InstitutionLabels: Record<InstitutionCode, string> = {
+  [InstitutionCode.BANCO_FALABELLA]: "Banco Falabella",
   [InstitutionCode.BANCO_DE_CHILE]: "Banco de Chile",
   [InstitutionCode.BANCO_SANTANDER]: "Banco Santander",
   [InstitutionCode.COPECPAY]: "CopecPay",
@@ -90,6 +93,7 @@ export const InstitutionOptions = Object.values(InstitutionCode).map((value) => 
 }));
 
 export const InstitutionParserMap: Record<InstitutionCode, ParserKey> = {
+  [InstitutionCode.BANCO_FALABELLA]: ParserKey.BANCO_FALABELLA,
   [InstitutionCode.BANCO_DE_CHILE]: ParserKey.BANCO_DE_CHILE,
   [InstitutionCode.BANCO_SANTANDER]: ParserKey.BANCO_SANTANDER,
   [InstitutionCode.COPECPAY]: ParserKey.COPECPAY,
@@ -98,6 +102,7 @@ export const InstitutionParserMap: Record<InstitutionCode, ParserKey> = {
 };
 
 export const ParserLabels: Record<ParserKey, string> = {
+  [ParserKey.BANCO_FALABELLA]: "Banco Falabella PDF (cuenta corriente)",
   [ParserKey.BANCO_DE_CHILE]: "Banco de Chile PDF",
   [ParserKey.BANCO_SANTANDER]: "Santander PDF",
   [ParserKey.COPECPAY]: "CopecPay PDF",

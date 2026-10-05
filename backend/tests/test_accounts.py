@@ -24,6 +24,7 @@ class AccountTests(unittest.TestCase):
             InstitutionCode.COPECPAY,
             InstitutionCode.MERCADOPAGO,
             InstitutionCode.BANCO_ESTADO,
+            InstitutionCode.BANCO_FALABELLA,
         )
 
         with Session(self.engine) as session:
