@@ -1,49 +1,49 @@
+from dataclasses import dataclass
+
 from app.domain.enums import CategoryType
 from app.schemas.categorization_rule import CategorizationRuleSeed
-from app.schemas.category import CategoryCreate
+
+
+@dataclass(frozen=True)
+class CategorySeed:
+    name: str
+    type: CategoryType
+    parent_name: str | None = None
+    is_default: bool = True
+    is_active: bool = True
+    sort_order: int = 0
 
 
 DEFAULT_CATEGORIES = [
-    CategoryCreate(name="Ingresos", type=CategoryType.INCOME, is_default=True),
-    CategoryCreate(name="Sueldo", type=CategoryType.INCOME, is_default=True),
-    CategoryCreate(name="Inversiones", type=CategoryType.INCOME, is_default=True),
-    CategoryCreate(name="Premios de apuestas", type=CategoryType.INCOME, is_default=True),
-    CategoryCreate(name="Apuestas deportivas", type=CategoryType.EXPENSE, is_default=True),
-    CategoryCreate(name="Gasto", type=CategoryType.EXPENSE, is_default=True),
-    CategoryCreate(name="Comida", type=CategoryType.EXPENSE, is_default=True),
-    CategoryCreate(name="Supermercado", type=CategoryType.EXPENSE, is_default=True),
-    CategoryCreate(name="Transporte", type=CategoryType.EXPENSE, is_default=True),
-    CategoryCreate(name="Suscripciones", type=CategoryType.EXPENSE, is_default=True),
-    CategoryCreate(name="Salud", type=CategoryType.EXPENSE, is_default=True),
-    CategoryCreate(name="Educacion", type=CategoryType.EXPENSE, is_default=True),
-    CategoryCreate(
+    CategorySeed(name="Ingresos", type=CategoryType.INCOME, sort_order=10),
+    CategorySeed(name="Sueldo", type=CategoryType.INCOME, parent_name="Ingresos", sort_order=10),
+    CategorySeed(name="Inversiones", type=CategoryType.INCOME, parent_name="Ingresos", sort_order=20),
+    CategorySeed(name="Premios de apuestas", type=CategoryType.INCOME, parent_name="Ingresos", sort_order=30),
+    CategorySeed(name="Ahorros", type=CategoryType.INCOME, parent_name="Ingresos", sort_order=40),
+    CategorySeed(name="Comida", type=CategoryType.EXPENSE, sort_order=20),
+    CategorySeed(name="Supermercado", type=CategoryType.EXPENSE, parent_name="Comida", sort_order=10),
+    CategorySeed(name="Transporte", type=CategoryType.EXPENSE, sort_order=30),
+    CategorySeed(name="Estacionamiento", type=CategoryType.EXPENSE, parent_name="Transporte", sort_order=10),
+    CategorySeed(
         name="Cuentas y servicios",
         type=CategoryType.EXPENSE,
-        is_default=True,
+        sort_order=40,
     ),
-    CategoryCreate(name="Compras", type=CategoryType.EXPENSE, is_default=True),
-    CategoryCreate(
+    CategorySeed(name="Suscripciones", type=CategoryType.EXPENSE, parent_name="Cuentas y servicios", sort_order=10),
+    CategorySeed(name="Finanzas", type=CategoryType.EXPENSE, sort_order=50),
+    CategorySeed(name="Deudas y creditos", type=CategoryType.EXPENSE, parent_name="Finanzas", sort_order=10),
+    CategorySeed(name="Comisiones bancarias", type=CategoryType.EXPENSE, parent_name="Finanzas", sort_order=20),
+    CategorySeed(name="Entretenimiento", type=CategoryType.EXPENSE, sort_order=60),
+    CategorySeed(name="Apuestas deportivas", type=CategoryType.EXPENSE, parent_name="Entretenimiento", sort_order=10),
+    CategorySeed(name="Compras", type=CategoryType.EXPENSE, sort_order=70),
+    CategorySeed(name="Salud", type=CategoryType.EXPENSE, sort_order=80),
+    CategorySeed(name="Educacion", type=CategoryType.EXPENSE, sort_order=90),
+    CategorySeed(name="Otros", type=CategoryType.EXPENSE, sort_order=100),
+    CategorySeed(
         name="Transferencias",
         type=CategoryType.TRANSFER,
-        is_default=True,
+        sort_order=110,
     ),
-    CategoryCreate(
-        name="Deudas y creditos",
-        type=CategoryType.EXPENSE,
-        is_default=True,
-    ),
-    CategoryCreate(
-        name="Comisiones bancarias",
-        type=CategoryType.EXPENSE,
-        is_default=True,
-    ),
-    CategoryCreate(
-        name="Entretenimiento",
-        type=CategoryType.EXPENSE,
-        is_default=True,
-    ),
-    CategoryCreate(name="Estacionamiento", type=CategoryType.EXPENSE, is_default=True),
-    CategoryCreate(name="Otros", type=CategoryType.EXPENSE, is_default=True),
 ]
 
 

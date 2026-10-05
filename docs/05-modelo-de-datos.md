@@ -7,9 +7,10 @@ crea las tablas al iniciar. SQLite tiene claves foraneas activadas en cada
 conexion, por lo que las relaciones impiden eliminaciones que dejarian datos
 huerfanos.
 
-No existe un sistema de migraciones versionadas. `create_all()` crea estructuras
-faltantes, pero una modificacion de columna en un modelo no actualiza
-automaticamente una base ya existente.
+Las migraciones SQLite aplicadas se registran en `schema_migrations`. Antes de
+cada migracion pendiente se crea un respaldo `backup-migration` junto a la base.
+`create_all()` sigue creando instalaciones nuevas y las migraciones actualizan
+de forma explicita las bases existentes.
 
 ## Diagrama de relaciones
 
@@ -19,6 +20,7 @@ erDiagram
     ACCOUNTS ||--o{ TRANSACTIONS : registra
     STATEMENTS ||--o{ TRANSACTIONS : origina
     CATEGORIES ||--o{ TRANSACTIONS : clasifica
+    CATEGORIES ||--o{ CATEGORIES : contiene
     CATEGORIES ||--o{ CATEGORIZATION_RULES : destino
     CATEGORIZATION_RULES ||--o{ TRANSACTIONS : aplicada
     TRANSACTIONS ||--o| INTERNAL_TRANSFER_MATCHES : egreso
@@ -67,6 +69,9 @@ erDiagram
       string name UK
       enum type
       bool is_default
+      int parent_id FK
+      bool is_active
+      int sort_order
     }
     CATEGORIZATION_RULES {
       int id PK
@@ -158,13 +163,20 @@ existan y permite repeticiones adicionales legitimas.
 | Campo | Tipo | Regla |
 | --- | --- | --- |
 | `id` | entero | Clave primaria. |
-| `name` | texto | Indexado y unico. |
+| `name` | texto | Unico dentro del mismo padre, sin distinguir mayusculas. |
 | `type` | enum | `income`, `expense` o `transfer`. |
 | `is_default` | booleano | Marca catalogos distribuidos con la app. |
+| `parent_id` | FK nullable | Nulo para una principal; apunta a una principal para una subcategoria. |
+| `is_active` | booleano | Las archivadas conservan historial pero no aceptan nuevas asignaciones. |
+| `sort_order` | entero | Orden estable para navegacion y selectores. |
 
-Las categorias predeterminadas incluyen ingresos, sueldo, inversiones,
-transferencias y multiples grupos de gasto. El catalogo completo esta en
+Se admiten como maximo dos niveles, padre e hija deben compartir tipo y ambos
+niveles son asignables. Las categorias predeterminadas incluyen ingresos,
+finanzas, transferencias y multiples grupos de gasto. El catalogo completo esta en
 [`services/catalogs.py`](../backend/app/services/catalogs.py).
+
+La migracion inicial conserva IDs y referencias, organiza el catalogo existente,
+mantiene `Ahorros` como ingreso y fusiona `Gasto` dentro de `Otros`.
 
 ## `categorization_rules`
 
@@ -213,4 +225,3 @@ Durante cada arranque, `transaction_type` con valores antiguos `transfer` o
 `unknown` se convierte a `income` si el monto es no negativo y a `expense` si es
 negativo. Esto conserva la regla actual de que transferencia es una categoria y
 un match, no un tipo de transaccion.
-

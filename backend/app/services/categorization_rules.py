@@ -1,6 +1,10 @@
+from datetime import datetime, timezone
+
 from sqlmodel import Session, select
 
 from app.models.categorization_rule import CategorizationRuleModel
+from app.models.category import CategoryModel
+from app.models.transaction import TransactionModel
 from app.domain.normalizer import normalize_description
 from app.schemas.categorization_rule import CategorizationRule, CategorizationRuleCreate
 
@@ -21,10 +25,21 @@ def _normalize_keyword(keyword: str) -> str:
     return normalized
 
 
+def _validate_target_category(session: Session, category_id: int) -> None:
+    category = session.get(CategoryModel, category_id)
+    if category is None:
+        raise InvalidCategorizationRuleError("La categoria seleccionada no existe.")
+    if not category.is_active:
+        raise InvalidCategorizationRuleError(
+            "No se puede crear una regla para una categoria archivada."
+        )
+
+
 def create_categorization_rule(
     session: Session, payload: CategorizationRuleCreate
 ) -> CategorizationRule:
     """Crea una regla para asignar categorias por palabra clave."""
+    _validate_target_category(session, payload.category_id)
     rule = CategorizationRuleModel(
         keyword=_normalize_keyword(payload.keyword),
         category_id=payload.category_id,
@@ -77,6 +92,7 @@ def update_categorization_rule(
         if keyword is not None:
             rule.keyword = _normalize_keyword(keyword)
         if category_id is not None:
+            _validate_target_category(session, category_id)
             rule.category_id = category_id
         if priority is not None:
             rule.priority = priority
@@ -88,12 +104,28 @@ def update_categorization_rule(
 
 
 def delete_categorization_rule(session: Session, rule_id: int) -> bool:
-    """Elimina una regla de categorizacion si existe."""
+    """Elimina una regla y conserva las categorias asignadas previamente."""
     rule = session.exec(
         select(CategorizationRuleModel).where(CategorizationRuleModel.id == rule_id)
     ).first()
     if rule:
-        session.delete(rule)
-        session.commit()
+        try:
+            applied_transactions = session.exec(
+                select(TransactionModel).where(
+                    TransactionModel.rule_id_applied == rule_id
+                )
+            ).all()
+            updated_at = datetime.now(timezone.utc)
+            for transaction in applied_transactions:
+                transaction.rule_id_applied = None
+                transaction.updated_at = updated_at
+                session.add(transaction)
+
+            session.flush()
+            session.delete(rule)
+            session.commit()
+        except Exception:
+            session.rollback()
+            raise
         return True
     return False

@@ -11,8 +11,15 @@ class CategoryModel(SQLModel, table=True):
     __tablename__ = "categories"  # type: ignore
 
     id: int | None = Field(default=None, primary_key=True)
-    name: str = Field(index=True, unique=True)
+    name: str = Field(index=True)
     type: CategoryType = Field(
         sa_column=Column(enum_sql_type(CategoryType), nullable=False),
     )
     is_default: bool = Field(default=True)
+    parent_id: int | None = Field(
+        default=None,
+        foreign_key="categories.id",
+        index=True,
+    )
+    is_active: bool = Field(default=True, index=True)
+    sort_order: int = Field(default=0)

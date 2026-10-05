@@ -3,6 +3,7 @@
 import {
   BankIcon,
   BellIcon,
+  CategoriesIcon,
   DashboardIcon,
   LogoMark,
   PdfIcon,
@@ -19,6 +20,7 @@ const navItems = [
   { to: "/accounts", label: "Cuentas", icon: BankIcon },
   { to: "/import", label: "Importar PDF", icon: PdfIcon },
   { to: "/transactions", label: "Movimientos", icon: ReportIcon },
+  { to: "/categories", label: "Categorias", icon: CategoriesIcon },
   { to: "/settings", label: "Configuracion", icon: SettingsIcon },
 ];
 

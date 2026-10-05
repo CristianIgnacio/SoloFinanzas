@@ -110,6 +110,24 @@ En la importacion revisada, cada fila enviada se considera override manual,
 incluso si su `category_id` es nulo. En Movimientos, los cambios se mantienen en
 estado local y se guardan todos al pulsar el boton.
 
+Las reglas solo consideran categorias activas y pueden apuntar a una principal
+o a una subcategoria. Los selectores agrupan ambas y permiten dejar un
+movimiento directamente en la principal como "sin subcategoria".
+Eliminar una regla no descategoriza movimientos ya procesados: conserva su
+categoria y limpia solamente la referencia a la regla eliminada.
+
+## Administrar la jerarquia de categorias
+
+- El catalogo permite como maximo categoria y subcategoria.
+- Padre e hija siempre comparten tipo financiero.
+- Archivar una principal archiva tambien sus hijas y conserva todo el historial.
+- Una categoria con dependencias no se elimina; se archiva o se fusiona.
+- Fusionar traslada movimientos y reglas a un destino del mismo tipo.
+- El filtro de una principal incluye movimientos asignados directamente y los
+  de todas sus subcategorias.
+- Dashboard agrupa por principal; Analisis permite filtrar y mostrar la ruta
+  completa `Principal > Subcategoria`.
+
 ## Deteccion de transferencias internas
 
 ```mermaid
@@ -183,4 +201,3 @@ La seccion Movimientos crea en el navegador un archivo `.md` con fecha,
 descripcion, monto entero y categoria. Exporta el subconjunto que pasa los
 filtros actuales, no necesariamente todo el historial, y aplica selecciones de
 categoria aun no guardadas.
-

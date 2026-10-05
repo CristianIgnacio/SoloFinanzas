@@ -12,6 +12,7 @@ Aplicación web para centralizar finanzas personales en Chile. Permite registrar
 - Importación de cartolas PDF con vista previa antes de guardar.
 - Corrección manual del tipo y la categoría durante la importación.
 - Categorización automática mediante reglas por palabras clave y prioridades.
+- Categorías y subcategorías de dos niveles, con archivado, fusión y administración de reglas.
 - Edición manual de categorías desde el listado de movimientos.
 - Filtros por período, cuenta, tipo y categoría.
 - Detección de transferencias internas entre cuentas, considerando fines de semana y feriados bancarios chilenos.

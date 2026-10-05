@@ -42,18 +42,27 @@ Ejemplo de creacion:
 
 | Metodo y ruta | Entrada | Resultado |
 | --- | --- | --- |
-| `GET /api/v1/categories` | Sin parametros | Lista alfabetica. |
+| `GET /api/v1/categories` | `include_inactive`, default `true` | Lista jerarquica plana, padres antes de hijas. |
+| `GET /api/v1/categories/{category_id}` | ID | Detalle y contadores de uso. |
 | `POST /api/v1/categories` | `CategoryCreate` JSON | Crea y responde `201`. |
+| `PATCH /api/v1/categories/{category_id}` | `CategoryUpdate` JSON | Edita, mueve, ordena, archiva o reactiva. |
+| `POST /api/v1/categories/{category_id}/merge` | `target_category_id` JSON | Traslada movimientos y reglas y elimina el origen. |
+| `DELETE /api/v1/categories/{category_id}` | ID | Elimina solo si no tiene dependencias. |
 
 ```json
 {
   "name": "Mascotas",
   "type": "expense",
-  "is_default": false
+  "parent_id": null,
+  "is_default": false,
+  "is_active": true,
+  "sort_order": 120
 }
 ```
 
-Nombre vacio produce `400`; duplicado exacto produce `409`.
+Nombre vacio, tercer nivel o tipos incompatibles producen `400`; duplicado en
+el mismo padre produce `409`. Una categoria usada debe archivarse. La respuesta
+incluye `transaction_count` y `rule_count`.
 
 ## Reglas de categorizacion
 
@@ -201,16 +210,15 @@ La lista se ordena por fecha e ID descendentes y cada elemento incluye
 | `GET /api/v1/transactions/{transaction_id}` | ID | Movimiento o `404`. |
 | `POST /api/v1/transactions` | `TransactionCreate` JSON | Crea `201`. |
 | `POST /api/v1/transactions/bulk` | Lista de `TransactionCreate` | Crea lista `201`. |
-| `PATCH /api/v1/transactions/{transaction_id}/category` | Query requerido `category_id`; opcional `category_source` | Recategoriza. |
+| `PATCH /api/v1/transactions/{transaction_id}/category` | JSON con `category_id` nullable y `category_source` opcional | Recategoriza o limpia. |
 
 `TransactionCreate` exige `account_id`, `statement_id`, fecha, ambas
 descripciones, monto y tipo; el resto de metadatos es opcional. La API no crea
 automaticamente una cartola para transacciones manuales.
 
-El endpoint de categoria usa query parameters y valida que la categoria exista
-y sea compatible. La intencion del contrato es admitir categoria nula, aunque
-la representacion de `null` en un query parameter no esta normalizada; conviene
-verificar este caso en Swagger antes de integrar una limpieza de categoria.
+El endpoint valida que la categoria exista, este activa y sea compatible. Un
+`category_id: null` limpia la categoria sin ambiguedades de query string. Al
+filtrar por una categoria principal, el listado incluye tambien sus hijas.
 
 ## Dashboard
 
@@ -244,4 +252,3 @@ Las tarjetas ya llegan formateadas como texto; la serie mensual conserva enteros
 - `409`: categoria duplicada, cuenta con dependencias o cartola duplicada.
 - `422`: validacion FastAPI, PDF invalido, contraseña, revision o parseo.
 - `500`: error no capturado; revisar terminal del backend.
-

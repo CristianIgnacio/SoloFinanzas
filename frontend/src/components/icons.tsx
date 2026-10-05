@@ -26,6 +26,7 @@ import {
   faReceipt,
   faScaleBalanced,
   faTableCellsLarge,
+  faTags,
   faTrash,
   faUpload,
   faUtensils,
@@ -71,6 +72,10 @@ export function PdfIcon(props: IconProps) {
 
 export function ReportIcon(props: IconProps) {
   return <FontAwesomeIcon icon={faChartColumn} {...iconProps(props)} />;
+}
+
+export function CategoriesIcon(props: IconProps) {
+  return <FontAwesomeIcon icon={faTags} {...iconProps(props)} />;
 }
 
 export function TrendLineIcon(props: IconProps) {

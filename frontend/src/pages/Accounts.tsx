@@ -22,7 +22,7 @@ import {
   cn,
 } from "../components";
 import { useFormatCurrency } from "../hooks";
-import { parseLocalDate } from "../lib";
+import { createCategoryMap, getCategoryPath, parseLocalDate } from "../lib";
 import {
   AccountService,
   CategoryService,
@@ -160,7 +160,7 @@ export function AccountsPage() {
   const account = accounts.find((item) => item.id === selectedAccountId) ?? null;
   const selectedIndex = accounts.findIndex((item) => item.id === selectedAccountId);
   const categoryMap = useMemo(
-    () => new Map(categories.map((category) => [category.id, category.name])),
+    () => createCategoryMap(categories),
     [categories],
   );
   const summary = useMemo(() => {
@@ -526,9 +526,7 @@ export function AccountsPage() {
                           <td className="px-4 py-4 font-medium">{transaction.description}</td>
                           <td className="px-4 py-4">
                             <span className="rounded-full bg-paper-soft px-3 py-1 text-sm text-muted">
-                              {transaction.category_id
-                                ? categoryMap.get(transaction.category_id) ?? `Categoria #${transaction.category_id}`
-                                : "Sin categoria"}
+                              {getCategoryPath(transaction.category_id, categoryMap)}
                             </span>
                           </td>
                           <td

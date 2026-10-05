@@ -96,7 +96,12 @@ def list_transactions(
     if transaction_type is not None:
         query = query.where(TransactionModel.transaction_type == transaction_type)
     if category_id is not None:
-        query = query.where(TransactionModel.category_id == category_id)
+        child_ids = session.exec(
+            select(CategoryModel.id).where(CategoryModel.parent_id == category_id)
+        ).all()
+        query = query.where(
+            TransactionModel.category_id.in_([category_id, *child_ids])
+        )
     
     transactions = session.exec(query.limit(limit).offset(offset)).all()
     matched_ids = _matched_transaction_ids(session)
@@ -128,6 +133,8 @@ def update_transaction_category(
             category = session.get(CategoryModel, category_id)
             if category is None:
                 raise ValueError("La categoria seleccionada no existe.")
+            if not category.is_active:
+                raise ValueError("La categoria seleccionada esta archivada.")
 
             direction_type = (
                 CategoryType.INCOME

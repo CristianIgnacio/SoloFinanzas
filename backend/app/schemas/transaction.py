@@ -51,6 +51,11 @@ class TransactionCreate(TransactionBase):
     pass
 
 
+class TransactionCategoryUpdate(SQLModel):
+    category_id: int | None
+    category_source: CategorySource | None = None
+
+
 class Transaction(TransactionBase):
     id: int
     created_at: datetime

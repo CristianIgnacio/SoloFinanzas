@@ -25,7 +25,12 @@ import {
   StatCard,
 } from "../components";
 import { useDashboard, useFormatCurrency } from "../hooks";
-import { parseLocalDate } from "../lib";
+import {
+  createCategoryMap,
+  getCategoryPath,
+  getRootCategory,
+  parseLocalDate,
+} from "../lib";
 import { AccountService, CategoryService, TransactionService } from "../services";
 import {
   CurrencyCode,
@@ -509,7 +514,7 @@ export function DashboardPage() {
   };
 
   const categoryMap = useMemo(
-    () => new Map(support.categories.map((category) => [category.id, category.name])),
+    () => createCategoryMap(support.categories),
     [support.categories],
   );
   const categoryTypeMap = useMemo(
@@ -527,9 +532,8 @@ export function DashboardPage() {
           categoryTypeMap.get(transaction.category_id ?? -1) !== "transfer",
       )
       .forEach((transaction) => {
-        const key = transaction.category_id
-          ? categoryMap.get(transaction.category_id) ?? "Sin categoria"
-          : "Sin categoria";
+        const category = categoryMap.get(transaction.category_id ?? -1);
+        const key = getRootCategory(category, categoryMap)?.name ?? "Sin categoria";
         totals.set(key, (totals.get(key) ?? 0) + Math.abs(transaction.amount_clp));
       });
 
@@ -1153,8 +1157,7 @@ export function DashboardPage() {
                             {transaction.description}
                           </p>
                           <p className="truncate text-sm font-medium text-muted">
-                            {categoryMap.get(transaction.category_id ?? -1) ??
-                              "Sin categoria"}{" "}
+                            {getCategoryPath(transaction.category_id, categoryMap)}{" "}
                             |{" "}
                             {parseLocalDate(transaction.date).toLocaleDateString("es-CL", {
                               day: "2-digit",

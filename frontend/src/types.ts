@@ -118,10 +118,22 @@ export type Category = {
   id: number;
   name: string;
   type: CategoryType;
+  parent_id: number | null;
   is_default: boolean;
+  is_active: boolean;
+  sort_order: number;
+  transaction_count: number;
+  rule_count: number;
 };
 
-export type CategoryCreate = Omit<Category, "id">;
+export type CategoryCreate = Omit<
+  Category,
+  "id" | "transaction_count" | "rule_count"
+>;
+
+export type CategoryUpdate = Partial<
+  Pick<Category, "name" | "type" | "parent_id" | "is_active" | "sort_order">
+>;
 
 // Statement types
 export type Statement = {

@@ -23,7 +23,13 @@ import {
 } from "../components";
 import type { AppChartOption } from "../components/EChart";
 import { useFormatCurrency } from "../hooks";
-import { parseLocalDate } from "../lib";
+import {
+  categoryMatchesSelection,
+  createCategoryMap,
+  getCategoryPath,
+  getRootCategory,
+  parseLocalDate,
+} from "../lib";
 import { AccountService, CategoryService, TransactionService } from "../services";
 import { InstitutionLabels, TransactionType } from "../types";
 import type { Account, Category, Transaction } from "../types";
@@ -215,6 +221,7 @@ export function AnalyticsPage() {
   const [selectedScopes, setSelectedScopes] = useState<Set<string>>(new Set());
   const [visibleWidgets, setVisibleWidgets] = useState<Set<WidgetId>>(readStoredWidgets);
   const [chartStyle, setChartStyle] = useState<ChartStyle>("bar");
+  const [showSubcategoryDetail, setShowSubcategoryDetail] = useState(false);
   const [loading, setLoading] = useState(true);
   const [transactionSort, setTransactionSort] = useState<TransactionSort>({
     key: "date",
@@ -312,7 +319,7 @@ export function AnalyticsPage() {
     [accounts],
   );
   const categoryMap = useMemo(
-    () => new Map(categories.map((category) => [category.id, category])),
+    () => createCategoryMap(categories),
     [categories],
   );
 
@@ -337,10 +344,10 @@ export function AnalyticsPage() {
       { value: UNCATEGORIZED_KEY, label: "Sin categor\u00eda" },
       ...categories.map((category) => ({
         value: String(category.id),
-        label: category.name,
+        label: getCategoryPath(category.id, categoryMap),
       })),
     ],
-    [categories],
+    [categories, categoryMap],
   );
   const typeOptions = useMemo<FilterOption[]>(
     () => [
@@ -415,13 +422,24 @@ export function AnalyticsPage() {
           (selectedPeriods.size === 0 || selectedPeriods.has(period)) &&
           (selectedAccountIds.size === 0 ||
             selectedAccountIds.has(String(transaction.account_id))) &&
-          (selectedCategoryKeys.size === 0 || selectedCategoryKeys.has(categoryKey)) &&
+          (selectedCategoryKeys.size === 0 ||
+            selectedCategoryKeys.has(categoryKey) ||
+            [...selectedCategoryKeys].some(
+              (selected) =>
+                selected !== UNCATEGORIZED_KEY &&
+                categoryMatchesSelection(
+                  transaction.category_id,
+                  Number(selected),
+                  categoryMap,
+                ),
+            )) &&
           (selectedTypes.size === 0 || selectedTypes.has(transaction.transaction_type)) &&
           (selectedScopes.size === 0 || selectedScopes.has(scope))
         );
       }),
     [
       selectedAccountIds,
+      categoryMap,
       selectedCategoryKeys,
       selectedPeriods,
       selectedScopes,
@@ -485,13 +503,16 @@ export function AnalyticsPage() {
   const categoryBreakdown = useMemo(() => {
     const totals = new Map<string, number>();
     analyzedTransactions.forEach((transaction) => {
-      const categoryName = transaction.category_id
-        ? categoryMap.get(transaction.category_id)?.name ?? `Categoria #${transaction.category_id}`
-        : "Sin categor\u00eda";
+      const category = categoryMap.get(transaction.category_id ?? -1);
+      const categoryName = showSubcategoryDetail
+        ? category
+          ? getCategoryPath(category.id, categoryMap)
+          : "Sin categor\u00eda"
+        : getRootCategory(category, categoryMap)?.name ?? "Sin categor\u00eda";
       totals.set(categoryName, (totals.get(categoryName) ?? 0) + Math.abs(transaction.amount_clp));
     });
     return [...totals.entries()].sort((left, right) => right[1] - left[1]).slice(0, 10);
-  }, [analyzedTransactions, categoryMap]);
+  }, [analyzedTransactions, categoryMap, showSubcategoryDetail]);
 
   const accountBreakdown = useMemo(() => {
     const totals = new Map<number, { income: number; expenses: number }>();
@@ -609,7 +630,11 @@ export function AnalyticsPage() {
       yAxis: {
         type: "category",
         data: [...categoryBreakdown].reverse().map(([name]) => name),
-        axisLabel: { color: "#65705f", width: 120, overflow: "truncate" },
+        axisLabel: {
+          color: "#65705f",
+          width: showSubcategoryDetail ? 190 : 120,
+          overflow: "truncate",
+        },
       },
       series: [
         {
@@ -619,7 +644,7 @@ export function AnalyticsPage() {
         },
       ],
     }),
-    [categoryBreakdown],
+    [categoryBreakdown, showSubcategoryDetail],
   );
 
   const accountOption = useMemo<AppChartOption>(
@@ -739,9 +764,7 @@ export function AnalyticsPage() {
         case "account":
           return accountMap.get(transaction.account_id)?.name ?? `Cuenta #${transaction.account_id}`;
         case "category":
-          return transaction.category_id
-            ? categoryMap.get(transaction.category_id)?.name ?? "Sin categor\u00eda"
-            : "Sin categor\u00eda";
+          return getCategoryPath(transaction.category_id, categoryMap);
         case "type":
           return transaction.is_internal_transfer
             ? "Transferencia interna"
@@ -1086,10 +1109,44 @@ export function AnalyticsPage() {
               <div className="grid gap-6 2xl:grid-cols-2">
                 {visibleWidgets.has("categories") ? (
                   <Panel className="2xl:col-span-2">
-                    <ChartHeading
-                      title={"Distribuci\u00f3n por categor\u00eda"}
-                      description={"Las diez categor\u00edas con mayor volumen dentro de los filtros."}
-                    />
+                    <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                      <ChartHeading
+                        title={"Distribuci\u00f3n por categor\u00eda"}
+                        description={
+                          showSubcategoryDetail
+                            ? "Detalle de las diez categor\u00edas o subcategor\u00edas con mayor volumen."
+                            : "Las diez categor\u00edas principales con mayor volumen, incluyendo sus subcategor\u00edas."
+                        }
+                      />
+                      <button
+                        type="button"
+                        role="switch"
+                        aria-checked={showSubcategoryDetail}
+                        onClick={() => setShowSubcategoryDetail((current) => !current)}
+                        className={cn(
+                          "inline-flex shrink-0 items-center gap-3 self-start rounded-full border px-3 py-2 text-sm font-medium transition",
+                          showSubcategoryDetail
+                            ? "border-primary/30 bg-primary-mist text-primary"
+                            : "border-outline bg-white text-muted hover:border-primary/30 hover:text-primary",
+                        )}
+                      >
+                        <span>Ver subcategorias</span>
+                        <span
+                          aria-hidden="true"
+                          className={cn(
+                            "relative h-5 w-9 rounded-full transition-colors",
+                            showSubcategoryDetail ? "bg-primary" : "bg-outline",
+                          )}
+                        >
+                          <span
+                            className={cn(
+                              "absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-white transition-transform",
+                              showSubcategoryDetail && "translate-x-4",
+                            )}
+                          />
+                        </span>
+                      </button>
+                    </div>
                     <EChart className="mt-5 h-[300px] w-full sm:h-[360px]" option={categoryOption} />
                   </Panel>
                 ) : null}
@@ -1334,15 +1391,9 @@ export function AnalyticsPage() {
                             </td>
                             <td
                               className="break-words px-2 py-4 text-muted"
-                              title={
-                                transaction.category_id
-                                  ? categoryMap.get(transaction.category_id)?.name ?? "Sin categor\u00eda"
-                                  : "Sin categor\u00eda"
-                              }
+                              title={getCategoryPath(transaction.category_id, categoryMap)}
                             >
-                              {transaction.category_id
-                                ? categoryMap.get(transaction.category_id)?.name ?? "Sin categor\u00eda"
-                                : "Sin categor\u00eda"}
+                              {getCategoryPath(transaction.category_id, categoryMap)}
                             </td>
                             <td className="break-words px-2 py-4">
                               <span className={cn(

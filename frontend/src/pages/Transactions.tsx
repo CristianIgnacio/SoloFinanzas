@@ -20,8 +20,15 @@ import {
   cn,
   UtensilsIcon,
 } from "../components";
-import { parseLocalDate } from "../lib";
+import {
+  categoryMatchesSelection,
+  createCategoryMap,
+  getCategoryPath,
+  groupCategories,
+  parseLocalDate,
+} from "../lib";
 import { AccountService, CategoryService, TransactionService } from "../services";
+import { CategoryType } from "../types";
 import type { Account, Category, Transaction } from "../types";
 
 type FilterMode = "all" | "expense" | "income";
@@ -239,11 +246,15 @@ export function TransactionsPage() {
         .filter((categoryId): categoryId is number => categoryId !== null),
     );
     const categoriesById = new Map(categories.map((category) => [category.id, category]));
+    [...categoryIds].forEach((categoryId) => {
+      const parentId = categoriesById.get(categoryId)?.parent_id;
+      if (parentId) categoryIds.add(parentId);
+    });
     const knownCategories = categories
       .filter((category) => categoryIds.has(category.id))
       .map((category) => ({
         id: category.id,
-        label: category.name,
+        label: getCategoryPath(category.id, categoriesById),
         type: category.type,
       }))
       .sort((left, right) => {
@@ -261,6 +272,8 @@ export function TransactionsPage() {
 
     return [...knownCategories, ...missingCategories];
   }, [categories, transactions]);
+
+  const categoryMap = useMemo(() => createCategoryMap(categories), [categories]);
 
   const visibleTransactions = useMemo(() => {
     return transactions
@@ -283,7 +296,11 @@ export function TransactionsPage() {
           return !transaction.category_id;
         }
 
-        return String(transaction.category_id) === selectedCategory;
+        return categoryMatchesSelection(
+          transaction.category_id,
+          Number(selectedCategory),
+          categoryMap,
+        );
       })
       .filter((transaction) => {
         if (filter !== "all" && transaction.transaction_type !== filter) {
@@ -292,7 +309,7 @@ export function TransactionsPage() {
 
         return !excludeInternalTransfers || !transaction.is_internal_transfer;
       });
-  }, [excludeInternalTransfers, filter, selectedAccount, selectedCategory, selectedMonth, transactions]);
+  }, [categoryMap, excludeInternalTransfers, filter, selectedAccount, selectedCategory, selectedMonth, transactions]);
 
   useEffect(() => {
     setVisibleTransactionCount(VISIBLE_TRANSACTION_STEP);
@@ -315,13 +332,13 @@ export function TransactionsPage() {
     return [...groups.entries()].sort((left, right) => right[0].localeCompare(left[0]));
   }, [displayedTransactions]);
 
-  const categoryOptionsFor = (transaction: Transaction) => {
-    return categories.filter((category) => {
-      if (transaction.transaction_type === "income") {
-        return category.type === "income" || category.type === "transfer";
-      }
-
-      return category.type === "expense" || category.type === "transfer";
+  const categoryGroupsFor = (transaction: Transaction) => {
+    return groupCategories(categories, {
+      activeOnly: true,
+      type:
+        transaction.transaction_type === "income"
+          ? CategoryType.INCOME
+          : CategoryType.EXPENSE,
     });
   };
 
@@ -353,9 +370,10 @@ export function TransactionsPage() {
       ...visibleTransactions.map((transaction) => {
         const selectedCategory =
           draftCategories[transaction.id] || String(transaction.category_id ?? "");
-        const categoryName =
-          categories.find((category) => String(category.id) === selectedCategory)?.name ??
-          "Sin categoria";
+        const categoryName = getCategoryPath(
+          selectedCategory ? Number(selectedCategory) : null,
+          categoryMap,
+        );
 
         return `- ${formatDateLabel(transaction.date)} | ${transaction.description} | ${transaction.amount_clp.toLocaleString("es-CL")} | ${categoryName}`;
       }),
@@ -608,7 +626,7 @@ export function TransactionsPage() {
                   const categoryValue =
                     draftCategories[transaction.id] ??
                     (transaction.category_id ? String(transaction.category_id) : "");
-                  const options = categoryOptionsFor(transaction);
+                  const categoryGroups = categoryGroupsFor(transaction);
                   const account = accountMap.get(transaction.account_id);
 
                   return (
@@ -679,10 +697,19 @@ export function TransactionsPage() {
                             className="w-full appearance-none rounded-2xl border border-outline bg-paper-soft px-4 py-3 pr-10 text-base outline-none transition focus:border-primary"
                           >
                             <option value="">Seleccionar categoria...</option>
-                            {options.map((category) => (
-                              <option key={category.id} value={category.id}>
-                                {category.name}
-                              </option>
+                            {categoryGroups.map((group) => (
+                              <optgroup key={group.root.id} label={group.root.name}>
+                                <option value={group.root.id}>
+                                  {group.children.length > 0
+                                    ? `${group.root.name} (sin subcategoria)`
+                                    : group.root.name}
+                                </option>
+                                {group.children.map((category) => (
+                                  <option key={category.id} value={category.id}>
+                                    {category.name}
+                                  </option>
+                                ))}
+                              </optgroup>
                             ))}
                           </select>
                           <ChevronDownIcon className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" />
@@ -719,4 +746,3 @@ export function TransactionsPage() {
     </div>
   );
 }
-

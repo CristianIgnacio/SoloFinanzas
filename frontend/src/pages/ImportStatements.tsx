@@ -14,8 +14,9 @@ import {
   StatusNotice,
   UploadIcon,
 } from "../components";
+import { groupCategories } from "../lib";
 import { AccountService, CategoryService, StatementService } from "../services";
-import { InstitutionLabels, supportsPdfImport } from "../types";
+import { CategoryType, InstitutionLabels, supportsPdfImport } from "../types";
 import { TransactionType } from "../types";
 import type { Account, Category, PdfPreview, TransactionPreviewCandidate } from "../types";
 
@@ -129,6 +130,7 @@ export function ImportStatementsPage() {
 
   const categoryOptionsFor = (transactionType: TransactionType) => {
     return categories.filter((category) => {
+      if (!category.is_active) return false;
       if (transactionType === TransactionType.INCOME) {
         return category.type === "income" || category.type === "transfer";
       }
@@ -136,6 +138,15 @@ export function ImportStatementsPage() {
       return category.type === "expense" || category.type === "transfer";
     });
   };
+
+  const categoryGroupsFor = (transactionType: TransactionType) =>
+    groupCategories(categories, {
+      activeOnly: true,
+      type:
+        transactionType === TransactionType.INCOME
+          ? CategoryType.INCOME
+          : CategoryType.EXPENSE,
+    });
 
   const isCategoryCompatible = (
     categoryId: number | null,
@@ -503,10 +514,19 @@ export function ImportStatementsPage() {
                         className="w-full rounded-xl border border-outline bg-white px-3 py-2 text-sm outline-none transition focus:border-primary"
                       >
                         <option value="">Sin categoria</option>
-                        {categoryOptionsFor(transaction.transaction_type).map((category) => (
-                          <option key={category.id} value={category.id}>
-                            {category.name}
-                          </option>
+                        {categoryGroupsFor(transaction.transaction_type).map((group) => (
+                          <optgroup key={group.root.id} label={group.root.name}>
+                            <option value={group.root.id}>
+                              {group.children.length > 0
+                                ? `${group.root.name} (sin subcategoria)`
+                                : group.root.name}
+                            </option>
+                            {group.children.map((category) => (
+                              <option key={category.id} value={category.id}>
+                                {category.name}
+                              </option>
+                            ))}
+                          </optgroup>
                         ))}
                       </select>
                     </td>

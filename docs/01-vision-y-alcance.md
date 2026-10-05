@@ -42,11 +42,11 @@ No implementa autenticacion, autorizacion ni separacion de datos por usuario.
 | `/import` | Importar PDF | Seleccion, analisis, revision y confirmacion de una cartola. |
 | `/transactions` | Movimientos | Filtros, exportacion Markdown y categorizacion manual. |
 | `/settings` | Configuracion | Alta, edicion y eliminacion de cuentas. |
-| `/categories` | Redireccion | Conserva una ruta historica y redirige a `/transactions`. |
+| `/categories` | Categorias | Jerarquia, archivado, fusion y reglas automaticas. |
 | Cualquier otra | 404 | Informa que la ruta no existe y permite volver al dashboard. |
 
-La navegacion principal no muestra `/categories`; la gestion de categorias y
-reglas existe en la API, pero no tiene una interfaz de administracion completa.
+La navegacion principal muestra `/categories` como la administracion central
+del catalogo y sus reglas automaticas.
 
 ## Conceptos del dominio
 
@@ -70,8 +70,10 @@ metadatos del origen.
 
 ### Categoria y regla
 
-Una categoria clasifica el movimiento como ingreso, gasto o transferencia. Una
-regla relaciona una palabra clave normalizada con una categoria y prioridad.
+Una categoria clasifica el movimiento como ingreso, gasto o transferencia. Puede
+ser principal o depender de una principal como subcategoria; se admiten dos
+niveles y la subcategoria es opcional. Una regla relaciona una palabra clave
+normalizada con cualquier categoria activa y una prioridad.
 Las asignaciones manuales prevalecen sobre la recategorizacion automatica, salvo
 que el script operativo se ejecute con `--include-manual`.
 
@@ -101,5 +103,3 @@ marcar ambos movimientos y excluirlos del dashboard.
 - Presupuestos, metas, patrimonio, deudas e inversiones como entidades propias.
 - Migraciones versionadas de base de datos.
 - Despliegue endurecido para internet.
-- Administracion completa de categorias y reglas desde la interfaz.
-

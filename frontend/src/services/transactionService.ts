@@ -34,12 +34,9 @@ export class TransactionService {
   ): Promise<Transaction> {
     return apiClient.patch<Transaction>(
       `/transactions/${transactionId}/category`,
-      undefined,
       {
-        params: {
-          category_id: categoryId === null ? "null" : categoryId,
-          category_source: categorySource,
-        },
+        category_id: categoryId,
+        category_source: categorySource,
       },
     );
   }

@@ -16,6 +16,7 @@ from app.models import (
 )
 from app.services.catalogs import DEFAULT_CATEGORIES, DEFAULT_CATEGORIZATION_RULES
 from app.services.categorization_rules import _normalize_keyword
+from app.core.migrations import apply_database_migrations
 
 
 BACKEND_DIR = Path(__file__).resolve().parents[2]
@@ -55,6 +56,7 @@ def get_session() -> Iterator[Session]:
 def init_db() -> Path:
     """Crea tablas, normaliza datos heredados y siembra catalogos base."""
     SQLModel.metadata.create_all(engine)
+    apply_database_migrations(DB_PATH)
     normalize_legacy_transaction_types()
     with Session(engine) as session:
         seed_default_categories(session)
@@ -87,20 +89,46 @@ def normalize_legacy_transaction_types() -> None:
 
 def seed_default_categories(session: Session) -> None:
     """Inserta categorias predeterminadas que aun no existan en la base."""
-    existing_names = {
-        category.name
+    existing_by_name = {
+        category.name: category
         for category in session.exec(select(CategoryModel)).all()
     }
-    for category in DEFAULT_CATEGORIES:
-        if category.name in existing_names:
+    roots = [category for category in DEFAULT_CATEGORIES if category.parent_name is None]
+    children = [category for category in DEFAULT_CATEGORIES if category.parent_name is not None]
+
+    for category in roots:
+        if category.name in existing_by_name:
             continue
-        session.add(
-            CategoryModel(
-                name=category.name,
-                type=category.type,
-                is_default=category.is_default,
-            )
+        model = CategoryModel(
+            name=category.name,
+            type=category.type,
+            is_default=category.is_default,
+            is_active=category.is_active,
+            sort_order=category.sort_order,
         )
+        session.add(model)
+        session.flush()
+        existing_by_name[category.name] = model
+
+    for category in children:
+        if category.name in existing_by_name:
+            continue
+        parent = existing_by_name.get(category.parent_name or "")
+        if parent is None:
+            raise ValueError(
+                f"No existe la categoria padre predeterminada '{category.parent_name}'."
+            )
+        model = CategoryModel(
+            name=category.name,
+            type=category.type,
+            parent_id=parent.id,
+            is_default=category.is_default,
+            is_active=category.is_active,
+            sort_order=category.sort_order,
+        )
+        session.add(model)
+        session.flush()
+        existing_by_name[category.name] = model
 
 
 def seed_default_categorization_rules(session: Session) -> None:

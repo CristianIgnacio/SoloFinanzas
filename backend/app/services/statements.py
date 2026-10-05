@@ -525,7 +525,11 @@ def _categorize(
             continue
         if f" {keyword} " in f" {normalized_description} ":
             category = session.get(CategoryModel, rule.category_id)
-            if category and category.type in {desired_type, CategoryType.TRANSFER}:
+            if (
+                category
+                and category.is_active
+                and category.type in {desired_type, CategoryType.TRANSFER}
+            ):
                 return rule.category_id, CategorySource.RULE, rule.id
 
     return None, None, None
@@ -543,6 +547,8 @@ def _validate_category_for_type(
     category = session.get(CategoryModel, category_id)
     if category is None:
         raise ValueError("La categoria seleccionada no existe.")
+    if not category.is_active:
+        raise ValueError("La categoria seleccionada esta archivada.")
     if category.type not in {desired_type, CategoryType.TRANSFER}:
         raise ValueError(
             "La categoria seleccionada no es compatible con el tipo de movimiento."
