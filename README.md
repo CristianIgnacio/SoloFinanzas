@@ -54,7 +54,7 @@ SoloFinanzas/
 │   │   ├── models/       # Modelos SQLModel
 │   │   ├── schemas/      # Contratos de entrada y salida
 │   │   └── services/     # Lógica de negocio
-│   └── tests/
+│   └── tests/          # Solo local; no versionado
 ├── frontend/
 │   └── src/
 │       ├── components/
@@ -131,7 +131,9 @@ VITE_API_URL=http://127.0.0.1:8000/api/v1
 
 ## Pruebas y verificación
 
-Ejecutar las pruebas del backend:
+La carpeta `backend/tests/` se conserva solo en el entorno local y está excluida de Git. Los clones nuevos del repositorio no incluyen esta suite.
+
+Si tienes la carpeta local, puedes ejecutar las pruebas del backend:
 
 ```powershell
 cd backend
