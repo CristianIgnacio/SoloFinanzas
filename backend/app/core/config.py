@@ -19,6 +19,7 @@ class Settings(BaseSettings):
     frontend_origins: list[str] = [
         "http://127.0.0.1:5173",
         "http://localhost:5173",
+        "https://solofinanzas.vercel.app",
     ]
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")

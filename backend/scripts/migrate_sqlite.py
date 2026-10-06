@@ -30,7 +30,13 @@ def read_source(path):
         if conn.execute('PRAGMA integrity_check').fetchone()[0] != 'ok':
             raise ValueError('La copia SQLite no supera integrity_check.')
         tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
-        if 'users' in tables: raise ValueError('El origen debe ser la instalación local anterior, sin usuarios.')
+        if 'users' in tables and conn.execute('SELECT 1 FROM users LIMIT 1').fetchone():
+            raise ValueError('El origen contiene usuarios y no es la instalación personal anterior.')
+        for model in MODELS:
+            if model.__tablename__ in tables:
+                columns = {r[1] for r in conn.execute('PRAGMA table_info(' + model.__tablename__ + ')')}
+                if 'user_id' in columns:
+                    raise ValueError('El origen ya contiene propietarios y no es la instalación personal anterior.')
         return {m.__tablename__: [dict(r) for r in conn.execute('SELECT * FROM ' + m.__tablename__)]
                 if m.__tablename__ in tables else [] for m in MODELS}
 
@@ -119,8 +125,15 @@ def main():
     engine = make_engine(settings.database_url)
     try:
         print(json.dumps(migrate(args.source, engine, args.owner, args.apply), indent=2))
-    except Exception:
-        print('Migración rechazada y revertida. Revisa el origen, UUID, relaciones, duplicados y acceso al destino.', file=sys.stderr)
+    except ValueError as exc:
+        # Pydantic ValidationError also inherits ValueError and may include private row data.
+        detail = str(exc) if type(exc) is ValueError else type(exc).__name__
+        print(f'Migración rechazada y revertida: {detail}', file=sys.stderr)
+        return 1
+    except Exception as exc:
+        code = getattr(getattr(exc, 'orig', None), 'sqlstate', None)
+        detail = f'{type(exc).__name__}, SQLSTATE {code}' if code else type(exc).__name__
+        print(f'Migración rechazada y revertida ({detail}). No se aplicaron cambios.', file=sys.stderr)
         return 1
     finally: engine.dispose()
     return 0

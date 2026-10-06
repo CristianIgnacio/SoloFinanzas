@@ -1,5 +1,5 @@
 -- Run as the migration administrator AFTER alembic upgrade head.
--- Set the password separately using psql \password finance_api (hidden input).
+-- Set the password separately using scripts/set_runtime_password.py or psql \password finance_api.
 DO $$ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'finance_api') THEN
     CREATE ROLE finance_api LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT;
