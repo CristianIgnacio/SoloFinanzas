@@ -1,58 +1,138 @@
-﻿import { createBrowserRouter } from "react-router-dom";
-import { RootLayout } from "./RootLayout";
+import { AuthProvider, RequireAuth } from "../auth/AuthProvider";
 import {
-  DashboardPage,
-  AnalyticsPage,
-  AccountsPage,
-  SettingsPage,
-  TransactionsPage,
-  CategoriesPage,
-  ImportStatementsPage,
-  NotFoundPage,
-} from "../pages";
+  HomePage,
+  LoginPage,
+  AuthCallbackPage,
+  InformationPage,
+} from "../pages/Public";
+import { ProfilePage } from "../pages/Profile";
+import { createBrowserRouter, Navigate, useLocation } from "react-router-dom";
+import { RootLayout } from "./RootLayout";
+import { NotFoundPage } from "../pages/NotFound";
+import { lazy, Suspense } from "react";
+const DashboardPage = lazy(() =>
+  import("../pages/Dashboard").then((m) => ({ default: m.DashboardPage })),
+);
+const AnalyticsPage = lazy(() =>
+  import("../pages/Analytics").then((m) => ({ default: m.AnalyticsPage })),
+);
+const AccountsPage = lazy(() =>
+  import("../pages/Accounts").then((m) => ({ default: m.AccountsPage })),
+);
+const SettingsPage = lazy(() =>
+  import("../pages/Settings").then((m) => ({ default: m.SettingsPage })),
+);
+const TransactionsPage = lazy(() =>
+  import("../pages/Transactions").then((m) => ({
+    default: m.TransactionsPage,
+  })),
+);
+const CategoriesPage = lazy(() =>
+  import("../pages/Categories").then((m) => ({ default: m.CategoriesPage })),
+);
+const ImportStatementsPage = lazy(() =>
+  import("../pages/ImportStatements").then((m) => ({
+    default: m.ImportStatementsPage,
+  })),
+);
+
+function LegacyRedirect() {
+  const location = useLocation();
+  return (
+    <Navigate
+      to={`/app${location.pathname}${location.search}${location.hash}`}
+      replace
+    />
+  );
+}
 
 export const router = createBrowserRouter([
   {
-    path: "/",
-    element: <RootLayout />,
+    element: <AuthProvider />,
     errorElement: <NotFoundPage />,
     children: [
+      { path: "/", element: <HomePage /> },
+      { path: "/login", element: <LoginPage /> },
+      { path: "/auth/callback", element: <AuthCallbackPage /> },
+      { path: "/privacy", element: <InformationPage privacy /> },
+      { path: "/help", element: <InformationPage /> },
       {
-        index: true,
-        element: <DashboardPage />,
+        element: <RequireAuth />,
+        children: [
+          {
+            path: "/app",
+            element: <RootLayout />,
+            children: [
+              {
+                index: true,
+                element: (
+                  <Suspense fallback={<p className="p-8">Cargando…</p>}>
+                    <DashboardPage />
+                  </Suspense>
+                ),
+              },
+              {
+                path: "analytics",
+                element: (
+                  <Suspense fallback={<p className="p-8">Cargando…</p>}>
+                    <AnalyticsPage />
+                  </Suspense>
+                ),
+              },
+              {
+                path: "accounts",
+                element: (
+                  <Suspense fallback={<p className="p-8">Cargando…</p>}>
+                    <AccountsPage />
+                  </Suspense>
+                ),
+              },
+              {
+                path: "settings",
+                element: (
+                  <Suspense fallback={<p className="p-8">Cargando…</p>}>
+                    <SettingsPage />
+                  </Suspense>
+                ),
+              },
+              {
+                path: "import",
+                element: (
+                  <Suspense fallback={<p className="p-8">Cargando…</p>}>
+                    <ImportStatementsPage />
+                  </Suspense>
+                ),
+              },
+              {
+                path: "transactions",
+                element: (
+                  <Suspense fallback={<p className="p-8">Cargando…</p>}>
+                    <TransactionsPage />
+                  </Suspense>
+                ),
+              },
+              {
+                path: "categories",
+                element: (
+                  <Suspense fallback={<p className="p-8">Cargando…</p>}>
+                    <CategoriesPage />
+                  </Suspense>
+                ),
+              },
+              { path: "profile", element: <ProfilePage /> },
+            ],
+          },
+        ],
       },
-      {
-        path: "analytics",
-        element: <AnalyticsPage />,
-      },
-      {
-        path: "accounts",
-        element: <AccountsPage />,
-      },
-
-      {
-        path: "settings",
-        element: <SettingsPage />,
-      },
-      {
-        path: "import",
-        element: <ImportStatementsPage />,
-      },
-      {
-        path: "transactions",
-        element: <TransactionsPage />,
-      },
-      {
-        path: "categories",
-        element: <CategoriesPage />,
-      },
-      {
-        path: "*",
-        element: <NotFoundPage />,
-      },
+      ...[
+        "analytics",
+        "accounts",
+        "settings",
+        "import",
+        "transactions",
+        "categories",
+      ].map((path) => ({ path: `/${path}/*`, element: <LegacyRedirect /> })),
+      { path: "*", element: <NotFoundPage /> },
     ],
   },
 ]);
-
-
-

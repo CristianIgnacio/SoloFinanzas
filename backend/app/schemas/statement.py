@@ -17,7 +17,6 @@ class StatementBase(SQLModel):
     file_checksum: str | None = Field(default=None)
     period_month: str | None = Field(default=None)
     status: StatementStatus = StatementStatus.PENDING
-    raw_path: str | None = Field(default=None)
 
 
 class StatementCreate(StatementBase):

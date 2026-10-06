@@ -212,7 +212,7 @@ export function ImportStatementsPage() {
         })),
         password || undefined,
       );
-      navigate(`/transactions?statement_id=${response.statement.id}`, {
+      navigate(`/app/transactions?statement_id=${response.statement.id}`, {
         state: {
           importMessage: `${response.result.inserted_count} movimientos importados correctamente.`,
         },

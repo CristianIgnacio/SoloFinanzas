@@ -1,4 +1,5 @@
-﻿import { useEffect, useMemo, useState } from "react";
+import { ReportService, type AccountTotal } from '../services/reportService';
+import { useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 
 import {
@@ -18,7 +19,7 @@ import {
   TrashIcon,
 } from "../components";
 import { useFormatCurrency } from "../hooks";
-import { AccountService, TransactionService } from "../services";
+import { AccountService } from "../services";
 import {
   CurrencyCode,
   InstitutionCode,
@@ -27,29 +28,8 @@ import {
   getParserForInstitution,
   supportsPdfImport,
 } from "../types";
-import type { Account, AccountCreate, AccountUpdate, Transaction } from "../types";
+import type { Account, AccountCreate, AccountUpdate } from "../types";
 import type { AccountFormValues } from "../components/AccountFormModal";
-
-const TRANSACTION_PAGE_SIZE = 1000;
-
-async function loadAllTransactions() {
-  const transactions: Transaction[] = [];
-  let offset = 0;
-
-  while (true) {
-    const page = await TransactionService.getTransactions({
-      limit: TRANSACTION_PAGE_SIZE,
-      offset,
-    });
-    transactions.push(...page);
-
-    if (page.length < TRANSACTION_PAGE_SIZE) {
-      return transactions;
-    }
-
-    offset += TRANSACTION_PAGE_SIZE;
-  }
-}
 
 function createEmptyAccountForm(): AccountFormValues {
   return {
@@ -150,7 +130,7 @@ function DeleteAccountModal({
 export function SettingsPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const [accounts, setAccounts] = useState<Account[]>([]);
-  const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [totals, setTotals] = useState<AccountTotal[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<string | null>(null);
@@ -186,12 +166,12 @@ export function SettingsPage() {
       try {
         const [accountsPayload, transactionsPayload] = await Promise.all([
           AccountService.getAccounts(),
-          loadAllTransactions(),
+          ReportService.accounts(),
         ]);
 
         if (!cancelled) {
           setAccounts(accountsPayload);
-          setTransactions(transactionsPayload);
+          setTotals(transactionsPayload);
           setError(null);
         }
       } catch (err) {
@@ -212,18 +192,7 @@ export function SettingsPage() {
     };
   }, []);
 
-  const totalsByAccount = useMemo(() => {
-    const map = new Map<number, number>();
-
-    transactions.forEach((transaction) => {
-      map.set(
-        transaction.account_id,
-        (map.get(transaction.account_id) ?? 0) + transaction.amount_clp,
-      );
-    });
-
-    return map;
-  }, [transactions]);
+  const totalsByAccount = useMemo(() => new Map(totals.map(item => [item.account_id, item.net])), [totals]);
 
   const parserReadyCount = accounts.filter((account) =>
     supportsPdfImport(account.institution),
@@ -347,7 +316,7 @@ export function SettingsPage() {
     try {
       await AccountService.deleteAccount(account.id);
       setAccounts((current) => current.filter((item) => item.id !== account.id));
-      setTransactions((current) => current.filter((item) => item.account_id !== account.id));
+      setTotals((current) => current.filter((item) => item.account_id !== account.id));
       setFeedback("Cuenta eliminada correctamente.");
       setAccountPendingDelete(null);
     } catch (err) {
@@ -404,7 +373,7 @@ export function SettingsPage() {
             {accounts.map((account) => (
               <Link
                 key={account.id}
-                to={`/accounts?account_id=${account.id}`}
+                to={`/app/accounts?account_id=${account.id}`}
                 aria-label={`Ver detalle de ${account.name}`}
                 className="block rounded-[1.75rem] transition hover:-translate-y-1 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-primary"
               >

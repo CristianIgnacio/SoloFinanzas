@@ -1,10 +1,14 @@
 # Documentacion de SoloFinanzas
 
+> Actualización de octubre de 2026: los detalles de autenticación, rutas `/app/*`, persistencia, pruebas y operación de la versión multiusuario están en [Despliegue de la beta](despliegue-beta.md). Este documento conserva el contexto funcional de la versión local anterior; no uses sus instrucciones antiguas de arranque/migración para producción.
+
 Este directorio concentra la documentacion funcional y tecnica del proyecto. El
 punto de partida recomendado depende de lo que necesites hacer:
 
 | Necesidad | Documento |
 | --- | --- |
+| Publicar la beta multiusuario | [Vercel, Supabase y Render](despliegue-beta.md) |
+| Ver pruebas realizadas y pendientes | [Verificación de la beta](verificacion-beta.md) |
 | Entender que resuelve el producto | [Vision, alcance y conceptos](01-vision-y-alcance.md) |
 | Ubicarse en el repositorio | [Arquitectura y estructura](02-arquitectura-y-estructura.md) |
 | Modificar la API o la logica de negocio | [Backend](03-backend.md) |

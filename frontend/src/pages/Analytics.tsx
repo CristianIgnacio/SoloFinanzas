@@ -1,3 +1,5 @@
+import { ReportService } from '../services/reportService';
+import { useAuth } from '../auth/AuthProvider';
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 
 import {
@@ -114,12 +116,14 @@ function createPaginationItems(currentPage: number, totalPages: number): Array<n
   return items;
 }
 
-async function loadAllTransactions() {
+async function loadPeriodTransactions(period: string) {
   const transactions: Transaction[] = [];
   let offset = 0;
 
   while (true) {
     const page = await TransactionService.getTransactions({
+      date_from: `${period}-01`,
+      date_to: `${period}-${new Date(Number(period.slice(0, 4)), Number(period.slice(5, 7)), 0).getDate()}`,
       limit: TRANSACTION_PAGE_SIZE,
       offset,
     });
@@ -151,11 +155,11 @@ function formatCompactCurrency(value: number) {
   }).format(value)}`;
 }
 
-function readStoredWidgets(): Set<WidgetId> {
+function readStoredWidgets(owner: string): Set<WidgetId> {
   if (typeof window === "undefined") return new Set(WIDGET_OPTIONS.map((item) => item.value));
 
   try {
-    const stored = JSON.parse(window.localStorage.getItem(WIDGET_STORAGE_KEY) ?? "[]") as unknown;
+    const stored = JSON.parse(window.localStorage.getItem(`${WIDGET_STORAGE_KEY}.${owner}`) ?? "[]") as unknown;
     const isLegacyStorage = Array.isArray(stored);
     const storedWidgets = isLegacyStorage
       ? stored
@@ -182,12 +186,12 @@ function readStoredWidgets(): Set<WidgetId> {
   }
 }
 
-function readExcludedTransactionIds(): Set<number> {
+function readExcludedTransactionIds(owner: string): Set<number> {
   if (typeof window === "undefined") return new Set();
 
   try {
     const stored = JSON.parse(
-      window.localStorage.getItem(EXCLUDED_TRANSACTIONS_STORAGE_KEY) ?? "{}",
+      window.localStorage.getItem(`${EXCLUDED_TRANSACTIONS_STORAGE_KEY}.${owner}`) ?? "{}",
     ) as unknown;
     if (
       typeof stored !== "object" ||
@@ -210,6 +214,10 @@ function readExcludedTransactionIds(): Set<number> {
 }
 
 export function AnalyticsPage() {
+  const { session } = useAuth();
+  const owner = session!.user.id;
+  const [availablePeriods, setAvailablePeriods] = useState<string[]>([]);
+  const [loadingPeriods, setLoadingPeriods] = useState(false);
   const formatCurrency = useFormatCurrency();
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
@@ -219,7 +227,7 @@ export function AnalyticsPage() {
   const [selectedCategoryKeys, setSelectedCategoryKeys] = useState<Set<string>>(new Set());
   const [selectedTypes, setSelectedTypes] = useState<Set<string>>(new Set());
   const [selectedScopes, setSelectedScopes] = useState<Set<string>>(new Set());
-  const [visibleWidgets, setVisibleWidgets] = useState<Set<WidgetId>>(readStoredWidgets);
+  const [visibleWidgets, setVisibleWidgets] = useState<Set<WidgetId>>(() => readStoredWidgets(owner));
   const [chartStyle, setChartStyle] = useState<ChartStyle>("bar");
   const [showSubcategoryDetail, setShowSubcategoryDetail] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -232,7 +240,7 @@ export function AnalyticsPage() {
   const [transactionAnalysisView, setTransactionAnalysisView] =
     useState<TransactionAnalysisView>("all");
   const [excludedTransactionIds, setExcludedTransactionIds] =
-    useState<Set<number>>(readExcludedTransactionIds);
+    useState<Set<number>>(() => readExcludedTransactionIds(owner));
   const [selectedTransactionIds, setSelectedTransactionIds] = useState<Set<number>>(
     new Set(),
   );
@@ -246,16 +254,17 @@ export function AnalyticsPage() {
 
     async function loadAnalyticsData() {
       try {
-        const [accountData, categoryData, transactionData] = await Promise.all([
+        const [accountData, categoryData, periods] = await Promise.all([
           AccountService.getAccounts(),
           CategoryService.getCategories(),
-          loadAllTransactions(),
+          ReportService.periods(),
         ]);
         if (cancelled) return;
 
         setAccounts(accountData);
         setCategories(categoryData);
-        setTransactions(transactionData);
+        setAvailablePeriods(periods);
+        setSelectedPeriods(new Set(periods.slice(0, 1)));
       } catch (err) {
         if (!cancelled) {
           setError(err instanceof Error ? err.message : "No fue posible cargar el an\u00e1lisis.");
@@ -272,8 +281,24 @@ export function AnalyticsPage() {
   }, []);
 
   useEffect(() => {
+    let cancelled = false;
+    setLoadingPeriods(true); setTransactions([]);
+    // An empty period selection means no data, never an implicit full-history fetch.
+    void (async () => {
+      const data: Transaction[] = [];
+      for (const period of selectedPeriods) {
+        if (cancelled) return;
+        data.push(...await loadPeriodTransactions(period));
+      }
+      if (!cancelled) setTransactions(data);
+    })().catch(err => { if (!cancelled) setError(err.message); })
+      .finally(() => { if (!cancelled) setLoadingPeriods(false); });
+    return () => { cancelled = true; };
+  }, [selectedPeriods]);
+
+  useEffect(() => {
     window.localStorage.setItem(
-      WIDGET_STORAGE_KEY,
+      `${WIDGET_STORAGE_KEY}.${owner}`,
       JSON.stringify({
         version: WIDGET_STORAGE_VERSION,
         widgets: [...visibleWidgets],
@@ -283,7 +308,7 @@ export function AnalyticsPage() {
 
   useEffect(() => {
     window.localStorage.setItem(
-      EXCLUDED_TRANSACTIONS_STORAGE_KEY,
+      `${EXCLUDED_TRANSACTIONS_STORAGE_KEY}.${owner}`,
       JSON.stringify({
         version: EXCLUDED_TRANSACTIONS_STORAGE_VERSION,
         transactionIds: [...excludedTransactionIds],
@@ -325,10 +350,10 @@ export function AnalyticsPage() {
 
   const periodOptions = useMemo<FilterOption[]>(
     () =>
-      Array.from(new Set(transactions.map((transaction) => transaction.date.slice(0, 7))))
+      [...availablePeriods]
         .sort((left, right) => right.localeCompare(left))
         .map((period) => ({ value: period, label: formatPeriodLabel(period) })),
-    [transactions],
+    [availablePeriods],
   );
   const accountOptions = useMemo<FilterOption[]>(
     () =>
@@ -925,7 +950,7 @@ export function AnalyticsPage() {
   };
 
   const clearFilters = () => {
-    setSelectedPeriods(new Set());
+    setSelectedPeriods(new Set(availablePeriods.slice(0, 1)));
     setSelectedAccountIds(new Set());
     setSelectedCategoryKeys(new Set());
     setSelectedTypes(new Set());
@@ -962,19 +987,21 @@ export function AnalyticsPage() {
         }
       />
 
+      {loadingPeriods && <LoadingState message="Cargando los meses seleccionados…" />}
       <div className="grid items-start gap-5 xl:grid-cols-[18rem_minmax(0,1fr)]">
         <Panel className="space-y-6">
           <div>
             <p className="eyebrow m-0 text-primary">Filtros combinables</p>
             <h2 className="mt-2 text-2xl font-medium tracking-[-0.03em]">{"Refina el an\u00e1lisis"}</h2>
             <p className="mt-2 text-sm leading-6 text-muted">
-              Sin selecciones se incluye todo. Marca solo lo que quieras restringir.
+              Elige los meses que quieres comparar. Los demás filtros incluyen todo si no marcas opciones.
             </p>
           </div>
 
           <div className="grid gap-x-8 gap-y-1 md:grid-cols-2 xl:grid-cols-1">
           <CheckboxFilterGroup
             title="Periodos"
+            emptyMeansAll={false}
             options={periodOptions}
             selected={selectedPeriods}
             onChange={setSelectedPeriods}
@@ -1666,6 +1693,7 @@ type CheckboxFilterGroupProps = {
   selected: Set<string>;
   onChange: (next: Set<string>) => void;
   selectAllLabel?: string;
+  emptyMeansAll?: boolean;
 };
 
 function CheckboxFilterGroup({
@@ -1674,6 +1702,7 @@ function CheckboxFilterGroup({
   selected,
   onChange,
   selectAllLabel,
+  emptyMeansAll = true,
 }: CheckboxFilterGroupProps) {
   const [isOpen, setIsOpen] = useState(false);
   const contentId = useId();
@@ -1710,13 +1739,13 @@ function CheckboxFilterGroup({
             {allOptionsSelected
               ? "Todos seleccionados"
               : selected.size === 0
-              ? "Sin filtro"
+              ? (emptyMeansAll ? "Sin filtro" : "Elige un periodo")
               : `${selected.size} ${selected.size === 1 ? "filtro activo" : "filtros activos"}`}
           </span>
         </span>
         <span className="flex shrink-0 items-center gap-3">
           <span className="rounded-full bg-paper-soft px-2.5 py-1 text-xs font-semibold text-muted">
-            {selected.size === 0 || allOptionsSelected ? "Todos" : selected.size}
+            {(emptyMeansAll && selected.size === 0) || allOptionsSelected ? "Todos" : selected.size}
           </span>
           <ChevronDownIcon
             className={cn("h-4 w-4 text-muted transition-transform", isOpen && "rotate-180 text-primary")}

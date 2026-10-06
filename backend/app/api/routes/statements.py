@@ -17,7 +17,8 @@ from app.schemas.statement import (
     StatementDeletionResult,
 )
 from app.schemas.transaction import TransactionCandidateReview
-from app.services.pdf_importer import PdfImportError, inspect_pdf, save_raw_pdf
+from app.services.pdf_importer import PdfImportError, MAX_PDF_SIZE_BYTES
+from app.services.pdf_worker import inspect_pdf_isolated
 from app.services.statements import (
     DuplicateStatementError,
     apply_transaction_reviews,
@@ -38,7 +39,10 @@ SessionDep = Annotated[Session, Depends(get_session)]
 async def _read_pdf(file: UploadFile) -> tuple[str, bytes]:
     """Lee un UploadFile PDF y conserva un nombre seguro por defecto."""
     file_name = file.filename or "cartola.pdf"
-    file_bytes = await file.read()
+    file_bytes = await file.read(MAX_PDF_SIZE_BYTES + 1)
+    await file.close()
+    if len(file_bytes) > MAX_PDF_SIZE_BYTES:
+        raise HTTPException(413, "El PDF supera el límite de 10 MB.")
     return file_name, file_bytes
 
 
@@ -123,7 +127,7 @@ async def preview_pdf_statement(
         raise HTTPException(status_code=404, detail="La cuenta seleccionada no existe.")
     file_name, file_bytes = await _read_pdf(file)
     try:
-        preview = inspect_pdf(
+        preview = await inspect_pdf_isolated(
             file_name=file_name,
             file_bytes=file_bytes,
             institution=account.institution,
@@ -158,13 +162,13 @@ async def import_pdf_statement(
         raise HTTPException(status_code=404, detail="La cuenta seleccionada no existe.")
     file_name, file_bytes = await _read_pdf(file)
     try:
-        preview = inspect_pdf(
+        preview = await inspect_pdf_isolated(
             file_name=file_name,
             file_bytes=file_bytes,
             institution=account.institution,
             password=password or None,
         )
-        raw_path = save_raw_pdf(file_name, file_bytes, preview.file_checksum)
+        raw_path = None
         return import_pdf_transactions(
             session,
             account_id=account_id,
@@ -200,7 +204,7 @@ async def import_reviewed_pdf_statement(
     file_name, file_bytes = await _read_pdf(file)
     try:
         reviews = _parse_reviewed_transactions(reviewed_transactions)
-        preview = inspect_pdf(
+        preview = await inspect_pdf_isolated(
             file_name=file_name,
             file_bytes=file_bytes,
             institution=account.institution,
@@ -211,7 +215,7 @@ async def import_reviewed_pdf_statement(
             preview.candidate_transactions,
             reviews,
         )
-        raw_path = save_raw_pdf(file_name, file_bytes, preview.file_checksum)
+        raw_path = None
         return import_pdf_transactions(
             session,
             account_id=account_id,

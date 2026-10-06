@@ -48,6 +48,19 @@ def get_transactions(
     )
 
 
+@router.get("/transaction-pages")
+def get_transaction_page(session: SessionDep, account_id: int | None = None,
+    statement_id: int | None = None, date_from: date | None = None, date_to: date | None = None,
+    transaction_type: str | None = None, category_id: int | None = None,
+    uncategorized: bool = False, exclude_internal: bool = False,
+    limit: int = Query(50, ge=1, le=1000), offset: int = Query(0, ge=0)):
+    from app.services.transactions import transaction_page
+    return transaction_page(session, account_id=account_id, statement_id=statement_id,
+        date_from=date_from, date_to=date_to, transaction_type=transaction_type,
+        category_id=category_id, uncategorized=uncategorized, exclude_internal=exclude_internal,
+        limit=limit, offset=offset)
+
+
 @router.get("/transactions/{transaction_id}", response_model=Transaction)
 def get_transaction_detail(transaction_id: int, session: SessionDep) -> Transaction:
     """Devuelve una transaccion especifica."""

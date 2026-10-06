@@ -1,8 +1,9 @@
-﻿import { NavLink, Outlet, useLocation } from "react-router-dom";
+import { useAuth } from "../auth/AuthProvider";
+import { supabase } from "../lib/supabase";
+import { NavLink, Link, Outlet, useLocation } from "react-router-dom";
 
 import {
   BankIcon,
-  BellIcon,
   CategoriesIcon,
   DashboardIcon,
   LogoMark,
@@ -15,21 +16,23 @@ import {
 } from "../components";
 
 const navItems = [
-  { to: "/", label: "Dashboard", icon: DashboardIcon },
-  { to: "/analytics", label: "An\u00e1lisis", icon: TrendLineIcon },
-  { to: "/accounts", label: "Cuentas", icon: BankIcon },
-  { to: "/import", label: "Importar PDF", icon: PdfIcon },
-  { to: "/transactions", label: "Movimientos", icon: ReportIcon },
-  { to: "/categories", label: "Categorias", icon: CategoriesIcon },
-  { to: "/settings", label: "Configuracion", icon: SettingsIcon },
+  { to: "/app", label: "Dashboard", icon: DashboardIcon },
+  { to: "/app/analytics", label: "An\u00e1lisis", icon: TrendLineIcon },
+  { to: "/app/accounts", label: "Cuentas", icon: BankIcon },
+  { to: "/app/import", label: "Importar PDF", icon: PdfIcon },
+  { to: "/app/transactions", label: "Movimientos", icon: ReportIcon },
+  { to: "/app/categories", label: "Categorias", icon: CategoriesIcon },
+  { to: "/app/settings", label: "Configuracion", icon: SettingsIcon },
 ];
 
 export function RootLayout() {
   const location = useLocation();
+  const { session } = useAuth();
+  const name = session?.user.user_metadata.full_name || session?.user.email || "Mi espacio";
   const currentSection =
     navItems.find((item) =>
-      item.to === "/"
-        ? location.pathname === "/"
+      item.to === "/app"
+        ? location.pathname === "/app"
         : location.pathname.startsWith(item.to),
     )?.label ?? "SoloFinanzas";
 
@@ -54,7 +57,7 @@ export function RootLayout() {
               <NavLink
                 key={to}
                 to={to}
-                end={to === "/"}
+                end={to === "/app"}
                 className={({ isActive }) =>
                   cn(
                     "group relative flex items-center gap-3 rounded-2xl px-3.5 py-3.5 text-[1.05rem] font-medium transition",
@@ -80,15 +83,15 @@ export function RootLayout() {
 
         <div className="space-y-6">
           <p className="max-w-[13rem] text-base leading-6 text-muted">
-            Tu informacion nunca sale de esta computadora.
+            Tus finanzas, en tu espacio privado en la nube.
           </p>
           <div className="subtle-divider" />
           <div className="flex items-center gap-4">
             <div className="flex h-11 w-11 items-center justify-center rounded-full bg-primary text-sm font-semibold text-white">
-              UL
+              {String(name).slice(0, 2).toUpperCase()}
             </div>
             <div>
-              <p className="font-medium">Usuario Local</p>
+              <Link to="/app/profile" className="font-medium">{name}</Link>
               <p className="text-sm text-muted">Sesion privada</p>
             </div>
           </div>
@@ -110,12 +113,8 @@ export function RootLayout() {
               </div>
             </div>
             <div className="flex items-center gap-3 text-ink">
-              <button className="rounded-full border border-transparent p-2 transition hover:bg-white">
-                <BellIcon className="h-5 w-5" />
-              </button>
-              <button className="rounded-full border border-primary/20 bg-white p-2 text-primary shadow-paper transition hover:border-primary/40">
-                <UserCircleIcon className="h-6 w-6" />
-              </button>
+              <button onClick={() => void supabase?.auth.signOut({ scope: "local" })} className="rounded-full px-3 py-2 text-sm">Salir</button>
+              <Link aria-label="Mi perfil" to="/app/profile" className="rounded-full border border-primary/20 bg-white p-2 text-primary"><UserCircleIcon className="h-6 w-6" /></Link>
             </div>
           </div>
 
@@ -124,7 +123,7 @@ export function RootLayout() {
               <NavLink
                 key={to}
                 to={to}
-                end={to === "/"}
+                end={to === "/app"}
                 className={({ isActive }) =>
                   cn(
                     "inline-flex shrink-0 items-center gap-2 rounded-full border px-4 py-2 text-sm font-medium transition",
@@ -149,10 +148,10 @@ export function RootLayout() {
 
         <footer className="subtle-divider mt-auto bg-white/70">
           <div className="mx-auto flex max-w-[1280px] flex-col gap-3 px-4 py-4 text-sm text-muted sm:px-6 md:flex-row md:items-center md:justify-between lg:px-10 xl:px-12">
-            <p className="m-0">SoloFinanzas v1.0.2 - Datos procesados localmente</p>
+            <p className="m-0">SoloFinanzas · Beta · Tu espacio privado</p>
             <div className="flex gap-6">
-              <span>Privacidad</span>
-              <span>Soporte</span>
+              <Link to="/privacy">Privacidad</Link>
+              <Link to="/help">Ayuda</Link>
             </div>
           </div>
         </footer>

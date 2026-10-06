@@ -1,4 +1,5 @@
-﻿import { useEffect, useMemo, useState } from "react";
+import { ReportService } from '../services/reportService';
+import { useEffect, useMemo, useState } from "react";
 import { Link, useLocation, useSearchParams } from "react-router-dom";
 import { useRef } from "react";
 
@@ -37,7 +38,7 @@ const ALL_PERIODS = "all";
 const ALL_ACCOUNTS = "all";
 const ALL_CATEGORIES = "all";
 const UNCATEGORIZED_CATEGORY = "uncategorized";
-const TRANSACTION_PAGE_SIZE = 1000;
+
 const VISIBLE_TRANSACTION_STEP = 50;
 
 function getMonthKey(date: string) {
@@ -86,26 +87,6 @@ function MovementIcon({ transaction }: { transaction: Transaction }) {
   );
 }
 
-async function loadAllTransactions(statementId?: number) {
-  const transactions: Transaction[] = [];
-  let offset = 0;
-
-  while (true) {
-    const page = await TransactionService.getTransactions({
-      statement_id: statementId,
-      limit: TRANSACTION_PAGE_SIZE,
-      offset,
-    });
-    transactions.push(...page);
-
-    if (page.length < TRANSACTION_PAGE_SIZE) {
-      return transactions;
-    }
-
-    offset += TRANSACTION_PAGE_SIZE;
-  }
-}
-
 export function TransactionsPage() {
   const [searchParams] = useSearchParams();
   const location = useLocation();
@@ -118,12 +99,12 @@ export function TransactionsPage() {
   const [draftCategories, setDraftCategories] = useState<Record<number, string>>({});
   const [filter, setFilter] = useState<FilterMode>("all");
   const [excludeInternalTransfers, setExcludeInternalTransfers] = useState(false);
-  const [selectedMonth, setSelectedMonth] = useState("");
+  const [selectedMonth, setSelectedMonth] = useState(ALL_PERIODS);
   const [selectedAccount, setSelectedAccount] = useState(ALL_ACCOUNTS);
   const [selectedCategory, setSelectedCategory] = useState(ALL_CATEGORIES);
-  const [visibleTransactionCount, setVisibleTransactionCount] = useState(
-    VISIBLE_TRANSACTION_STEP,
-  );
+  const [pageOffset, setPageOffset] = useState(0);
+  const [total, setTotal] = useState(0);
+  const [months, setMonths] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -154,68 +135,39 @@ export function TransactionsPage() {
     return () => observer.disconnect();
   }, []);
 
+  const query = {
+    statement_id: statementId,
+    account_id: selectedAccount === ALL_ACCOUNTS ? undefined : Number(selectedAccount),
+    category_id: [ALL_CATEGORIES, UNCATEGORIZED_CATEGORY].includes(selectedCategory) ? undefined : Number(selectedCategory),
+    uncategorized: selectedCategory === UNCATEGORIZED_CATEGORY,
+    exclude_internal: excludeInternalTransfers,
+    transaction_type: filter === 'all' ? undefined : filter,
+    date_from: selectedMonth === ALL_PERIODS ? undefined : `${selectedMonth}-01`,
+    date_to: selectedMonth === ALL_PERIODS ? undefined : `${selectedMonth}-${new Date(Number(selectedMonth.slice(0, 4)), Number(selectedMonth.slice(5, 7)), 0).getDate()}`,
+    limit: VISIBLE_TRANSACTION_STEP, offset: pageOffset,
+  };
   useEffect(() => {
     let cancelled = false;
-
-    async function loadData() {
-      setLoading(true);
-      setError(null);
-
-      try {
-        const [transactionsPayload, accountsPayload, categoriesPayload] = await Promise.all([
-          loadAllTransactions(statementId),
-          AccountService.getAccounts(),
-          CategoryService.getCategories(),
-        ]);
-
-        if (!cancelled) {
-          setTransactions(transactionsPayload);
-          setAccounts(accountsPayload);
-          setCategories(categoriesPayload);
-          setDraftCategories({});
-          setFilter("all");
-          setExcludeInternalTransfers(false);
-          setSelectedMonth(
-            transactionsPayload[0] ? getMonthKey(transactionsPayload[0].date) : ALL_PERIODS,
-          );
-          setSelectedAccount(ALL_ACCOUNTS);
-          setSelectedCategory(ALL_CATEGORIES);
-        }
-      } catch (err) {
-        if (!cancelled) {
-          setError(
-            err instanceof Error
-              ? err.message
-              : "No se pudieron cargar los movimientos.",
-          );
-        }
-      } finally {
-        if (!cancelled) {
-          setLoading(false);
-        }
-      }
-    }
-
-    void loadData();
-
-    return () => {
-      cancelled = true;
-    };
+    void Promise.all([AccountService.getAccounts(), CategoryService.getCategories(), ReportService.periods(statementId)])
+      .then(([a, c, p]) => { if (!cancelled) { setAccounts(a); setCategories(c); setMonths(p); } })
+      .catch(err => { if (!cancelled) setError(err.message); });
+    return () => { cancelled = true; };
   }, [statementId]);
-
-  const months = useMemo(
-    () =>
-      [...new Set(transactions.map((transaction) => getMonthKey(transaction.date)))].sort(
-        (left, right) => right.localeCompare(left),
-      ),
-    [transactions],
-  );
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true); setError(null); setTransactions([]);
+    void TransactionService.getPage(query).then(page => {
+      if (!cancelled) { setTransactions(page.items); setTotal(page.total); }
+    }).catch(err => { if (!cancelled) setError(err.message); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [statementId, selectedMonth, selectedAccount, selectedCategory, filter, excludeInternalTransfers, pageOffset]);
 
   const accountOptions = useMemo(() => {
     const accountIds = new Set(transactions.map((transaction) => transaction.account_id));
     const accountsById = new Map(accounts.map((account) => [account.id, account]));
     const knownAccounts = accounts
-      .filter((account) => accountIds.has(account.id))
+
       .map((account) => ({
         id: account.id,
         label: account.account_last4
@@ -251,7 +203,7 @@ export function TransactionsPage() {
       if (parentId) categoryIds.add(parentId);
     });
     const knownCategories = categories
-      .filter((category) => categoryIds.has(category.id))
+
       .map((category) => ({
         id: category.id,
         label: getCategoryPath(category.id, categoriesById),
@@ -312,13 +264,10 @@ export function TransactionsPage() {
   }, [categoryMap, excludeInternalTransfers, filter, selectedAccount, selectedCategory, selectedMonth, transactions]);
 
   useEffect(() => {
-    setVisibleTransactionCount(VISIBLE_TRANSACTION_STEP);
+    setPageOffset(0);
   }, [excludeInternalTransfers, filter, selectedAccount, selectedCategory, selectedMonth]);
 
-  const displayedTransactions = useMemo(
-    () => visibleTransactions.slice(0, visibleTransactionCount),
-    [visibleTransactionCount, visibleTransactions],
-  );
+  const displayedTransactions = visibleTransactions;
 
   const groupedTransactions = useMemo(() => {
     const groups = new Map<string, Transaction[]>();
@@ -365,7 +314,7 @@ export function TransactionsPage() {
 
   const exportMarkdown = () => {
     const markdown = [
-      `# Movimientos - ${formatMonthLabel(selectedMonth)}`,
+      `# Movimientos (página visible) - ${formatMonthLabel(selectedMonth)}`,
       "",
       ...visibleTransactions.map((transaction) => {
         const selectedCategory =
@@ -409,8 +358,9 @@ export function TransactionsPage() {
         ),
       );
 
-      const refreshed = await loadAllTransactions(statementId);
-      setTransactions(refreshed);
+      const refreshed = await TransactionService.getPage(query);
+      setTransactions(refreshed.items);
+      setTotal(refreshed.total);
       setDraftCategories({});
       setSuccessMessage(
         updatedMovementCount === 1
@@ -605,7 +555,7 @@ export function TransactionsPage() {
 
       {!loading && visibleTransactions.length > 0 ? (
         <p className="text-sm text-muted">
-          Mostrando {displayedTransactions.length} de {visibleTransactions.length} movimientos
+          Mostrando {displayedTransactions.length} de {total} movimientos (página {Math.floor(pageOffset / VISIBLE_TRANSACTION_STEP) + 1})
           {statementId ? " de esta importacion" : ""}.
         </p>
       ) : null}
@@ -648,7 +598,7 @@ export function TransactionsPage() {
                             </p>
                             {account ? (
                               <Link
-                                to={`/accounts?account_id=${account.id}`}
+                                to={`/app/accounts?account_id=${account.id}`}
                                 aria-label={`Ver detalle de ${account.name}`}
                                 className="inline-flex items-center gap-2 rounded-full border border-outline bg-white px-2.5 py-1 text-xs font-semibold text-muted transition hover:border-primary/40 hover:text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
                               >
@@ -722,20 +672,10 @@ export function TransactionsPage() {
             </section>
           ))}
 
-          {displayedTransactions.length < visibleTransactions.length ? (
-            <div className="flex justify-center">
-              <Button
-                tone="secondary"
-                onClick={() =>
-                  setVisibleTransactionCount(
-                    (current) => current + VISIBLE_TRANSACTION_STEP,
-                  )
-                }
-              >
-                Mostrar 50 mas
-              </Button>
-            </div>
-          ) : null}
+          <div className="flex justify-center gap-3">
+            <Button tone="secondary" disabled={pageOffset === 0 || loading} onClick={() => setPageOffset(Math.max(0, pageOffset - VISIBLE_TRANSACTION_STEP))}>Anterior</Button>
+            <Button tone="secondary" disabled={pageOffset + VISIBLE_TRANSACTION_STEP >= total || loading} onClick={() => setPageOffset(pageOffset + VISIBLE_TRANSACTION_STEP)}>Siguiente</Button>
+          </div>
         </div>
       ) : !loading ? (
         <EmptyState

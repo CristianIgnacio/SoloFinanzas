@@ -177,6 +177,8 @@ def inspect_pdf(
         raise PdfImportError("El archivo debe tener extension PDF.")
 
     reader, requires_password = _build_reader(file_bytes, password)
+    if len(reader.pages) > 50:
+        raise PdfImportError("El PDF supera el límite de 50 páginas.")
     pdf_content = _extract_pdf_content(file_bytes, password)
     extracted_text = pdf_content.text
     preview_lines = _build_preview_lines(extracted_text, preview_line_limit) # no se ocupa en el front

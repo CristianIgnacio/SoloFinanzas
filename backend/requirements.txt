@@ -5,3 +5,10 @@ sqlmodel==0.0.24
 pdfplumber>=0.11,<0.12
 pypdf>=5.6,<6.0
 python-multipart>=0.0.20,<0.1
+
+PyJWT[crypto]>=2.10,<3
+psycopg[binary]>=3.2,<4
+alembic>=1.15,<2
+httpx>=0.28,<1
+
+cryptography>=44,<49

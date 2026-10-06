@@ -1,5 +1,7 @@
 # Pruebas y calidad
 
+> Actualización de octubre de 2026: los detalles de autenticación, rutas `/app/*`, persistencia, pruebas y operación de la versión multiusuario están en [Despliegue de la beta](despliegue-beta.md). Este documento conserva el contexto funcional de la versión local anterior; no uses sus instrucciones antiguas de arranque/migración para producción.
+
 ## Ejecutar verificaciones
 
 Backend:

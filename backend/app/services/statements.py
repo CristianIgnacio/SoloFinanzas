@@ -49,7 +49,7 @@ def create_statement(session: Session, payload: StatementCreate) -> Statement:
         file_checksum=payload.file_checksum,
         period_month=payload.period_month,
         status=payload.status,
-        raw_path=payload.raw_path,
+        raw_path=None,
     )
     session.add(statement)
     session.commit()
@@ -259,7 +259,7 @@ def import_pdf_transactions(
     account_id: int,
     file_name: str,
     file_checksum: str,
-    raw_path: str,
+    raw_path: str | None,
     period_month: str,
     candidates: list[TransactionCandidate],
     category_overrides: dict[str, int | None] | None = None,
@@ -349,10 +349,7 @@ def import_pdf_transactions(
                 category_source=category_source,
                 rule_id_applied=rule_id,
                 fingerprint=fingerprint,
-                raw_data={
-                    "source_id": candidate.source_id,
-                    "source_line": candidate.source_line,
-                },
+                raw_data=None,
             )
         )
         inserted += 1

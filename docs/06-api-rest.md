@@ -1,5 +1,7 @@
 # API REST
 
+> Actualización de octubre de 2026: los detalles de autenticación, rutas `/app/*`, persistencia, pruebas y operación de la versión multiusuario están en [Despliegue de la beta](despliegue-beta.md). Este documento conserva el contexto funcional de la versión local anterior; no uses sus instrucciones antiguas de arranque/migración para producción.
+
 ## Convenciones generales
 
 - Base local: `http://127.0.0.1:8000`.

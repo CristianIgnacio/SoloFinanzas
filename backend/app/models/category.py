@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from app.models.user import OwnedModel
+
 from sqlalchemy import Column
 from sqlmodel import Field, SQLModel
 
@@ -7,7 +9,7 @@ from app.models._sql import enum_sql_type
 from app.domain.enums import CategoryType
 
 
-class CategoryModel(SQLModel, table=True):
+class CategoryModel(OwnedModel, table=True):
     __tablename__ = "categories"  # type: ignore
 
     id: int | None = Field(default=None, primary_key=True)

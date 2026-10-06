@@ -1,5 +1,7 @@
 # Análisis de SoloFinanzas — 9 de septiembre de 2026
 
+> Actualización de octubre de 2026: los detalles de autenticación, rutas `/app/*`, persistencia, pruebas y operación de la versión multiusuario están en [Despliegue de la beta](despliegue-beta.md). Este documento conserva el contexto funcional de la versión local anterior; no uses sus instrucciones antiguas de arranque/migración para producción.
+
 SoloFinanzas tiene una buena base como aplicación personal local: resuelve la entrada de datos desde cartolas chilenas, permite revisarlos y ofrece varias formas de analizarlos. La principal prioridad es reforzar la confianza en sus cifras y la capacidad de corregir y recuperar información. Eso debe preceder a nuevos indicadores y funciones de planificación.
 
 Esta evaluación corresponde al árbol de trabajo actual, incluidos cambios que ya estaban sin confirmar en Git. Combina inspección del código, navegación de escritorio con cuentas ficticias, las pruebas existentes y reproducciones específicas en bases temporales o en memoria. No se modificó el código funcional ni la base de datos personal. No se hizo una auditoría exhaustiva de seguridad, rendimiento, accesibilidad o dispositivos móviles, ni se contrastaron todas las instituciones con cartolas bancarias reales.

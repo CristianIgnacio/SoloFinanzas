@@ -1067,7 +1067,7 @@ export function DashboardPage() {
                   {support.accounts.slice(0, 4).map((account) => (
                     <Link
                       key={account.id}
-                      to={`/accounts?account_id=${account.id}`}
+                      to={`/app/accounts?account_id=${account.id}`}
                       aria-label={`Ver detalle de ${account.name}`}
                       className="surface-card-soft flex min-h-[220px] flex-col justify-between p-6 transition hover:-translate-y-1 hover:border-primary/30 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-primary"
                     >

@@ -1,4 +1,5 @@
-﻿import { useEffect, useMemo, useState } from "react";
+import { ReportService, type AccountTotal } from '../services/reportService';
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 
 import {
@@ -39,28 +40,13 @@ import type {
 } from "../types";
 
 type DetailTab = "statements" | "transactions";
-const PAGE_SIZE = 1000;
+const PAGE_SIZE = 50;
 
 const statusLabels: Record<StatementStatus, string> = {
   [StatementStatus.PENDING]: "Pendiente",
   [StatementStatus.PROCESSED]: "Procesada",
   [StatementStatus.FAILED]: "Con error",
 };
-
-async function loadTransactions(accountId: number) {
-  const result: Transaction[] = [];
-  let offset = 0;
-  while (true) {
-    const page = await TransactionService.getTransactions({
-      account_id: accountId,
-      limit: PAGE_SIZE,
-      offset,
-    });
-    result.push(...page);
-    if (page.length < PAGE_SIZE) return result;
-    offset += PAGE_SIZE;
-  }
-}
 
 function formatPeriod(period: string | null) {
   if (!period) return "Sin periodo";
@@ -85,6 +71,8 @@ export function AccountsPage() {
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [statements, setStatements] = useState<Statement[]>([]);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [pageOffset, setPageOffset] = useState(0);
+  const [totals, setTotals] = useState<AccountTotal[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [selectedAccountId, setSelectedAccountId] = useState<number | null>(null);
   const [activeTab, setActiveTab] = useState<DetailTab>("statements");
@@ -135,13 +123,15 @@ export function AccountsPage() {
       setLoadingDetails(true);
       setError(null);
       try {
-        const [statementData, transactionData] = await Promise.all([
+        const [statementData, transactionData, accountTotals] = await Promise.all([
           StatementService.getStatements(selectedAccountId as number),
-          loadTransactions(selectedAccountId as number),
+          TransactionService.getPage({account_id: selectedAccountId as number, limit: PAGE_SIZE, offset: pageOffset}),
+          ReportService.accounts(),
         ]);
         if (!cancelled) {
           setStatements(statementData);
-          setTransactions(transactionData);
+          setTransactions(transactionData.items);
+          setTotals(accountTotals);
         }
       } catch (err) {
         if (!cancelled) {
@@ -155,7 +145,7 @@ export function AccountsPage() {
     return () => {
       cancelled = true;
     };
-  }, [selectedAccountId]);
+  }, [selectedAccountId, pageOffset]);
 
   const account = accounts.find((item) => item.id === selectedAccountId) ?? null;
   const selectedIndex = accounts.findIndex((item) => item.id === selectedAccountId);
@@ -163,17 +153,10 @@ export function AccountsPage() {
     () => createCategoryMap(categories),
     [categories],
   );
-  const summary = useMemo(() => {
-    const income = transactions
-      .filter((item) => item.amount_clp > 0)
-      .reduce((sum, item) => sum + item.amount_clp, 0);
-    const expenses = transactions
-      .filter((item) => item.amount_clp < 0)
-      .reduce((sum, item) => sum + Math.abs(item.amount_clp), 0);
-    return { income, expenses, net: income - expenses, count: transactions.length };
-  }, [transactions]);
+  const summary = totals.find(item => item.account_id === selectedAccountId) ?? {income: 0, expenses: 0, net: 0, count: 0};
 
   const selectAccount = (accountId: number) => {
+    setPageOffset(0);
     setSelectedAccountId(accountId);
     setSearchParams({ account_id: String(accountId) }, { replace: true });
   };
@@ -237,12 +220,14 @@ export function AccountsPage() {
       );
 
       try {
-        const [statementData, transactionData] = await Promise.all([
+        const [statementData, transactionData, accountTotals] = await Promise.all([
           StatementService.getStatements(accountId),
-          loadTransactions(accountId),
+          TransactionService.getPage({account_id: accountId, limit: PAGE_SIZE, offset: 0}),
+          ReportService.accounts(),
         ]);
         setStatements(statementData);
-        setTransactions(transactionData);
+        setTransactions(transactionData.items);
+          setTotals(accountTotals);
       } catch (refreshError) {
         setError(
           refreshError instanceof Error
@@ -267,7 +252,7 @@ export function AccountsPage() {
         description="Selecciona una cuenta para revisar sus cartolas, movimientos y resultados acumulados."
         actions={
           account ? (
-            <Button onClick={() => navigate(`/import?account_id=${account.id}`)}>
+            <Button onClick={() => navigate(`/app/import?account_id=${account.id}`)}>
               <PlusIcon className="h-5 w-5" />
               Importar nueva cartola
             </Button>
@@ -283,7 +268,7 @@ export function AccountsPage() {
         <EmptyState
           title="Todavia no tienes cuentas"
           description="Crea tu primera cuenta desde Configuracion para comenzar a importar cartolas."
-          action={<Button onClick={() => navigate("/settings")}>Ir a Configuracion</Button>}
+          action={<Button onClick={() => navigate("/app/settings")}>Ir a Configuracion</Button>}
         />
       ) : null}
 
@@ -361,7 +346,7 @@ export function AccountsPage() {
               })}
               <button
                 type="button"
-                onClick={() => navigate("/settings?new_account=1")}
+                onClick={() => navigate("/app/settings?new_account=1")}
                 className="flex min-h-[180px] min-w-[280px] snap-start flex-col items-center justify-center gap-4 rounded-[1.75rem] border-2 border-dashed border-outline bg-paper-soft/60 p-6 text-center text-muted transition hover:border-primary/50 hover:bg-primary-mist/40 hover:text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-primary sm:min-w-[340px]"
               >
                 <span className="flex h-14 w-14 items-center justify-center rounded-full bg-white text-primary shadow-sm">
@@ -484,7 +469,7 @@ export function AccountsPage() {
                               <Button
                                 className="px-3 py-2 text-sm"
                                 tone="ghost"
-                                onClick={() => navigate(`/transactions?statement_id=${statement.id}`)}
+                                onClick={() => navigate(`/app/transactions?statement_id=${statement.id}`)}
                               >
                                 Ver movimientos
                               </Button>
@@ -544,12 +529,17 @@ export function AccountsPage() {
                 </div>
               ) : null}
 
+              {activeTab === 'transactions' && <div className="flex justify-center gap-3 py-4">
+                <Button tone="secondary" disabled={loadingDetails || pageOffset === 0} onClick={() => setPageOffset(Math.max(0, pageOffset - PAGE_SIZE))}>Anterior</Button>
+                <span className="self-center">{summary.count} movimientos · página {Math.floor(pageOffset / PAGE_SIZE) + 1}</span>
+                <Button tone="secondary" disabled={loadingDetails || pageOffset + PAGE_SIZE >= summary.count} onClick={() => setPageOffset(pageOffset + PAGE_SIZE)}>Siguiente</Button>
+              </div>}
               {!loadingDetails && activeTab === "statements" && statements.length === 0 ? (
                 <EmptyState
                   title="No hay cartolas importadas"
                   description="Importa la primera cartola de esta cuenta para comenzar a registrar movimientos."
                   action={
-                    <Button onClick={() => navigate(`/import?account_id=${account.id}`)}>
+                    <Button onClick={() => navigate(`/app/import?account_id=${account.id}`)}>
                       Importar cartola
                     </Button>
                   }

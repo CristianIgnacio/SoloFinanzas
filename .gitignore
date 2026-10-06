@@ -4,8 +4,10 @@ __pycache__/
 .pytest_cache/
 .mypy_cache/
 
-# Pruebas conservadas solo en el entorno local
+# Pruebas conservadas solo en este equipo; no subir a Git.
 /backend/tests/
+/frontend/tests/
+/frontend/playwright.config.ts
 
 node_modules/
 dist/
@@ -28,3 +30,6 @@ backend/data/
 coverage/
 .DS_Store
 Thumbs.db
+
+frontend/test-results/
+frontend/playwright-report/

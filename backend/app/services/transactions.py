@@ -1,6 +1,7 @@
 from datetime import date
 
 from sqlmodel import Session, select
+from sqlalchemy import func, or_
 
 from app.domain.enums import CategoryType, TransactionType
 from app.models.category import CategoryModel
@@ -81,28 +82,8 @@ def list_transactions(
     offset: int = 0,
 ) -> list[Transaction]:
     """Lista transacciones aplicando filtros y paginacion opcionales."""
-    query = select(TransactionModel).order_by(
-        TransactionModel.date.desc(), TransactionModel.id.desc()
-    )
-    
-    if account_id is not None:
-        query = query.where(TransactionModel.account_id == account_id)
-    if statement_id is not None:
-        query = query.where(TransactionModel.statement_id == statement_id)
-    if date_from is not None:
-        query = query.where(TransactionModel.date >= date_from)
-    if date_to is not None:
-        query = query.where(TransactionModel.date <= date_to)
-    if transaction_type is not None:
-        query = query.where(TransactionModel.transaction_type == transaction_type)
-    if category_id is not None:
-        child_ids = session.exec(
-            select(CategoryModel.id).where(CategoryModel.parent_id == category_id)
-        ).all()
-        query = query.where(
-            TransactionModel.category_id.in_([category_id, *child_ids])
-        )
-    
+    query = transaction_query(session, account_id, statement_id, date_from, date_to, transaction_type, category_id)
+    query = query.order_by(TransactionModel.date.desc(), TransactionModel.id.desc())
     transactions = session.exec(query.limit(limit).offset(offset)).all()
     matched_ids = _matched_transaction_ids(session)
     return [_to_transaction(t, matched_ids) for t in transactions]
@@ -169,5 +150,45 @@ def count_transactions(
         query = query.where(TransactionModel.account_id == account_id)
     if statement_id is not None:
         query = query.where(TransactionModel.statement_id == statement_id)
-    
+
     return session.exec(query).all().__len__()
+
+
+def transaction_query(session, account_id=None, statement_id=None, date_from=None, date_to=None,
+                      transaction_type=None, category_id=None, uncategorized=False, exclude_internal=False):
+    query = select(TransactionModel)
+
+    if account_id is not None:
+        query = query.where(TransactionModel.account_id == account_id)
+    if statement_id is not None:
+        query = query.where(TransactionModel.statement_id == statement_id)
+    if date_from is not None:
+        query = query.where(TransactionModel.date >= date_from)
+    if date_to is not None:
+        query = query.where(TransactionModel.date <= date_to)
+    if transaction_type is not None:
+        query = query.where(TransactionModel.transaction_type == transaction_type)
+    if category_id is not None:
+        child_ids = session.exec(
+            select(CategoryModel.id).where(CategoryModel.parent_id == category_id)
+        ).all()
+        query = query.where(
+            TransactionModel.category_id.in_([category_id, *child_ids])
+        )
+
+    if uncategorized:
+        query = query.where(TransactionModel.category_id.is_(None))
+    if exclude_internal:
+        matched = select(InternalTransferMatchModel.id).where(or_(
+            InternalTransferMatchModel.outgoing_transaction_id == TransactionModel.id,
+            InternalTransferMatchModel.incoming_transaction_id == TransactionModel.id)).exists()
+        query = query.where(~matched)
+    return query
+
+
+def transaction_page(session, limit=50, offset=0, **filters):
+    query = transaction_query(session, **filters)
+    total = session.exec(query.with_only_columns(func.count(TransactionModel.id))).one()
+    rows = session.exec(query.order_by(TransactionModel.date.desc(), TransactionModel.id.desc()).limit(limit).offset(offset)).all()
+    matched = _matched_transaction_ids(session)
+    return dict(items=[_to_transaction(row, matched) for row in rows], total=total, limit=limit, offset=offset)
