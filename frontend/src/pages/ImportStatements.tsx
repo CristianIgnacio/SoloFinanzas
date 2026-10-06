@@ -14,8 +14,9 @@ import {
   StatusNotice,
   UploadIcon,
 } from "../components";
+import { groupCategories } from "../lib";
 import { AccountService, CategoryService, StatementService } from "../services";
-import { InstitutionLabels, supportsPdfImport } from "../types";
+import { CategoryType, InstitutionLabels, supportsPdfImport } from "../types";
 import { TransactionType } from "../types";
 import type { Account, Category, PdfPreview, TransactionPreviewCandidate } from "../types";
 
@@ -129,6 +130,7 @@ export function ImportStatementsPage() {
 
   const categoryOptionsFor = (transactionType: TransactionType) => {
     return categories.filter((category) => {
+      if (!category.is_active) return false;
       if (transactionType === TransactionType.INCOME) {
         return category.type === "income" || category.type === "transfer";
       }
@@ -136,6 +138,15 @@ export function ImportStatementsPage() {
       return category.type === "expense" || category.type === "transfer";
     });
   };
+
+  const categoryGroupsFor = (transactionType: TransactionType) =>
+    groupCategories(categories, {
+      activeOnly: true,
+      type:
+        transactionType === TransactionType.INCOME
+          ? CategoryType.INCOME
+          : CategoryType.EXPENSE,
+    });
 
   const isCategoryCompatible = (
     categoryId: number | null,
@@ -194,13 +205,14 @@ export function ImportStatementsPage() {
         Number(selectedAccount),
         selectedFile,
         editableTransactions.map((transaction) => ({
+          source_id: transaction.source_id,
           source_line: transaction.source_line,
           transaction_type: transaction.transaction_type,
           category_id: transaction.category_id,
         })),
         password || undefined,
       );
-      navigate(`/transactions?statement_id=${response.statement.id}`, {
+      navigate(`/app/transactions?statement_id=${response.statement.id}`, {
         state: {
           importMessage: `${response.result.inserted_count} movimientos importados correctamente.`,
         },
@@ -213,12 +225,12 @@ export function ImportStatementsPage() {
   };
 
   const updateTransactionType = (
-    sourceLine: string,
+    sourceId: string | null,
     transactionType: TransactionType,
   ) => {
     setEditableTransactions((transactions) =>
       transactions.map((transaction) => {
-        if (transaction.source_line !== sourceLine) {
+        if (transaction.source_id !== sourceId) {
           return transaction;
         }
 
@@ -242,12 +254,12 @@ export function ImportStatementsPage() {
   };
 
   const updateTransactionCategory = (
-    sourceLine: string,
+    sourceId: string | null,
     categoryId: number | null,
   ) => {
     setEditableTransactions((transactions) =>
       transactions.map((transaction) =>
-        transaction.source_line === sourceLine
+        transaction.source_id === sourceId
           ? { ...transaction, category_id: categoryId }
           : transaction,
       ),
@@ -259,7 +271,7 @@ export function ImportStatementsPage() {
       <PageIntro
         eyebrow="Importar PDF"
         title="Subir Cartola"
-        description="Importa cartolas PDF de Banco de Chile, Banco Santander, CopecPay, Mercado Pago y BancoEstado."
+        description="Importa cartolas PDF de Banco de Chile, Banco Santander, Banco Falabella (cuenta corriente), CopecPay, Mercado Pago y BancoEstado."
       />
 
       {error ? <StatusNotice tone="error">{error}</StatusNotice> : null}
@@ -417,8 +429,8 @@ export function ImportStatementsPage() {
                 {summary.count} movimientos detectados
               </h2>
               <p className="text-muted">
-                Periodo {preview.period_month} Â· {preview.page_count} pagina
-                {preview.page_count === 1 ? "" : "s"} Â·{" "}
+                Periodo {preview.period_month} · {preview.page_count} pagina
+                {preview.page_count === 1 ? "" : "s"} ·{" "}
                 {preview.is_encrypted ? "PDF protegido" : "PDF sin contrasena"}
               </p>
             </div>
@@ -480,7 +492,7 @@ export function ImportStatementsPage() {
                         value={transaction.transaction_type}
                         onChange={(event) =>
                           updateTransactionType(
-                            transaction.source_line,
+                            transaction.source_id,
                             event.target.value as TransactionType,
                           )
                         }
@@ -495,17 +507,26 @@ export function ImportStatementsPage() {
                         value={transaction.category_id ?? ""}
                         onChange={(event) =>
                           updateTransactionCategory(
-                            transaction.source_line,
+                            transaction.source_id,
                             event.target.value ? Number(event.target.value) : null,
                           )
                         }
                         className="w-full rounded-xl border border-outline bg-white px-3 py-2 text-sm outline-none transition focus:border-primary"
                       >
                         <option value="">Sin categoria</option>
-                        {categoryOptionsFor(transaction.transaction_type).map((category) => (
-                          <option key={category.id} value={category.id}>
-                            {category.name}
-                          </option>
+                        {categoryGroupsFor(transaction.transaction_type).map((group) => (
+                          <optgroup key={group.root.id} label={group.root.name}>
+                            <option value={group.root.id}>
+                              {group.children.length > 0
+                                ? `${group.root.name} (sin subcategoria)`
+                                : group.root.name}
+                            </option>
+                            {group.children.map((category) => (
+                              <option key={category.id} value={category.id}>
+                                {category.name}
+                              </option>
+                            ))}
+                          </optgroup>
                         ))}
                       </select>
                     </td>

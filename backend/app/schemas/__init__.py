@@ -17,7 +17,12 @@ from app.schemas.categorization_rule import (
 from app.schemas.category import Category, CategoryCreate
 from app.schemas.dashboard import DashboardResponse, MonthlyMovement, SummaryCard
 from app.schemas.shared import ImportTransactionsResult
-from app.schemas.statement import Statement, StatementCreate
+from app.schemas.statement import (
+    Statement,
+    StatementCreate,
+    StatementDeletionImpact,
+    StatementDeletionResult,
+)
 from app.schemas.transaction import Transaction, TransactionCandidate, TransactionCreate
 
 __all__ = [
@@ -38,6 +43,8 @@ __all__ = [
     "MonthlyMovement",
     "Statement",
     "StatementCreate",
+    "StatementDeletionImpact",
+    "StatementDeletionResult",
     "StatementStatus",
     "SummaryCard",
     "Transaction",

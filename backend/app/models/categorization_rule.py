@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+from app.models.user import OwnedModel
+
 from datetime import datetime, timezone
 
 from sqlmodel import Field, SQLModel
 
 
-class CategorizationRuleModel(SQLModel, table=True):
+class CategorizationRuleModel(OwnedModel, table=True):
     __tablename__ = "categorization_rules"  # type: ignore
 
     id: int | None = Field(default=None, primary_key=True)

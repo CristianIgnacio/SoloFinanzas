@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from app.models.user import OwnedModel
+
 from datetime import date as date_type
 from datetime import datetime, timezone
 from typing import Any
@@ -11,7 +13,7 @@ from app.models._sql import enum_sql_type
 from app.domain.enums import CategorySource, TransactionType
 
 
-class TransactionModel(SQLModel, table=True):
+class TransactionModel(OwnedModel, table=True):
     __tablename__ = "transactions"  # type: ignore
 
     id: int | None = Field(default=None, primary_key=True)

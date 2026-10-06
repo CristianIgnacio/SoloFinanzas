@@ -13,6 +13,7 @@ import {
   EmptyState,
   ErrorState,
   HouseIcon,
+  InstitutionLogo,
   InvestmentIcon,
   LightningIcon,
   LoadingState,
@@ -24,7 +25,12 @@ import {
   StatCard,
 } from "../components";
 import { useDashboard, useFormatCurrency } from "../hooks";
-import { parseLocalDate } from "../lib";
+import {
+  createCategoryMap,
+  getCategoryPath,
+  getRootCategory,
+  parseLocalDate,
+} from "../lib";
 import { AccountService, CategoryService, TransactionService } from "../services";
 import {
   CurrencyCode,
@@ -508,7 +514,7 @@ export function DashboardPage() {
   };
 
   const categoryMap = useMemo(
-    () => new Map(support.categories.map((category) => [category.id, category.name])),
+    () => createCategoryMap(support.categories),
     [support.categories],
   );
   const categoryTypeMap = useMemo(
@@ -526,9 +532,8 @@ export function DashboardPage() {
           categoryTypeMap.get(transaction.category_id ?? -1) !== "transfer",
       )
       .forEach((transaction) => {
-        const key = transaction.category_id
-          ? categoryMap.get(transaction.category_id) ?? "Sin categoria"
-          : "Sin categoria";
+        const category = categoryMap.get(transaction.category_id ?? -1);
+        const key = getRootCategory(category, categoryMap)?.name ?? "Sin categoria";
         totals.set(key, (totals.get(key) ?? 0) + Math.abs(transaction.amount_clp));
       });
 
@@ -771,7 +776,7 @@ export function DashboardPage() {
           };
           return `<strong>${item.name ?? ""}</strong><br/>${formatCurrency(
             Number(item.value ?? 0),
-          )} Â· ${Number(item.percent ?? 0).toFixed(1)}%`;
+          )} · ${Number(item.percent ?? 0).toFixed(1)}%`;
         },
       },
       series: [
@@ -920,7 +925,7 @@ export function DashboardPage() {
                   Gastos por Categoria
                 </h2>
                 <p className="text-sm text-muted">
-                  {dashboardPeriod} Â· sin transferencias internas
+                  {dashboardPeriod} · sin transferencias internas
                 </p>
               </div>
               {expenseBreakdown.length > 0 ? (
@@ -1062,12 +1067,12 @@ export function DashboardPage() {
                   {support.accounts.slice(0, 4).map((account) => (
                     <Link
                       key={account.id}
-                      to={`/accounts?account_id=${account.id}`}
+                      to={`/app/accounts?account_id=${account.id}`}
                       aria-label={`Ver detalle de ${account.name}`}
                       className="surface-card-soft flex min-h-[220px] flex-col justify-between p-6 transition hover:-translate-y-1 hover:border-primary/30 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-primary"
                     >
                       <div className="flex items-center justify-between gap-3">
-                        <BankIcon className="h-9 w-9 text-primary" />
+                        <InstitutionLogo institution={account.institution} />
                         <span className="rounded-full bg-primary-soft px-3 py-1 text-sm font-medium text-primary">
                           {account.account_type}
                         </span>
@@ -1152,8 +1157,7 @@ export function DashboardPage() {
                             {transaction.description}
                           </p>
                           <p className="truncate text-sm font-medium text-muted">
-                            {categoryMap.get(transaction.category_id ?? -1) ??
-                              "Sin categoria"}{" "}
+                            {getCategoryPath(transaction.category_id, categoryMap)}{" "}
                             |{" "}
                             {parseLocalDate(transaction.date).toLocaleDateString("es-CL", {
                               day: "2-digit",

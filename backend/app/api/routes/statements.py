@@ -8,15 +8,25 @@ from sqlmodel import Session
 from app.core.database import get_session
 from app.domain.enums import StatementStatus
 from app.models.account import AccountModel
-from app.schemas.statement import PdfImportResponse, PdfPreview, Statement, StatementCreate
+from app.schemas.statement import (
+    PdfImportResponse,
+    PdfPreview,
+    Statement,
+    StatementCreate,
+    StatementDeletionImpact,
+    StatementDeletionResult,
+)
 from app.schemas.transaction import TransactionCandidateReview
-from app.services.pdf_importer import PdfImportError, inspect_pdf, save_raw_pdf
+from app.services.pdf_importer import PdfImportError, MAX_PDF_SIZE_BYTES
+from app.services.pdf_worker import inspect_pdf_isolated
 from app.services.statements import (
     DuplicateStatementError,
     apply_transaction_reviews,
     build_transaction_previews,
     create_statement,
+    delete_statement,
     get_statement,
+    get_statement_deletion_impact,
     import_pdf_transactions,
     list_statements,
     update_statement_status,
@@ -29,7 +39,10 @@ SessionDep = Annotated[Session, Depends(get_session)]
 async def _read_pdf(file: UploadFile) -> tuple[str, bytes]:
     """Lee un UploadFile PDF y conserva un nombre seguro por defecto."""
     file_name = file.filename or "cartola.pdf"
-    file_bytes = await file.read()
+    file_bytes = await file.read(MAX_PDF_SIZE_BYTES + 1)
+    await file.close()
+    if len(file_bytes) > MAX_PDF_SIZE_BYTES:
+        raise HTTPException(413, "El PDF supera el límite de 10 MB.")
     return file_name, file_bytes
 
 
@@ -71,6 +84,35 @@ def patch_statement_status(
         raise HTTPException(status_code=404, detail="Statement not found")
     return statement
 
+@router.get(
+    "/statements/{statement_id}/deletion-impact",
+    response_model=StatementDeletionImpact,
+)
+def get_statement_deletion_impact_endpoint(
+    statement_id: int,
+    session: SessionDep,
+) -> StatementDeletionImpact:
+    """Informa el alcance de deshacer una importacion antes de confirmarla."""
+    impact = get_statement_deletion_impact(session, statement_id)
+    if impact is None:
+        raise HTTPException(status_code=404, detail="Statement not found")
+    return impact
+
+
+@router.delete(
+    "/statements/{statement_id}",
+    response_model=StatementDeletionResult,
+)
+def delete_statement_endpoint(
+    statement_id: int,
+    session: SessionDep,
+) -> StatementDeletionResult:
+    """Elimina una cartola, sus movimientos y sus datos derivados."""
+    result = delete_statement(session, statement_id)
+    if result is None:
+        raise HTTPException(status_code=404, detail="Statement not found")
+    return result
+
 
 @router.post("/statement-imports/pdf/preview", response_model=PdfPreview)
 async def preview_pdf_statement(
@@ -85,7 +127,7 @@ async def preview_pdf_statement(
         raise HTTPException(status_code=404, detail="La cuenta seleccionada no existe.")
     file_name, file_bytes = await _read_pdf(file)
     try:
-        preview = inspect_pdf(
+        preview = await inspect_pdf_isolated(
             file_name=file_name,
             file_bytes=file_bytes,
             institution=account.institution,
@@ -120,13 +162,13 @@ async def import_pdf_statement(
         raise HTTPException(status_code=404, detail="La cuenta seleccionada no existe.")
     file_name, file_bytes = await _read_pdf(file)
     try:
-        preview = inspect_pdf(
+        preview = await inspect_pdf_isolated(
             file_name=file_name,
             file_bytes=file_bytes,
             institution=account.institution,
             password=password or None,
         )
-        raw_path = save_raw_pdf(file_name, file_bytes, preview.file_checksum)
+        raw_path = None
         return import_pdf_transactions(
             session,
             account_id=account_id,
@@ -162,7 +204,7 @@ async def import_reviewed_pdf_statement(
     file_name, file_bytes = await _read_pdf(file)
     try:
         reviews = _parse_reviewed_transactions(reviewed_transactions)
-        preview = inspect_pdf(
+        preview = await inspect_pdf_isolated(
             file_name=file_name,
             file_bytes=file_bytes,
             institution=account.institution,
@@ -173,7 +215,7 @@ async def import_reviewed_pdf_statement(
             preview.candidate_transactions,
             reviews,
         )
-        raw_path = save_raw_pdf(file_name, file_bytes, preview.file_checksum)
+        raw_path = None
         return import_pdf_transactions(
             session,
             account_id=account_id,

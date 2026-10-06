@@ -72,7 +72,7 @@ flowchart LR
     I --> J["_iter_tabular_lines"]
     I --> K["_parse_tabular_line"]
     K --> L["_resolve_tabular_amount"]
-    L --> M["_resolve_layout_column_amount"]
+    L --> M["_resolve_layout_column_candidate_amount"]
     I --> N["_validate_summary_totals"]
 ```
 
@@ -203,7 +203,35 @@ flowchart TD
 - `COPECPAY`
 - `MERCADOPAGO`
 - `BANCO_ESTADO`
+- `BANCO_FALABELLA`
 
 Cada perfil define marcadores de documento, keywords de ingreso/egreso y, cuando
 aplica, reglas especiales como lineas de continuacion, marcadores de inicio/fin,
 extraccion de totales y columnas visuales.
+
+### Banco Falabella: cuenta corriente
+
+El perfil `FALABELLA_PROFILE` admite la **Cartola de Movimientos de Cuenta
+Corriente**. El logo puede estar rasterizado y no aparecer en el texto extraido;
+su validador comprueba conjuntamente el titulo, el producto, el periodo,
+`Saldo Disponible`, `Saldo Contable`, `Listado de movimientos` y el encabezado
+`FECHA DESCRIPCIÓN CARGO ABONO SALDO`. Rechaza encabezados de otras instituciones
+y no admite estados de cuenta CMR.
+
+`movement_columns_pattern` captura desde el final de cada fila la descripcion,
+cargo, abono y saldo. Cada celda monetaria lleva `$` y la celda vacia usa `-`.
+Se aceptan miles con comas o puntos mediante el normalizador CLP existente;
+los decimales distintos de cero y las filas con cargo y abono simultaneos se
+reportan como errores. El signo depende de la columna, no de la descripcion.
+Los saldos se validan pero no se importan como movimientos ni se comparan con
+el saldo disponible del encabezado, que puede representar otro momento.
+
+El periodo `Periodo de movimientos DD/MM/AAAA al D/MM/AAAA` admite dias y meses
+de uno o dos digitos. Se usa para validar las fechas de las transacciones.
+`period_from_transactions` asigna el mes del ultimo movimiento, ya que el fin
+del rango de consulta puede estar en el futuro. Sin movimientos se conserva
+el mes final declarado; la interfaz no permite confirmar una importacion vacia.
+
+El perfil reutiliza la vista previa, revision, categorizacion, identificadores
+por fila y proteccion contra duplicados del flujo comun. Las pruebas usan datos
+sinteticos y PDFs generados en memoria, sin incluir informacion del titular.

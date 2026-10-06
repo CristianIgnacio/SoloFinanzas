@@ -1,130 +1,108 @@
 from __future__ import annotations
 
 from collections.abc import Iterator
+from contextlib import contextmanager
+from hashlib import blake2b
 from pathlib import Path
+from threading import Lock
+from uuid import UUID
 
-from sqlalchemy import text
-from sqlmodel import Session, SQLModel, create_engine, select
+from fastapi import Depends, HTTPException, Request
+from sqlalchemy import event, text
+from sqlmodel import Session, create_engine, select
 
 from app.core.config import settings
-from app.models import (
-    AccountModel,
-    CategorizationRuleModel,
-    CategoryModel,
-    StatementModel,
-    TransactionModel,
-)
-from app.services.catalogs import DEFAULT_CATEGORIES, DEFAULT_CATEGORIZATION_RULES
-from app.services.categorization_rules import _normalize_keyword
-
+from app.core.auth import Identity, get_identity
+from app.core.tenancy import TenantSession
+from app.models.user import UserModel
+from app.core.seeding import seed_default_categories, seed_default_categorization_rules
 
 BACKEND_DIR = Path(__file__).resolve().parents[2]
+# Compatibility only for offline legacy tooling. It is never opened at import/startup.
+DB_PATH = BACKEND_DIR / settings.database_path
 
-
-def _resolve_database_path() -> Path:
-    """Resuelve la ruta SQLite configurada contra el directorio del backend."""
-    configured_path = Path(settings.database_path)
-    if configured_path.is_absolute():
-        return configured_path
-    return BACKEND_DIR / configured_path
-
-
-DB_PATH = _resolve_database_path()
-DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-
-engine = create_engine(
-    f"sqlite:///{DB_PATH}",
-    connect_args={"check_same_thread": False},
-)
-
-
-def get_session() -> Iterator[Session]:
-    """Entrega una sesion SQLModel por request y la cierra al finalizar."""
-    with Session(engine) as session:
-        yield session
-
-
-def init_db() -> Path:
-    """Crea tablas, normaliza datos heredados y siembra catalogos base."""
-    SQLModel.metadata.create_all(engine)
-    normalize_legacy_transaction_types()
-    with Session(engine) as session:
-        seed_default_categories(session)
-        session.flush()
-        seed_default_categorization_rules(session)
-        session.flush()
-        from app.services.internal_transfers import refresh_internal_transfer_matches
-
-        refresh_internal_transfer_matches(session)
-        session.commit()
-    return DB_PATH
-
-
-def normalize_legacy_transaction_types() -> None:
-    """Migra tipos de transaccion antiguos hacia ingreso o gasto segun monto."""
-    with engine.begin() as connection:
-        connection.execute(
-            text(
-                """
-                UPDATE transactions
-                SET transaction_type = CASE
-                    WHEN amount_clp >= 0 THEN 'income'
-                    ELSE 'expense'
-                END
-                WHERE transaction_type IN ('transfer', 'unknown')
-                """
-            )
-        )
-
-
-def seed_default_categories(session: Session) -> None:
-    """Inserta categorias predeterminadas que aun no existan en la base."""
-    existing_names = {
-        category.name
-        for category in session.exec(select(CategoryModel)).all()
+def make_engine(url: str):
+    if url.startswith("sqlite:///") and url != "sqlite:///:memory:":
+        path = Path(url.removeprefix("sqlite:///"))
+        if not path.is_absolute():
+            path = BACKEND_DIR / path
+        path.parent.mkdir(parents=True, exist_ok=True)
+        url = "sqlite:///" + path.as_posix()
+    if url.startswith("postgres://"):
+        url = url.replace("postgres://", "postgresql+psycopg://", 1)
+    elif url.startswith("postgresql://"):
+        url = url.replace("postgresql://", "postgresql+psycopg://", 1)
+    kwargs = {"connect_args": {"check_same_thread": False}} if url.startswith("sqlite") else {
+        "pool_size": 3, "max_overflow": 2, "pool_pre_ping": True,
     }
-    for category in DEFAULT_CATEGORIES:
-        if category.name in existing_names:
-            continue
-        session.add(
-            CategoryModel(
-                name=category.name,
-                type=category.type,
-                is_default=category.is_default,
-            )
-        )
+    result = create_engine(url, hide_parameters=True, **kwargs)
+    if url.startswith("sqlite"):
+        @event.listens_for(result, "connect")
+        def foreign_keys(connection, _):
+            connection.execute("PRAGMA foreign_keys=ON")
+    else:
+        @event.listens_for(result, "connect")
+        def private_schema(connection, _):
+            # A session setting works with Supavisor without relying on support
+            # for PostgreSQL's optional startup 'options' parameter.
+            previous = connection.autocommit
+            connection.autocommit = True
+            try:
+                with connection.cursor() as cursor:
+                    cursor.execute("SET SESSION search_path TO finance, public")
+            finally:
+                connection.autocommit = previous
+    return result
+
+engine = make_engine(settings.database_url)
+_local_lock = Lock()
+
+@contextmanager
+def owner_connection(owner: UUID):
+    """Serialize a user's requests across workers, including service commits.
+
+    Use the Supabase SESSION pooler: transaction pooling cannot hold this lock.
+    """
+    key = int.from_bytes(blake2b(owner.bytes, digest_size=8).digest(), "big", signed=True)
+    with engine.connect() as connection:
+        postgres = connection.dialect.name == "postgresql"
+        if postgres:
+            connection.execute(text("SELECT pg_advisory_lock(:key)"), {"key": key})
+            connection.commit()
+        else:
+            _local_lock.acquire()
+        try:
+            yield connection
+        finally:
+            connection.rollback()
+            if postgres:
+                connection.execute(text("SELECT pg_advisory_unlock(:key)"), {"key": key})
+                connection.commit()
+            else:
+                _local_lock.release()
 
 
-def seed_default_categorization_rules(session: Session) -> None:
-    """Inserta reglas predeterminadas vinculandolas a sus categorias base."""
-    categories_by_name = {
-        category.name: category.id
-        for category in session.exec(select(CategoryModel)).all()
-    }
-    existing_rules = {
-        (_normalize_keyword(rule.keyword), rule.category_id)
-        for rule in session.exec(select(CategorizationRuleModel)).all()
-        if rule.keyword.strip()
-    }
-
-    for rule in DEFAULT_CATEGORIZATION_RULES:
-        category_id = categories_by_name.get(rule.category_name)
-        if category_id is None:
-            raise ValueError(
-                f"No existe la categoria predeterminada '{rule.category_name}' "
-                f"para la regla '{rule.keyword}'."
-            )
-
-        normalized_keyword = _normalize_keyword(rule.keyword)
-        rule_key = (normalized_keyword, category_id)
-        if rule_key in existing_rules:
-            continue
-
-        session.add(
-            CategorizationRuleModel(
-                keyword=normalized_keyword,
-                category_id=category_id,
-                priority=rule.priority,
-            )
-        )
-        existing_rules.add(rule_key)
+def get_session(request: Request, identity: Identity = Depends(get_identity)) -> Iterator[TenantSession]:
+    with owner_connection(identity.id) as connection:
+        with Session(connection) as identities:
+            profile = identities.get(UserModel, identity.id)
+            if profile is None:
+                profile = UserModel(id=identity.id, email=identity.email, display_name=identity.name)
+                identities.add(profile)
+                identities.commit()
+            if profile.deletion_pending:
+                if request.method not in ("GET", "DELETE") or request.url.path != "/api/v1/me":
+                    raise HTTPException(403, "La cuenta está en proceso de eliminación.")
+            initialized = profile.initialized
+        with TenantSession(connection, user_id=identity.id) as session:
+            if not initialized and not profile.deletion_pending:
+                seed_default_categories(session)
+                session.flush()
+                seed_default_categorization_rules(session)
+                session.commit()
+                with Session(connection) as identities:
+                    profile = identities.get(UserModel, identity.id)
+                    profile.initialized = True
+                    identities.add(profile)
+                    identities.commit()
+            yield session

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from app.models.user import OwnedModel
+
 from datetime import datetime, timezone
 
 from sqlalchemy import Column
@@ -9,7 +11,7 @@ from app.models._sql import enum_sql_type
 from app.domain.enums import CurrencyCode, InstitutionCode
 
 
-class AccountModel(SQLModel, table=True):
+class AccountModel(OwnedModel, table=True):
     __tablename__ = "accounts"  # type: ignore
 
     id: int | None = Field(default=None, primary_key=True)

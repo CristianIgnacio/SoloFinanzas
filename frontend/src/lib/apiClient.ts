@@ -1,4 +1,5 @@
 import axios, { type AxiosRequestConfig } from "axios";
+import { supabase } from "./supabase";
 
 type FastApiValidationError = {
   msg?: string;
@@ -13,9 +14,16 @@ const API_BASE_URL = import.meta.env.VITE_API_URL || "/api/v1";
 
 export const axiosClient = axios.create({
   baseURL: API_BASE_URL,
+  timeout: 90000,
   headers: {
     Accept: "application/json",
   },
+});
+
+axiosClient.interceptors.request.use(async (config) => {
+  const { data } = supabase ? await supabase.auth.getSession() : { data: { session: null } };
+  if (data.session) config.headers.Authorization = `Bearer ${data.session.access_token}`;
+  return config;
 });
 
 axiosClient.interceptors.response.use(
@@ -26,6 +34,7 @@ axiosClient.interceptors.response.use(
     }
 
     const detail = error.response?.data?.detail;
+    if (error.response?.status === 401) window.dispatchEvent(new Event("sf:session-expired"));
     const validationMessage = Array.isArray(detail)
       ? detail
           .map((item) => item.msg)
@@ -81,7 +90,8 @@ export const apiClient = {
     return response.data;
   },
 
-  async delete(endpoint: string, config?: AxiosRequestConfig): Promise<void> {
-    await axiosClient.delete(endpoint, config);
+  async delete<T = void>(endpoint: string, config?: AxiosRequestConfig): Promise<T> {
+    const response = await axiosClient.delete<T>(endpoint, config);
+    return response.data;
   },
 };

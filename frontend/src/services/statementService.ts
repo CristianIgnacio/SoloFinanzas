@@ -4,6 +4,8 @@ import type {
   PdfPreview,
   Statement,
   StatementCreate,
+  StatementDeletionImpact,
+  StatementDeletionResult,
   TransactionCandidateReview,
 } from "../types";
 
@@ -27,6 +29,18 @@ export class StatementService {
       undefined,
       { params: { status } },
     );
+  }
+
+  static async getDeletionImpact(
+    statementId: number,
+  ): Promise<StatementDeletionImpact> {
+    return apiClient.get<StatementDeletionImpact>(
+      `/statements/${statementId}/deletion-impact`,
+    );
+  }
+
+  static async deleteStatement(statementId: number): Promise<StatementDeletionResult> {
+    return apiClient.delete<StatementDeletionResult>(`/statements/${statementId}`);
   }
 
   static async previewPdf(

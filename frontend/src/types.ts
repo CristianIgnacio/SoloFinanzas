@@ -29,6 +29,7 @@ export enum InstitutionCode {
   COPECPAY = "copecpay",
   MERCADOPAGO = "mercadopago",
   BANCO_ESTADO = "banco_estado",
+  BANCO_FALABELLA = "banco_falabella",
 }
 
 export enum ParserKey {
@@ -37,6 +38,7 @@ export enum ParserKey {
   COPECPAY = "copecpay",
   MERCADOPAGO = "mercadopago",
   BANCO_ESTADO = "banco_estado",
+  BANCO_FALABELLA = "banco_falabella",
 }
 
 export enum StatementStatus {
@@ -77,6 +79,7 @@ export type AccountCreate = Omit<Account, "id" | "created_at">;
 export type AccountUpdate = AccountCreate;
 
 export const InstitutionLabels: Record<InstitutionCode, string> = {
+  [InstitutionCode.BANCO_FALABELLA]: "Banco Falabella",
   [InstitutionCode.BANCO_DE_CHILE]: "Banco de Chile",
   [InstitutionCode.BANCO_SANTANDER]: "Banco Santander",
   [InstitutionCode.COPECPAY]: "CopecPay",
@@ -90,6 +93,7 @@ export const InstitutionOptions = Object.values(InstitutionCode).map((value) => 
 }));
 
 export const InstitutionParserMap: Record<InstitutionCode, ParserKey> = {
+  [InstitutionCode.BANCO_FALABELLA]: ParserKey.BANCO_FALABELLA,
   [InstitutionCode.BANCO_DE_CHILE]: ParserKey.BANCO_DE_CHILE,
   [InstitutionCode.BANCO_SANTANDER]: ParserKey.BANCO_SANTANDER,
   [InstitutionCode.COPECPAY]: ParserKey.COPECPAY,
@@ -98,6 +102,7 @@ export const InstitutionParserMap: Record<InstitutionCode, ParserKey> = {
 };
 
 export const ParserLabels: Record<ParserKey, string> = {
+  [ParserKey.BANCO_FALABELLA]: "Banco Falabella PDF (cuenta corriente)",
   [ParserKey.BANCO_DE_CHILE]: "Banco de Chile PDF",
   [ParserKey.BANCO_SANTANDER]: "Santander PDF",
   [ParserKey.COPECPAY]: "CopecPay PDF",
@@ -118,10 +123,22 @@ export type Category = {
   id: number;
   name: string;
   type: CategoryType;
+  parent_id: number | null;
   is_default: boolean;
+  is_active: boolean;
+  sort_order: number;
+  transaction_count: number;
+  rule_count: number;
 };
 
-export type CategoryCreate = Omit<Category, "id">;
+export type CategoryCreate = Omit<
+  Category,
+  "id" | "transaction_count" | "rule_count"
+>;
+
+export type CategoryUpdate = Partial<
+  Pick<Category, "name" | "type" | "parent_id" | "is_active" | "sort_order">
+>;
 
 // Statement types
 export type Statement = {
@@ -138,7 +155,23 @@ export type Statement = {
 
 export type StatementCreate = Omit<Statement, "id" | "uploaded_at">;
 
+export type StatementDeletionImpact = {
+  statement_id: number;
+  transaction_count: number;
+  income_total_clp: number;
+  expense_total_clp: number;
+  net_total_clp: number;
+  affected_periods: string[];
+  internal_transfer_match_count: number;
+  raw_file_delete_eligible: boolean;
+};
+
+export type StatementDeletionResult = StatementDeletionImpact & {
+  raw_file_deleted: boolean;
+};
+
 export type TransactionCandidate = {
+  source_id: string | null;
   source_line: string;
   date: string;
   description: string;
@@ -154,6 +187,7 @@ export type TransactionPreviewCandidate = TransactionCandidate & {
 };
 
 export type TransactionCandidateReview = {
+  source_id: string | null;
   source_line: string;
   transaction_type: TransactionType;
   category_id: number | null;

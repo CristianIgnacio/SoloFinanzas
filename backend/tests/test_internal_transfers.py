@@ -3,6 +3,7 @@ from datetime import date
 
 from sqlalchemy.pool import StaticPool
 from sqlmodel import Session, SQLModel, create_engine, select
+from tests.fixtures import Session
 
 from app.domain.enums import CategoryType, TransactionType
 from app.models.category import CategoryModel

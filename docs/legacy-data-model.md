@@ -25,5 +25,13 @@
 
 ## Implementacion nueva
 
-- esquemas tipados en [backend/app/schemas/finance.py](/C:/Users/crist/Documents/U/Proyectos/SoloFinanzas/backend/app/schemas/finance.py)
-- catalogos iniciales en [backend/app/services/catalogs.py](/C:/Users/crist/Documents/U/Proyectos/SoloFinanzas/backend/app/services/catalogs.py)
+- esquemas tipados separados por recurso en
+  [`backend/app/schemas/`](../backend/app/schemas/)
+- modelos persistentes en [`backend/app/models/`](../backend/app/models/)
+- catalogos iniciales en
+  [`backend/app/services/catalogs.py`](../backend/app/services/catalogs.py)
+- modelo vigente documentado en [Modelo de datos](05-modelo-de-datos.md)
+
+> Nota historica: este archivo describe decisiones heredadas. El modelo vigente
+> ya no admite `transfer` ni `unknown` como tipos de transaccion; esos valores se
+> normalizan al iniciar segun el signo del monto.

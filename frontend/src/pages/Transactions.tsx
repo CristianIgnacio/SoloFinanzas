@@ -1,5 +1,7 @@
-﻿import { useEffect, useMemo, useState } from "react";
+import { ReportService } from '../services/reportService';
+import { useEffect, useMemo, useState } from "react";
 import { Link, useLocation, useSearchParams } from "react-router-dom";
+import { useRef } from "react";
 
 import {
   Button,
@@ -16,10 +18,18 @@ import {
   SaveIcon,
   StatusNotice,
   Tag,
+  cn,
   UtensilsIcon,
 } from "../components";
-import { parseLocalDate } from "../lib";
+import {
+  categoryMatchesSelection,
+  createCategoryMap,
+  getCategoryPath,
+  groupCategories,
+  parseLocalDate,
+} from "../lib";
 import { AccountService, CategoryService, TransactionService } from "../services";
+import { CategoryType } from "../types";
 import type { Account, Category, Transaction } from "../types";
 
 type FilterMode = "all" | "expense" | "income";
@@ -28,7 +38,7 @@ const ALL_PERIODS = "all";
 const ALL_ACCOUNTS = "all";
 const ALL_CATEGORIES = "all";
 const UNCATEGORIZED_CATEGORY = "uncategorized";
-const TRANSACTION_PAGE_SIZE = 1000;
+
 const VISIBLE_TRANSACTION_STEP = 50;
 
 function getMonthKey(date: string) {
@@ -77,26 +87,6 @@ function MovementIcon({ transaction }: { transaction: Transaction }) {
   );
 }
 
-async function loadAllTransactions(statementId?: number) {
-  const transactions: Transaction[] = [];
-  let offset = 0;
-
-  while (true) {
-    const page = await TransactionService.getTransactions({
-      statement_id: statementId,
-      limit: TRANSACTION_PAGE_SIZE,
-      offset,
-    });
-    transactions.push(...page);
-
-    if (page.length < TRANSACTION_PAGE_SIZE) {
-      return transactions;
-    }
-
-    offset += TRANSACTION_PAGE_SIZE;
-  }
-}
-
 export function TransactionsPage() {
   const [searchParams] = useSearchParams();
   const location = useLocation();
@@ -109,79 +99,75 @@ export function TransactionsPage() {
   const [draftCategories, setDraftCategories] = useState<Record<number, string>>({});
   const [filter, setFilter] = useState<FilterMode>("all");
   const [excludeInternalTransfers, setExcludeInternalTransfers] = useState(false);
-  const [selectedMonth, setSelectedMonth] = useState("");
+  const [selectedMonth, setSelectedMonth] = useState(ALL_PERIODS);
   const [selectedAccount, setSelectedAccount] = useState(ALL_ACCOUNTS);
   const [selectedCategory, setSelectedCategory] = useState(ALL_CATEGORIES);
-  const [visibleTransactionCount, setVisibleTransactionCount] = useState(
-    VISIBLE_TRANSACTION_STEP,
-  );
+  const [pageOffset, setPageOffset] = useState(0);
+  const [total, setTotal] = useState(0);
+  const [months, setMonths] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [showStickySaveBar, setShowStickySaveBar] = useState(false);
+  const headerSaveRef = useRef<HTMLSpanElement>(null);
 
   useEffect(() => {
-    let cancelled = false;
+    const headerSave = headerSaveRef.current;
 
-    async function loadData() {
-      setLoading(true);
-      setError(null);
-
-      try {
-        const [transactionsPayload, accountsPayload, categoriesPayload] = await Promise.all([
-          loadAllTransactions(statementId),
-          AccountService.getAccounts(),
-          CategoryService.getCategories(),
-        ]);
-
-        if (!cancelled) {
-          setTransactions(transactionsPayload);
-          setAccounts(accountsPayload);
-          setCategories(categoriesPayload);
-          setDraftCategories({});
-          setFilter("all");
-          setExcludeInternalTransfers(false);
-          setSelectedMonth(
-            transactionsPayload[0] ? getMonthKey(transactionsPayload[0].date) : ALL_PERIODS,
-          );
-          setSelectedAccount(ALL_ACCOUNTS);
-          setSelectedCategory(ALL_CATEGORIES);
-        }
-      } catch (err) {
-        if (!cancelled) {
-          setError(
-            err instanceof Error
-              ? err.message
-              : "No se pudieron cargar los movimientos.",
-          );
-        }
-      } finally {
-        if (!cancelled) {
-          setLoading(false);
-        }
-      }
+    if (!headerSave) {
+      return;
     }
 
-    void loadData();
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry) {
+          setShowStickySaveBar(!entry.isIntersecting);
+        }
+      },
+      {
+        rootMargin: "-72px 0px 0px 0px",
+        threshold: 0,
+      },
+    );
 
-    return () => {
-      cancelled = true;
-    };
+    observer.observe(headerSave);
+    return () => observer.disconnect();
+  }, []);
+
+  const query = {
+    statement_id: statementId,
+    account_id: selectedAccount === ALL_ACCOUNTS ? undefined : Number(selectedAccount),
+    category_id: [ALL_CATEGORIES, UNCATEGORIZED_CATEGORY].includes(selectedCategory) ? undefined : Number(selectedCategory),
+    uncategorized: selectedCategory === UNCATEGORIZED_CATEGORY,
+    exclude_internal: excludeInternalTransfers,
+    transaction_type: filter === 'all' ? undefined : filter,
+    date_from: selectedMonth === ALL_PERIODS ? undefined : `${selectedMonth}-01`,
+    date_to: selectedMonth === ALL_PERIODS ? undefined : `${selectedMonth}-${new Date(Number(selectedMonth.slice(0, 4)), Number(selectedMonth.slice(5, 7)), 0).getDate()}`,
+    limit: VISIBLE_TRANSACTION_STEP, offset: pageOffset,
+  };
+  useEffect(() => {
+    let cancelled = false;
+    void Promise.all([AccountService.getAccounts(), CategoryService.getCategories(), ReportService.periods(statementId)])
+      .then(([a, c, p]) => { if (!cancelled) { setAccounts(a); setCategories(c); setMonths(p); } })
+      .catch(err => { if (!cancelled) setError(err.message); });
+    return () => { cancelled = true; };
   }, [statementId]);
-
-  const months = useMemo(
-    () =>
-      [...new Set(transactions.map((transaction) => getMonthKey(transaction.date)))].sort(
-        (left, right) => right.localeCompare(left),
-      ),
-    [transactions],
-  );
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true); setError(null); setTransactions([]);
+    void TransactionService.getPage(query).then(page => {
+      if (!cancelled) { setTransactions(page.items); setTotal(page.total); }
+    }).catch(err => { if (!cancelled) setError(err.message); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [statementId, selectedMonth, selectedAccount, selectedCategory, filter, excludeInternalTransfers, pageOffset]);
 
   const accountOptions = useMemo(() => {
     const accountIds = new Set(transactions.map((transaction) => transaction.account_id));
     const accountsById = new Map(accounts.map((account) => [account.id, account]));
     const knownAccounts = accounts
-      .filter((account) => accountIds.has(account.id))
+
       .map((account) => ({
         id: account.id,
         label: account.account_last4
@@ -212,11 +198,15 @@ export function TransactionsPage() {
         .filter((categoryId): categoryId is number => categoryId !== null),
     );
     const categoriesById = new Map(categories.map((category) => [category.id, category]));
+    [...categoryIds].forEach((categoryId) => {
+      const parentId = categoriesById.get(categoryId)?.parent_id;
+      if (parentId) categoryIds.add(parentId);
+    });
     const knownCategories = categories
-      .filter((category) => categoryIds.has(category.id))
+
       .map((category) => ({
         id: category.id,
-        label: category.name,
+        label: getCategoryPath(category.id, categoriesById),
         type: category.type,
       }))
       .sort((left, right) => {
@@ -234,6 +224,8 @@ export function TransactionsPage() {
 
     return [...knownCategories, ...missingCategories];
   }, [categories, transactions]);
+
+  const categoryMap = useMemo(() => createCategoryMap(categories), [categories]);
 
   const visibleTransactions = useMemo(() => {
     return transactions
@@ -256,7 +248,11 @@ export function TransactionsPage() {
           return !transaction.category_id;
         }
 
-        return String(transaction.category_id) === selectedCategory;
+        return categoryMatchesSelection(
+          transaction.category_id,
+          Number(selectedCategory),
+          categoryMap,
+        );
       })
       .filter((transaction) => {
         if (filter !== "all" && transaction.transaction_type !== filter) {
@@ -265,16 +261,13 @@ export function TransactionsPage() {
 
         return !excludeInternalTransfers || !transaction.is_internal_transfer;
       });
-  }, [excludeInternalTransfers, filter, selectedAccount, selectedCategory, selectedMonth, transactions]);
+  }, [categoryMap, excludeInternalTransfers, filter, selectedAccount, selectedCategory, selectedMonth, transactions]);
 
   useEffect(() => {
-    setVisibleTransactionCount(VISIBLE_TRANSACTION_STEP);
+    setPageOffset(0);
   }, [excludeInternalTransfers, filter, selectedAccount, selectedCategory, selectedMonth]);
 
-  const displayedTransactions = useMemo(
-    () => visibleTransactions.slice(0, visibleTransactionCount),
-    [visibleTransactionCount, visibleTransactions],
-  );
+  const displayedTransactions = visibleTransactions;
 
   const groupedTransactions = useMemo(() => {
     const groups = new Map<string, Transaction[]>();
@@ -288,13 +281,32 @@ export function TransactionsPage() {
     return [...groups.entries()].sort((left, right) => right[0].localeCompare(left[0]));
   }, [displayedTransactions]);
 
-  const categoryOptionsFor = (transaction: Transaction) => {
-    return categories.filter((category) => {
-      if (transaction.transaction_type === "income") {
-        return category.type === "income" || category.type === "transfer";
+  const categoryGroupsFor = (transaction: Transaction) => {
+    return groupCategories(categories, {
+      activeOnly: true,
+      type:
+        transaction.transaction_type === "income"
+          ? CategoryType.INCOME
+          : CategoryType.EXPENSE,
+    });
+  };
+
+  const updateDraftCategory = (transaction: Transaction, categoryId: string) => {
+    const originalCategoryId = transaction.category_id
+      ? String(transaction.category_id)
+      : "";
+
+    setSuccessMessage(null);
+    setDraftCategories((current) => {
+      const next = { ...current };
+
+      if (categoryId === originalCategoryId) {
+        delete next[transaction.id];
+      } else {
+        next[transaction.id] = categoryId;
       }
 
-      return category.type === "expense" || category.type === "transfer";
+      return next;
     });
   };
 
@@ -302,14 +314,15 @@ export function TransactionsPage() {
 
   const exportMarkdown = () => {
     const markdown = [
-      `# Movimientos - ${formatMonthLabel(selectedMonth)}`,
+      `# Movimientos (página visible) - ${formatMonthLabel(selectedMonth)}`,
       "",
       ...visibleTransactions.map((transaction) => {
         const selectedCategory =
           draftCategories[transaction.id] || String(transaction.category_id ?? "");
-        const categoryName =
-          categories.find((category) => String(category.id) === selectedCategory)?.name ??
-          "Sin categoria";
+        const categoryName = getCategoryPath(
+          selectedCategory ? Number(selectedCategory) : null,
+          categoryMap,
+        );
 
         return `- ${formatDateLabel(transaction.date)} | ${transaction.description} | ${transaction.amount_clp.toLocaleString("es-CL")} | ${categoryName}`;
       }),
@@ -329,6 +342,7 @@ export function TransactionsPage() {
       return;
     }
 
+    const updatedMovementCount = pendingChanges;
     setSaving(true);
     setSuccessMessage(null);
     setError(null);
@@ -344,10 +358,15 @@ export function TransactionsPage() {
         ),
       );
 
-      const refreshed = await loadAllTransactions(statementId);
-      setTransactions(refreshed);
+      const refreshed = await TransactionService.getPage(query);
+      setTransactions(refreshed.items);
+      setTotal(refreshed.total);
       setDraftCategories({});
-      setSuccessMessage("Movimientos actualizados correctamente.");
+      setSuccessMessage(
+        updatedMovementCount === 1
+          ? "1 movimiento actualizado correctamente."
+          : `${updatedMovementCount} movimientos actualizados correctamente.`,
+      );
     } catch (err) {
       setError(err instanceof Error ? err.message : "No se pudieron guardar los cambios.");
     } finally {
@@ -395,23 +414,84 @@ export function TransactionsPage() {
                 ? "Exportar todos los periodos"
                 : "Exportar movimientos"}
             </Button>
-            <Button
-              onClick={() => void saveAllChanges()}
-              disabled={saving || pendingChanges === 0}
-            >
-              <SaveIcon className="h-5 w-5" />
-              {saving ? "Guardando..." : "Guardar cambios"}
-            </Button>
+            <span ref={headerSaveRef} className="inline-flex">
+              <Button
+                onClick={() => void saveAllChanges()}
+                disabled={saving || pendingChanges === 0}
+              >
+                <SaveIcon className="h-5 w-5" />
+                {saving ? "Guardando..." : "Guardar cambios"}
+              </Button>
+            </span>
           </>
         }
       />
 
       {loading ? <LoadingState message="Cargando movimientos..." /> : null}
       {error ? <ErrorState message={error} /> : null}
-      {successMessage ? <StatusNotice tone="success">{successMessage}</StatusNotice> : null}
       {typeof location.state?.importMessage === "string" ? (
         <StatusNotice tone="success">{location.state.importMessage}</StatusNotice>
       ) : null}
+      {successMessage && !showStickySaveBar ? (
+        <StatusNotice tone="success">{successMessage}</StatusNotice>
+      ) : null}
+      {!loading && showStickySaveBar ? (
+        <div className="sticky top-[4.5rem] z-10">
+          <div
+            className={cn(
+              "surface-card flex flex-col gap-3 border px-4 py-3 shadow-[0_16px_35px_rgba(38,55,34,0.12)] backdrop-blur-md sm:flex-row sm:items-center sm:justify-between",
+              successMessage
+                ? "border-primary/25 bg-primary-mist/95"
+                : pendingChanges > 0
+                  ? "border-primary/20 bg-white/95"
+                  : "border-outline bg-white/90",
+            )}
+          >
+            <div className="flex min-w-0 items-center gap-3" aria-live="polite">
+              <span
+                className={cn(
+                  "flex h-10 w-10 shrink-0 items-center justify-center rounded-full",
+                  successMessage || pendingChanges > 0
+                    ? "bg-primary text-white"
+                    : "bg-paper-soft text-muted",
+                )}
+              >
+                <SaveIcon className="h-4 w-4" />
+              </span>
+              <div className="min-w-0">
+                <p className={cn("font-semibold", successMessage ? "text-primary" : "text-ink")}>
+                  {successMessage ??
+                    (pendingChanges === 0
+                      ? "Sin cambios pendientes"
+                      : pendingChanges === 1
+                        ? "1 cambio pendiente"
+                        : `${pendingChanges} cambios pendientes`)}
+                </p>
+                <p className="mt-0.5 text-sm text-muted">
+                  {successMessage
+                    ? "La lista ya se encuentra sincronizada."
+                    : pendingChanges > 0
+                      ? "Puedes continuar editando y guardar todo de una vez."
+                      : "Cambia una categoria para habilitar el guardado."}
+                </p>
+              </div>
+            </div>
+            <Button
+              className="w-full whitespace-nowrap sm:w-auto sm:shrink-0"
+              onClick={() => void saveAllChanges()}
+              disabled={saving || pendingChanges === 0}
+            >
+              <SaveIcon className="h-5 w-5" />
+              {saving
+                ? "Guardando..."
+                : pendingChanges === 0
+                  ? "Guardar cambios"
+                  : `Guardar ${pendingChanges} ${pendingChanges === 1 ? "cambio" : "cambios"}`}
+            </Button>
+          </div>
+        </div>
+      ) : null}
+
 
       <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
         <div className="flex flex-wrap items-center gap-3">
@@ -475,7 +555,7 @@ export function TransactionsPage() {
 
       {!loading && visibleTransactions.length > 0 ? (
         <p className="text-sm text-muted">
-          Mostrando {displayedTransactions.length} de {visibleTransactions.length} movimientos
+          Mostrando {displayedTransactions.length} de {total} movimientos (página {Math.floor(pageOffset / VISIBLE_TRANSACTION_STEP) + 1})
           {statementId ? " de esta importacion" : ""}.
         </p>
       ) : null}
@@ -496,7 +576,7 @@ export function TransactionsPage() {
                   const categoryValue =
                     draftCategories[transaction.id] ??
                     (transaction.category_id ? String(transaction.category_id) : "");
-                  const options = categoryOptionsFor(transaction);
+                  const categoryGroups = categoryGroupsFor(transaction);
                   const account = accountMap.get(transaction.account_id);
 
                   return (
@@ -518,7 +598,7 @@ export function TransactionsPage() {
                             </p>
                             {account ? (
                               <Link
-                                to={`/accounts?account_id=${account.id}`}
+                                to={`/app/accounts?account_id=${account.id}`}
                                 aria-label={`Ver detalle de ${account.name}`}
                                 className="inline-flex items-center gap-2 rounded-full border border-outline bg-white px-2.5 py-1 text-xs font-semibold text-muted transition hover:border-primary/40 hover:text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
                               >
@@ -559,20 +639,27 @@ export function TransactionsPage() {
 
                         <div className="relative min-w-[250px]">
                           <select
+                            aria-label={`Categoria de ${transaction.description}`}
                             value={categoryValue}
                             onChange={(event) =>
-                              setDraftCategories((current) => ({
-                                ...current,
-                                [transaction.id]: event.target.value,
-                              }))
+                              updateDraftCategory(transaction, event.target.value)
                             }
                             className="w-full appearance-none rounded-2xl border border-outline bg-paper-soft px-4 py-3 pr-10 text-base outline-none transition focus:border-primary"
                           >
                             <option value="">Seleccionar categoria...</option>
-                            {options.map((category) => (
-                              <option key={category.id} value={category.id}>
-                                {category.name}
-                              </option>
+                            {categoryGroups.map((group) => (
+                              <optgroup key={group.root.id} label={group.root.name}>
+                                <option value={group.root.id}>
+                                  {group.children.length > 0
+                                    ? `${group.root.name} (sin subcategoria)`
+                                    : group.root.name}
+                                </option>
+                                {group.children.map((category) => (
+                                  <option key={category.id} value={category.id}>
+                                    {category.name}
+                                  </option>
+                                ))}
+                              </optgroup>
                             ))}
                           </select>
                           <ChevronDownIcon className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" />
@@ -585,20 +672,10 @@ export function TransactionsPage() {
             </section>
           ))}
 
-          {displayedTransactions.length < visibleTransactions.length ? (
-            <div className="flex justify-center">
-              <Button
-                tone="secondary"
-                onClick={() =>
-                  setVisibleTransactionCount(
-                    (current) => current + VISIBLE_TRANSACTION_STEP,
-                  )
-                }
-              >
-                Mostrar 50 mas
-              </Button>
-            </div>
-          ) : null}
+          <div className="flex justify-center gap-3">
+            <Button tone="secondary" disabled={pageOffset === 0 || loading} onClick={() => setPageOffset(Math.max(0, pageOffset - VISIBLE_TRANSACTION_STEP))}>Anterior</Button>
+            <Button tone="secondary" disabled={pageOffset + VISIBLE_TRANSACTION_STEP >= total || loading} onClick={() => setPageOffset(pageOffset + VISIBLE_TRANSACTION_STEP)}>Siguiente</Button>
+          </div>
         </div>
       ) : !loading ? (
         <EmptyState
@@ -609,5 +686,3 @@ export function TransactionsPage() {
     </div>
   );
 }
-
-

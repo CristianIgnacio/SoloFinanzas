@@ -1,12 +1,14 @@
 from __future__ import annotations
 
+from app.models.user import OwnedModel
+
 from datetime import datetime, timezone
 
 from sqlalchemy import UniqueConstraint
 from sqlmodel import Field, SQLModel
 
 
-class InternalTransferMatchModel(SQLModel, table=True):
+class InternalTransferMatchModel(OwnedModel, table=True):
     __tablename__ = "internal_transfer_matches"  # type: ignore
     __table_args__ = (
         UniqueConstraint(

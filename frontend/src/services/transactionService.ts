@@ -1,7 +1,16 @@
 import { apiClient } from "../lib/apiClient";
 import type { Transaction, TransactionCreate } from "../types";
 
+export type TransactionFilters = {
+  account_id?: number; statement_id?: number; date_from?: string; date_to?: string;
+  transaction_type?: string; category_id?: number; uncategorized?: boolean;
+  exclude_internal?: boolean; limit?: number; offset?: number;
+};
 export class TransactionService {
+  static async getPage(filters: TransactionFilters) {
+    return apiClient.get<{ items: Transaction[]; total: number; limit: number; offset: number }>('/transaction-pages', { params: filters });
+  }
+
   static async getTransactions(filters?: {
     account_id?: number;
     statement_id?: number;
@@ -34,12 +43,9 @@ export class TransactionService {
   ): Promise<Transaction> {
     return apiClient.patch<Transaction>(
       `/transactions/${transactionId}/category`,
-      undefined,
       {
-        params: {
-          category_id: categoryId === null ? "null" : categoryId,
-          category_source: categorySource,
-        },
+        category_id: categoryId,
+        category_source: categorySource,
       },
     );
   }

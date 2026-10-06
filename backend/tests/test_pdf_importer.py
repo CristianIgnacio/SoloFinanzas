@@ -2,6 +2,7 @@ import unittest
 from io import BytesIO
 
 from pypdf import PdfWriter
+from pypdf.generic import DecodedStreamObject, DictionaryObject, NameObject
 
 from app.domain.enums import InstitutionCode
 from app.domain.parsers import INSTITUTION_PARSER_MAP, ParserKey
@@ -10,15 +11,18 @@ from app.services.pdf_importer import (
     PDF_PARSERS,
     SANTANDER_PROFILE,
     LayoutLine,
+    LayoutVerticalEdge,
     LayoutWord,
     PARSER_PROFILES,
     PdfImportError,
+    _build_column_ranges_by_page,
     _build_reader,
     _build_preview_lines,
     _extract_optional_period,
     _parse_document,
     _resolve_parser,
     _validate_document,
+    inspect_pdf,
 )
 
 
@@ -433,7 +437,132 @@ SANTANDER_AMOUNT_IN_DESCRIPTION_LAYOUT = (
 )
 
 
+def _santander_right_aligned_pdf(*, scale: float = 1, offset: float = 0) -> bytes:
+    """Cartola sintetica: titulos a la izquierda, montos a la derecha y bordes."""
+    writer = PdfWriter()
+    page = writer.add_blank_page(width=650, height=800)
+    fonts = DictionaryObject()
+    for key, name in (("F1", "Helvetica-Bold"), ("F2", "Courier")):
+        fonts[NameObject(f"/{key}")] = writer._add_object(
+            DictionaryObject({
+                NameObject("/Type"): NameObject("/Font"),
+                NameObject("/Subtype"): NameObject("/Type1"),
+                NameObject("/BaseFont"): NameObject(f"/{name}"),
+            })
+        )
+    page[NameObject("/Resources")] = DictionaryObject({NameObject("/Font"): fonts})
+    commands = [f"{scale} 0 0 {scale} {offset} 0 cm"]
+
+    def write_text(x: float, top: float, value: str, font: str = "F2") -> None:
+        commands.append(
+            f"BT /{font} 8 Tf 1 0 0 1 {x} {800 - top - 8} Tm ({value}) Tj ET"
+        )
+
+    write_text(25, 100, "BANCO SANTANDER CHILE")
+    write_text(25, 120, "CARTOLA DESDE HASTA PAGINA")
+    write_text(25, 132, "80 31/07/2026 31/08/2026 1 DE 1")
+    write_text(25, 240, "Saldo Inicial Cheques o Cargos Depositos o Abonos Saldo Final")
+    write_text(25, 252, "20.000 281.158 261.158 0")
+    write_text(25, 264, "MOVIMIENTO DE SU CUENTA")
+    for x, value in (
+        (25, "FECHA"), (156, "DESCRIPCION"), (340, "CHEQUES"),
+        (422, "DEPOSITOS"), (500, "SALDO"),
+    ):
+        write_text(x, 275, value, "F1")
+    write_text(340, 285, "Y CARGOS", "F1")
+    write_text(422, 285, "Y ABONOS", "F1")
+    # Como en Cuentamatica, las divisiones comienzan debajo del encabezado.
+    for x in (25.5, 156.5, 340.5, 422.5, 500.5, 583.5):
+        commands.append(f"{x} 505 m {x} 120 l S")
+    rows = [
+        ("03/08", "Transf. PERSONA UNO", 21158),
+        ("", "Compra COMERCIO UNO", -500),
+        ("", "Compra COMERCIO UNO", -1440),
+        ("", "Compra COMERCIO DOS", -9000),
+        ("", "Transf a PERSONA DOS", -9060),
+        ("", "Transf a COMERCIO TRES", -20000),
+        ("11/08", "Compra COMERCIO CUATRO", -350),
+        ("13/08", "Transf. PERSONA UNO", 20000),
+        ("", "Transf a COMERCIO TRES", -20000),
+        ("24/08", "Transf. PERSONA UNO", 20000),
+        ("", "Transf a COMERCIO TRES", -20000),
+        ("28/08", "Transf. PERSONA TRES", 200000),
+        ("", "Transf a PERSONA DOS", -200808),
+    ]
+    for index, (raw_date, description, amount) in enumerate(rows):
+        top = 300 + index * 12
+        if raw_date:
+            write_text(25, top, raw_date)
+        write_text(160, top, description)
+        raw_amount = f"{abs(amount):,}".replace(",", ".")
+        right = 419 if amount < 0 else 496
+        write_text(right - len(raw_amount) * 4.8, top, raw_amount)
+    write_text(160, 460, "--- Saldo Dia ---")
+    write_text(573, 460, "0")
+    write_text(160, 480, "Resumen de Comisiones")
+    stream = DecodedStreamObject()
+    stream.set_data("\n".join(commands).encode("ascii"))
+    page[NameObject("/Contents")] = writer._add_object(stream)
+    output = BytesIO()
+    writer.write(output)
+    return output.getvalue()
+
+
 class PdfImporterTests(unittest.TestCase):
+    def test_santander_inspection_uses_table_borders_for_right_aligned_amounts(self) -> None:
+        for scale, offset in ((1, 0), (0.8, 40)):
+            with self.subTest(scale=scale, offset=offset):
+                preview = inspect_pdf(
+                    file_name="santander-sintetico.pdf",
+                    file_bytes=_santander_right_aligned_pdf(scale=scale, offset=offset),
+                    institution=InstitutionCode.BANCO_SANTANDER,
+                )
+
+                self.assertEqual(preview.parsing_errors, [])
+                self.assertEqual(preview.period_month, "2026-08")
+                self.assertEqual(
+                    [item.amount_clp for item in preview.candidate_transactions],
+                    [
+                        21158, -500, -1440, -9000, -9060, -20000, -350,
+                        20000, -20000, 20000, -20000, 200000, -200808,
+                    ],
+                )
+
+    def test_santander_ignores_borders_outside_the_movement_table(self) -> None:
+        # Estas divisiones cambiarian el signo del monto si se usaran por error.
+        for page_index, top, bottom in (
+            (1, 250, 650), (0, 20, 80), (0, 350, 650), (0, 250, 277),
+        ):
+            with self.subTest(page_index=page_index, top=top, bottom=bottom):
+                edges = tuple(
+                    LayoutVerticalEdge(page_index, x, top, bottom)
+                    for x in (300, 345, 450, 550)
+                )
+                candidates, errors, _ = _parse_document(
+                    ParserKey.BANCO_SANTANDER,
+                    SANTANDER_DUPLICATED_AMOUNT_SAMPLE,
+                    layout_lines=SANTANDER_DUPLICATED_AMOUNT_LAYOUT,
+                    vertical_edges=edges,
+                )
+
+                self.assertEqual(errors, [])
+                self.assertEqual([item.amount_clp for item in candidates], [-20000])
+
+    def test_incomplete_or_decorative_borders_preserve_header_fallback(self) -> None:
+        expected = _build_column_ranges_by_page(
+            SANTANDER_DUPLICATED_AMOUNT_LAYOUT, SANTANDER_PROFILE
+        )
+        for positions in (
+            (300, 450, 550), (100, 400, 480, 560), (300, 400, 450, 480, 560),
+        ):
+            with self.subTest(positions=positions):
+                edges = tuple(LayoutVerticalEdge(0, x, 275, 650) for x in positions)
+                actual = _build_column_ranges_by_page(
+                    SANTANDER_DUPLICATED_AMOUNT_LAYOUT, SANTANDER_PROFILE, edges
+                )
+
+                self.assertEqual(actual, expected)
+
     def test_reader_accepts_encrypted_pdf_with_empty_password(self) -> None:
         writer = PdfWriter()
         writer.add_blank_page(width=100, height=100)
@@ -557,6 +686,51 @@ class PdfImporterTests(unittest.TestCase):
         )
         self.assertEqual(uber_refund.amount_clp, 3733)
         self.assertEqual(uber_refund.date.isoformat(), "2026-03-30")
+
+    def test_santander_restarts_movements_on_second_page_header_variant(self) -> None:
+        second_page_variant = SANTANDER_MULTILINE_SAMPLE.replace(
+            "CARGOS ABONOS\n23/03 93 Compra",
+            "Y CARGOS Y ABONOS\n23/03 93 Compra",
+        )
+
+        candidates, errors, period_month = _parse_document(
+            ParserKey.BANCO_SANTANDER,
+            second_page_variant,
+            layout_lines=SANTANDER_REAL_LAYOUT,
+        )
+
+        self.assertEqual(errors, [])
+        self.assertEqual(period_month, "2026-03")
+        self.assertEqual(len(candidates), 23)
+        self.assertEqual(candidates[-1].date.isoformat(), "2026-03-30")
+
+    def test_santander_accepts_summary_header_without_abonos_word(self) -> None:
+        summary_variant = SANTANDER_MULTILINE_SAMPLE.replace(
+            "Depositos o Abonos Saldo Final",
+            "Depositos o Saldo Final",
+        )
+
+        candidates, errors, _ = _parse_document(
+            ParserKey.BANCO_SANTANDER,
+            summary_variant,
+            layout_lines=SANTANDER_REAL_LAYOUT,
+        )
+
+        self.assertEqual(errors, [])
+        self.assertEqual(len(candidates), 23)
+
+    def test_santander_rejects_declared_summary_that_cannot_be_read(self) -> None:
+        unreadable_summary = SANTANDER_MULTILINE_SAMPLE.replace(
+            "Saldo Inicial Cheques o Cargos Depositos o Abonos Saldo Final",
+            "Saldo Inicial Resumen no compatible Saldo Final",
+        )
+
+        with self.assertRaisesRegex(PdfImportError, "validar los totales declarados"):
+            _parse_document(
+                ParserKey.BANCO_SANTANDER,
+                unreadable_summary,
+                layout_lines=SANTANDER_REAL_LAYOUT,
+            )
 
     def test_santander_uses_layout_to_discard_balance_amounts(self) -> None:
         candidates, errors, period_month = _parse_document(
@@ -717,6 +891,18 @@ class PdfImporterTests(unittest.TestCase):
                         parser_key,
                         "CARTOLA DE OTRA INSTITUCION",
                     )
+
+    def test_document_validation_accepts_doubled_bank_name_glyphs(self) -> None:
+        _validate_document(
+            ParserKey.BANCO_DE_CHILE,
+            "EENN WWWWWW..BBAANNCCOOCCHHIILLEE..CCLL",
+        )
+
+        with self.assertRaisesRegex(PdfImportError, "no parece pertenecer"):
+            _validate_document(
+                ParserKey.BANCO_SANTANDER,
+                "EENN WWWWWW..BBAANNCCOOCCHHIILLEE..CCLL",
+            )
 
 
 if __name__ == "__main__":

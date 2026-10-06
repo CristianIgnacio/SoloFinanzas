@@ -2,6 +2,7 @@ from collections import defaultdict
 from datetime import date
 
 from sqlmodel import Session, select
+from sqlalchemy import String, cast, func, or_
 
 from app.domain.enums import TransactionType
 from app.models.internal_transfer_match import InternalTransferMatchModel
@@ -23,54 +24,26 @@ def build_dashboard_summary(
 ) -> DashboardResponse:
     """Construye el resumen del dashboard a partir de transacciones reales."""
 
-    query = select(TransactionModel).order_by(TransactionModel.date.desc())
-    transactions = session.exec(query).all()
-    internal_transfer_matches = session.exec(select(InternalTransferMatchModel)).all()
-    excluded_transaction_ids = {
-        transaction_id
-        for match in internal_transfer_matches
-        for transaction_id in (
-            match.outgoing_transaction_id,
-            match.incoming_transaction_id,
-        )
-    }
-
-    available_periods = sorted(
-        {tx.date.strftime("%Y-%m") for tx in transactions},
-        reverse=True,
-    )
+    month = func.substr(cast(TransactionModel.date, String), 1, 7)
+    available_periods = list(session.exec(select(month).select_from(TransactionModel)
+        .distinct().order_by(month.desc())).all())
     current_month = date.today().strftime("%Y-%m")
-    default_period = (
-        current_month
-        if current_month in available_periods
-        else available_periods[0] if available_periods else current_month
-    )
-    period_month = (
-        requested_period
-        if requested_period in available_periods
-        else default_period
-    )
-
-    month_income = 0
-    month_expenses = 0
+    default_period = current_month if current_month in available_periods else (available_periods[0] if available_periods else current_month)
+    period_month = requested_period if requested_period in available_periods else default_period
+    matched = select(InternalTransferMatchModel.id).where(or_(
+        InternalTransferMatchModel.outgoing_transaction_id == TransactionModel.id,
+        InternalTransferMatchModel.incoming_transaction_id == TransactionModel.id,
+    )).exists()
+    rows = session.exec(select(month, TransactionModel.transaction_type, func.sum(TransactionModel.amount_clp))
+        .where(~matched).group_by(month, TransactionModel.transaction_type)).all()
     monthly_data = defaultdict(lambda: {"income": 0, "expenses": 0})
-
-    for tx in transactions:
-        if tx.id in excluded_transaction_ids:
-            continue
-
-        tx_month = tx.date.strftime("%Y-%m")
-        if tx_month == period_month:
-            if tx.transaction_type == TransactionType.INCOME:
-                month_income += tx.amount_clp
-            elif tx.transaction_type == TransactionType.EXPENSE:
-                month_expenses += tx.amount_clp
-
-        month_key = tx.date.strftime("%Y-%m")
-        if tx.transaction_type == TransactionType.INCOME:
-            monthly_data[month_key]["income"] += tx.amount_clp
-        elif tx.transaction_type == TransactionType.EXPENSE:
-            monthly_data[month_key]["expenses"] += abs(tx.amount_clp)
+    for month_key, kind, amount in rows:
+        if kind == TransactionType.INCOME:
+            monthly_data[month_key]["income"] = amount
+        elif kind == TransactionType.EXPENSE:
+            monthly_data[month_key]["expenses"] = abs(amount)
+    month_income = monthly_data[period_month]["income"]
+    month_expenses = -monthly_data[period_month]["expenses"]
 
     previous_month = _shift_month(period_month, -1)
     previous_income = monthly_data[previous_month]["income"]

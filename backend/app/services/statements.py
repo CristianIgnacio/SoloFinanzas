@@ -1,7 +1,9 @@
 import hashlib
+import logging
 from collections import Counter
+from pathlib import Path
 
-from sqlalchemy import func
+from sqlalchemy import func, or_
 from sqlmodel import Session, select
 
 from app.domain.enums import (
@@ -13,17 +15,29 @@ from app.domain.enums import (
 from app.models.account import AccountModel
 from app.models.category import CategoryModel
 from app.models.categorization_rule import CategorizationRuleModel
+from app.models.internal_transfer_match import InternalTransferMatchModel
 from app.models.statement import StatementModel
 from app.models.transaction import TransactionModel
 from app.domain.normalizer import normalize_description
 from app.schemas.shared import ImportTransactionsResult
-from app.schemas.statement import PdfImportResponse, Statement, StatementCreate
+from app.schemas.statement import (
+    PdfImportResponse,
+    Statement,
+    StatementCreate,
+    StatementDeletionImpact,
+    StatementDeletionResult,
+)
 from app.schemas.transaction import TransactionCandidate
 from app.schemas.transaction import (
     TransactionCandidateReview,
     TransactionPreviewCandidate,
 )
 from app.services.internal_transfers import refresh_internal_transfer_matches
+
+
+logger = logging.getLogger(__name__)
+BACKEND_DIR = Path(__file__).resolve().parents[2]
+RAW_DIR = BACKEND_DIR / "data" / "raw"
 
 
 def create_statement(session: Session, payload: StatementCreate) -> Statement:
@@ -35,7 +49,7 @@ def create_statement(session: Session, payload: StatementCreate) -> Statement:
         file_checksum=payload.file_checksum,
         period_month=payload.period_month,
         status=payload.status,
-        raw_path=payload.raw_path,
+        raw_path=None,
     )
     session.add(statement)
     session.commit()
@@ -79,6 +93,160 @@ def update_statement_status(
     return None
 
 
+def get_statement_deletion_impact(
+    session: Session,
+    statement_id: int,
+) -> StatementDeletionImpact | None:
+    """Resume los datos que desaparecerian al deshacer una importacion."""
+    statement = session.get(StatementModel, statement_id)
+    if statement is None:
+        return None
+
+    transactions = session.exec(
+        select(TransactionModel).where(TransactionModel.statement_id == statement_id)
+    ).all()
+    transaction_ids = [transaction.id for transaction in transactions if transaction.id]
+    matches = _get_transfer_matches_for_transactions(session, transaction_ids)
+    raw_target = _resolve_managed_raw_path(statement.raw_path)
+
+    return StatementDeletionImpact(
+        statement_id=statement_id,
+        transaction_count=len(transactions),
+        income_total_clp=sum(
+            transaction.amount_clp
+            for transaction in transactions
+            if transaction.transaction_type == TransactionType.INCOME
+        ),
+        expense_total_clp=sum(
+            abs(transaction.amount_clp)
+            for transaction in transactions
+            if transaction.transaction_type == TransactionType.EXPENSE
+        ),
+        net_total_clp=sum(transaction.amount_clp for transaction in transactions),
+        affected_periods=sorted(
+            {transaction.date.strftime("%Y-%m") for transaction in transactions}
+        ),
+        internal_transfer_match_count=len(matches),
+        raw_file_delete_eligible=(
+            raw_target is not None
+            and raw_target.is_file()
+            and not _raw_path_is_shared(session, statement_id, raw_target)
+        ),
+    )
+
+
+def delete_statement(
+    session: Session,
+    statement_id: int,
+) -> StatementDeletionResult | None:
+    """Deshace una importacion y reconstruye sus datos derivados."""
+    statement = session.get(StatementModel, statement_id)
+    if statement is None:
+        return None
+
+    impact = get_statement_deletion_impact(session, statement_id)
+    if impact is None:
+        return None
+
+    raw_path = statement.raw_path
+    transactions = session.exec(
+        select(TransactionModel).where(TransactionModel.statement_id == statement_id)
+    ).all()
+    transaction_ids = [transaction.id for transaction in transactions if transaction.id]
+    matches = _get_transfer_matches_for_transactions(session, transaction_ids)
+
+    try:
+        # Este orden tambien funciona cuando SQLite aplica las claves foraneas.
+        for match in matches:
+            session.delete(match)
+        session.flush()
+
+        for transaction in transactions:
+            session.delete(transaction)
+        session.flush()
+
+        session.delete(statement)
+        session.flush()
+        refresh_internal_transfer_matches(session)
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
+
+    raw_file_deleted = _delete_raw_file_if_unreferenced(session, raw_path)
+    return StatementDeletionResult(
+        **impact.model_dump(),
+        raw_file_deleted=raw_file_deleted,
+    )
+
+
+def _get_transfer_matches_for_transactions(
+    session: Session,
+    transaction_ids: list[int],
+) -> list[InternalTransferMatchModel]:
+    if not transaction_ids:
+        return []
+    return session.exec(
+        select(InternalTransferMatchModel).where(
+            or_(
+                InternalTransferMatchModel.outgoing_transaction_id.in_(transaction_ids),
+                InternalTransferMatchModel.incoming_transaction_id.in_(transaction_ids),
+            )
+        )
+    ).all()
+
+
+def _resolve_managed_raw_path(raw_path: str | None) -> Path | None:
+    """Acepta solamente archivos ubicados dentro del directorio raw administrado."""
+    if not raw_path:
+        return None
+
+    configured_path = Path(raw_path)
+    target = (
+        configured_path if configured_path.is_absolute() else BACKEND_DIR / configured_path
+    ).resolve()
+    raw_root = RAW_DIR.resolve()
+    if target == raw_root or raw_root not in target.parents:
+        return None
+    return target
+
+
+def _raw_path_is_shared(
+    session: Session,
+    statement_id: int,
+    target: Path,
+) -> bool:
+    raw_paths = session.exec(
+        select(StatementModel.raw_path).where(
+            StatementModel.id != statement_id,
+            StatementModel.raw_path.is_not(None),
+        )
+    ).all()
+    return any(_resolve_managed_raw_path(raw_path) == target for raw_path in raw_paths)
+
+
+def _delete_raw_file_if_unreferenced(
+    session: Session,
+    raw_path: str | None,
+) -> bool:
+    target = _resolve_managed_raw_path(raw_path)
+    if target is None or not target.is_file():
+        return False
+
+    remaining_paths = session.exec(
+        select(StatementModel.raw_path).where(StatementModel.raw_path.is_not(None))
+    ).all()
+    if any(_resolve_managed_raw_path(path) == target for path in remaining_paths):
+        return False
+
+    try:
+        target.unlink()
+    except OSError:
+        logger.exception("No se pudo eliminar el PDF sin referencias %s", target)
+        return False
+    return True
+
+
 class DuplicateStatementError(ValueError):
     """Indica que una cartola ya fue importada para una cuenta."""
 
@@ -91,7 +259,7 @@ def import_pdf_transactions(
     account_id: int,
     file_name: str,
     file_checksum: str,
-    raw_path: str,
+    raw_path: str | None,
     period_month: str,
     candidates: list[TransactionCandidate],
     category_overrides: dict[str, int | None] | None = None,
@@ -154,8 +322,9 @@ def import_pdf_transactions(
             omitted_existing += 1
             continue
 
-        if category_overrides is not None and candidate.source_line in category_overrides:
-            category_id = category_overrides[candidate.source_line]
+        candidate_key = _candidate_source_key(candidate)
+        if category_overrides is not None and candidate_key in category_overrides:
+            category_id = category_overrides[candidate_key]
             if category_id is not None:
                 _validate_category_for_type(session, category_id, candidate.transaction_type)
             category_source = CategorySource.MANUAL
@@ -180,7 +349,7 @@ def import_pdf_transactions(
                 category_source=category_source,
                 rule_id_applied=rule_id,
                 fingerprint=fingerprint,
-                raw_data={"source_line": candidate.source_line},
+                raw_data=None,
             )
         )
         inserted += 1
@@ -236,22 +405,25 @@ def apply_transaction_reviews(
     reviews: list[TransactionCandidateReview],
 ) -> tuple[list[TransactionCandidate], dict[str, int | None]]:
     """Aplica cambios de tipo/categoria revisados contra candidatos parseados."""
-    candidate_by_source = {candidate.source_line: candidate for candidate in candidates}
+    candidate_by_source = {
+        _candidate_source_key(candidate): candidate for candidate in candidates
+    }
     reviewed_sources: set[str] = set()
     category_overrides: dict[str, int | None] = {}
 
     for review in reviews:
-        candidate = candidate_by_source.get(review.source_line)
+        review_key = _review_source_key(review)
+        candidate = candidate_by_source.get(review_key)
         if candidate is None:
             raise ValueError(
                 "La revision incluye un movimiento que no existe en la vista previa."
             )
-        if review.source_line in reviewed_sources:
+        if review_key in reviewed_sources:
             raise ValueError("La revision contiene movimientos duplicados.")
-        reviewed_sources.add(review.source_line)
+        reviewed_sources.add(review_key)
         if review.category_id is not None:
             _validate_category_for_type(session, review.category_id, review.transaction_type)
-        category_overrides[review.source_line] = review.category_id
+        category_overrides[review_key] = review.category_id
 
     reviewed_candidates: list[TransactionCandidate] = []
     for candidate in candidates:
@@ -259,7 +431,7 @@ def apply_transaction_reviews(
             (
                 item
                 for item in reviews
-                if item.source_line == candidate.source_line
+                if _review_source_key(item) == _candidate_source_key(candidate)
             ),
             None,
         )
@@ -273,6 +445,7 @@ def apply_transaction_reviews(
 
         reviewed_candidates.append(
             TransactionCandidate(
+                source_id=candidate.source_id,
                 source_line=candidate.source_line,
                 date=candidate.date,
                 description=candidate.description,
@@ -297,18 +470,28 @@ def _build_fingerprint(account_id: int, candidate: TransactionCandidate) -> str:
 def _deduplicate_source_lines(
     candidates: list[TransactionCandidate],
 ) -> tuple[list[TransactionCandidate], int]:
-    """Elimina candidatos duplicados dentro del mismo archivo por linea fuente."""
+    """Elimina candidatos repetidos por identidad, preservando filas iguales reales."""
     unique: list[TransactionCandidate] = []
     seen: set[str] = set()
     omitted = 0
     for candidate in candidates:
-        source_line = candidate.source_line.strip()
-        if source_line in seen:
+        source_key = _candidate_source_key(candidate)
+        if source_key in seen:
             omitted += 1
             continue
-        seen.add(source_line)
+        seen.add(source_key)
         unique.append(candidate)
     return unique, omitted
+
+
+def _candidate_source_key(candidate: TransactionCandidate) -> str:
+    """Identifica una ocurrencia del PDF sin confundir filas de igual contenido."""
+    return candidate.source_id or candidate.source_line.strip()
+
+
+def _review_source_key(review: TransactionCandidateReview) -> str:
+    """Obtiene la identidad enviada por la vista previa, con compatibilidad previa."""
+    return review.source_id or review.source_line.strip()
 
 
 def _categorize(
@@ -339,7 +522,11 @@ def _categorize(
             continue
         if f" {keyword} " in f" {normalized_description} ":
             category = session.get(CategoryModel, rule.category_id)
-            if category and category.type in {desired_type, CategoryType.TRANSFER}:
+            if (
+                category
+                and category.is_active
+                and category.type in {desired_type, CategoryType.TRANSFER}
+            ):
                 return rule.category_id, CategorySource.RULE, rule.id
 
     return None, None, None
@@ -357,6 +544,8 @@ def _validate_category_for_type(
     category = session.get(CategoryModel, category_id)
     if category is None:
         raise ValueError("La categoria seleccionada no existe.")
+    if not category.is_active:
+        raise ValueError("La categoria seleccionada esta archivada.")
     if category.type not in {desired_type, CategoryType.TRANSFER}:
         raise ValueError(
             "La categoria seleccionada no es compatible con el tipo de movimiento."

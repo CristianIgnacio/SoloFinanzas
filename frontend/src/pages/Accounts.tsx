@@ -1,4 +1,5 @@
-﻿import { useEffect, useMemo, useState } from "react";
+import { ReportService, type AccountTotal } from '../services/reportService';
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 
 import {
@@ -6,6 +7,7 @@ import {
   ArrowUpIcon,
   BankIcon,
   Button,
+  DeleteStatementModal,
   EmptyState,
   ErrorState,
   InstitutionLogo,
@@ -16,10 +18,12 @@ import {
   PlusIcon,
   ReceiptIcon,
   StatCard,
+  StatusNotice,
+  TrashIcon,
   cn,
 } from "../components";
 import { useFormatCurrency } from "../hooks";
-import { parseLocalDate } from "../lib";
+import { createCategoryMap, getCategoryPath, parseLocalDate } from "../lib";
 import {
   AccountService,
   CategoryService,
@@ -27,31 +31,22 @@ import {
   TransactionService,
 } from "../services";
 import { InstitutionLabels, StatementStatus } from "../types";
-import type { Account, Category, Statement, Transaction } from "../types";
+import type {
+  Account,
+  Category,
+  Statement,
+  StatementDeletionImpact,
+  Transaction,
+} from "../types";
 
 type DetailTab = "statements" | "transactions";
-const PAGE_SIZE = 1000;
+const PAGE_SIZE = 50;
 
 const statusLabels: Record<StatementStatus, string> = {
   [StatementStatus.PENDING]: "Pendiente",
   [StatementStatus.PROCESSED]: "Procesada",
   [StatementStatus.FAILED]: "Con error",
 };
-
-async function loadTransactions(accountId: number) {
-  const result: Transaction[] = [];
-  let offset = 0;
-  while (true) {
-    const page = await TransactionService.getTransactions({
-      account_id: accountId,
-      limit: PAGE_SIZE,
-      offset,
-    });
-    result.push(...page);
-    if (page.length < PAGE_SIZE) return result;
-    offset += PAGE_SIZE;
-  }
-}
 
 function formatPeriod(period: string | null) {
   if (!period) return "Sin periodo";
@@ -76,12 +71,20 @@ export function AccountsPage() {
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [statements, setStatements] = useState<Statement[]>([]);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [pageOffset, setPageOffset] = useState(0);
+  const [totals, setTotals] = useState<AccountTotal[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [selectedAccountId, setSelectedAccountId] = useState<number | null>(null);
   const [activeTab, setActiveTab] = useState<DetailTab>("statements");
   const [loading, setLoading] = useState(true);
   const [loadingDetails, setLoadingDetails] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [feedback, setFeedback] = useState<string | null>(null);
+  const [statementPendingDelete, setStatementPendingDelete] = useState<Statement | null>(null);
+  const [deletionImpact, setDeletionImpact] = useState<StatementDeletionImpact | null>(null);
+  const [loadingDeletionImpact, setLoadingDeletionImpact] = useState(false);
+  const [deletingStatementId, setDeletingStatementId] = useState<number | null>(null);
+  const [deletionError, setDeletionError] = useState<string | null>(null);
   const formatCurrency = useFormatCurrency();
 
   useEffect(() => {
@@ -120,13 +123,15 @@ export function AccountsPage() {
       setLoadingDetails(true);
       setError(null);
       try {
-        const [statementData, transactionData] = await Promise.all([
+        const [statementData, transactionData, accountTotals] = await Promise.all([
           StatementService.getStatements(selectedAccountId as number),
-          loadTransactions(selectedAccountId as number),
+          TransactionService.getPage({account_id: selectedAccountId as number, limit: PAGE_SIZE, offset: pageOffset}),
+          ReportService.accounts(),
         ]);
         if (!cancelled) {
           setStatements(statementData);
-          setTransactions(transactionData);
+          setTransactions(transactionData.items);
+          setTotals(accountTotals);
         }
       } catch (err) {
         if (!cancelled) {
@@ -140,25 +145,18 @@ export function AccountsPage() {
     return () => {
       cancelled = true;
     };
-  }, [selectedAccountId]);
+  }, [selectedAccountId, pageOffset]);
 
   const account = accounts.find((item) => item.id === selectedAccountId) ?? null;
   const selectedIndex = accounts.findIndex((item) => item.id === selectedAccountId);
   const categoryMap = useMemo(
-    () => new Map(categories.map((category) => [category.id, category.name])),
+    () => createCategoryMap(categories),
     [categories],
   );
-  const summary = useMemo(() => {
-    const income = transactions
-      .filter((item) => item.amount_clp > 0)
-      .reduce((sum, item) => sum + item.amount_clp, 0);
-    const expenses = transactions
-      .filter((item) => item.amount_clp < 0)
-      .reduce((sum, item) => sum + Math.abs(item.amount_clp), 0);
-    return { income, expenses, net: income - expenses, count: transactions.length };
-  }, [transactions]);
+  const summary = totals.find(item => item.account_id === selectedAccountId) ?? {income: 0, expenses: 0, net: 0, count: 0};
 
   const selectAccount = (accountId: number) => {
+    setPageOffset(0);
     setSelectedAccountId(accountId);
     setSearchParams({ account_id: String(accountId) }, { replace: true });
   };
@@ -167,6 +165,83 @@ export function AccountsPage() {
     if (accounts.length < 2 || selectedIndex < 0) return;
     const nextIndex = (selectedIndex + direction + accounts.length) % accounts.length;
     selectAccount(accounts[nextIndex].id);
+  };
+  const openDeleteStatementModal = async (statement: Statement) => {
+    setStatementPendingDelete(statement);
+    setDeletionImpact(null);
+    setDeletionError(null);
+    setFeedback(null);
+    setLoadingDeletionImpact(true);
+
+    try {
+      const impact = await StatementService.getDeletionImpact(statement.id);
+      setDeletionImpact(impact);
+    } catch (err) {
+      setDeletionError(
+        err instanceof Error
+          ? err.message
+          : "No fue posible calcular el impacto de esta eliminacion.",
+      );
+    } finally {
+      setLoadingDeletionImpact(false);
+    }
+  };
+
+  const closeDeleteStatementModal = () => {
+    if (loadingDeletionImpact || deletingStatementId !== null) return;
+    setStatementPendingDelete(null);
+    setDeletionImpact(null);
+    setDeletionError(null);
+  };
+
+  const confirmDeleteStatement = async () => {
+    if (!statementPendingDelete || !deletionImpact || selectedAccountId === null) return;
+
+    const statement = statementPendingDelete;
+    const accountId = selectedAccountId;
+    setDeletingStatementId(statement.id);
+    setDeletionError(null);
+    setError(null);
+
+    try {
+      const result = await StatementService.deleteStatement(statement.id);
+      setStatements((current) => current.filter((item) => item.id !== statement.id));
+      setTransactions((current) =>
+        current.filter((transaction) => transaction.statement_id !== statement.id),
+      );
+      setStatementPendingDelete(null);
+      setDeletionImpact(null);
+      setFeedback(
+        `Importacion deshecha: ${result.transaction_count} movimiento${
+          result.transaction_count === 1 ? "" : "s"
+        } eliminado${result.transaction_count === 1 ? "" : "s"}.${
+          result.raw_file_deleted ? " El PDF original tambien fue eliminado." : ""
+        }`,
+      );
+
+      try {
+        const [statementData, transactionData, accountTotals] = await Promise.all([
+          StatementService.getStatements(accountId),
+          TransactionService.getPage({account_id: accountId, limit: PAGE_SIZE, offset: 0}),
+          ReportService.accounts(),
+        ]);
+        setStatements(statementData);
+        setTransactions(transactionData.items);
+          setTotals(accountTotals);
+      } catch (refreshError) {
+        setError(
+          refreshError instanceof Error
+            ? `La cartola fue eliminada, pero no se pudo actualizar la vista: ${refreshError.message}`
+            : "La cartola fue eliminada, pero no se pudo actualizar la vista.",
+        );
+      }
+    } catch (err) {
+      setDeletionError(
+        err instanceof Error ? err.message : "No fue posible deshacer esta importacion.",
+      );
+    } finally {
+      setDeletingStatementId(null);
+    }
   };
 
   return (
@@ -177,7 +252,7 @@ export function AccountsPage() {
         description="Selecciona una cuenta para revisar sus cartolas, movimientos y resultados acumulados."
         actions={
           account ? (
-            <Button onClick={() => navigate(`/import?account_id=${account.id}`)}>
+            <Button onClick={() => navigate(`/app/import?account_id=${account.id}`)}>
               <PlusIcon className="h-5 w-5" />
               Importar nueva cartola
             </Button>
@@ -187,12 +262,13 @@ export function AccountsPage() {
 
       {loading ? <LoadingState message="Cargando cuentas..." /> : null}
       {error ? <ErrorState message={error} /> : null}
+      {feedback ? <StatusNotice tone="success">{feedback}</StatusNotice> : null}
 
       {!loading && accounts.length === 0 ? (
         <EmptyState
           title="Todavia no tienes cuentas"
           description="Crea tu primera cuenta desde Configuracion para comenzar a importar cartolas."
-          action={<Button onClick={() => navigate("/settings")}>Ir a Configuracion</Button>}
+          action={<Button onClick={() => navigate("/app/settings")}>Ir a Configuracion</Button>}
         />
       ) : null}
 
@@ -270,7 +346,7 @@ export function AccountsPage() {
               })}
               <button
                 type="button"
-                onClick={() => navigate("/settings?new_account=1")}
+                onClick={() => navigate("/app/settings?new_account=1")}
                 className="flex min-h-[180px] min-w-[280px] snap-start flex-col items-center justify-center gap-4 rounded-[1.75rem] border-2 border-dashed border-outline bg-paper-soft/60 p-6 text-center text-muted transition hover:border-primary/50 hover:bg-primary-mist/40 hover:text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-primary sm:min-w-[340px]"
               >
                 <span className="flex h-14 w-14 items-center justify-center rounded-full bg-white text-primary shadow-sm">
@@ -353,14 +429,14 @@ export function AccountsPage() {
 
               {!loadingDetails && activeTab === "statements" && statements.length > 0 ? (
                 <div className="overflow-x-auto">
-                  <table className="w-full min-w-[720px] border-collapse">
+                  <table className="w-full min-w-[840px] border-collapse">
                     <thead className="text-left text-sm text-muted">
                       <tr className="border-b border-outline">
                         <th className="px-4 py-3 font-medium">Nombre</th>
                         <th className="px-4 py-3 font-medium">Periodo</th>
                         <th className="px-4 py-3 font-medium">Importada</th>
                         <th className="px-4 py-3 font-medium">Estado</th>
-                        <th className="px-4 py-3 text-right font-medium">Movimientos</th>
+                        <th className="px-4 py-3 text-right font-medium">Acciones</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -389,12 +465,26 @@ export function AccountsPage() {
                             </span>
                           </td>
                           <td className="px-4 py-4 text-right">
-                            <Button
-                              tone="ghost"
-                              onClick={() => navigate(`/transactions?statement_id=${statement.id}`)}
-                            >
-                              Ver movimientos
-                            </Button>
+                            <div className="flex items-center justify-end gap-2">
+                              <Button
+                                className="px-3 py-2 text-sm"
+                                tone="ghost"
+                                onClick={() => navigate(`/app/transactions?statement_id=${statement.id}`)}
+                              >
+                                Ver movimientos
+                              </Button>
+                              <Button
+                                aria-label={`Deshacer importacion de ${statement.file_name}`}
+                                className="px-3 py-2 text-sm text-danger hover:bg-danger-soft"
+                                disabled={deletingStatementId !== null}
+                                onClick={() => void openDeleteStatementModal(statement)}
+                                title={`Deshacer importacion de ${statement.file_name}`}
+                                tone="ghost"
+                              >
+                                <TrashIcon className="h-4 w-4" />
+                                {deletingStatementId === statement.id ? "Eliminando..." : "Deshacer"}
+                              </Button>
+                            </div>
                           </td>
                         </tr>
                       ))}
@@ -421,9 +511,7 @@ export function AccountsPage() {
                           <td className="px-4 py-4 font-medium">{transaction.description}</td>
                           <td className="px-4 py-4">
                             <span className="rounded-full bg-paper-soft px-3 py-1 text-sm text-muted">
-                              {transaction.category_id
-                                ? categoryMap.get(transaction.category_id) ?? `Categoria #${transaction.category_id}`
-                                : "Sin categoria"}
+                              {getCategoryPath(transaction.category_id, categoryMap)}
                             </span>
                           </td>
                           <td
@@ -441,12 +529,17 @@ export function AccountsPage() {
                 </div>
               ) : null}
 
+              {activeTab === 'transactions' && <div className="flex justify-center gap-3 py-4">
+                <Button tone="secondary" disabled={loadingDetails || pageOffset === 0} onClick={() => setPageOffset(Math.max(0, pageOffset - PAGE_SIZE))}>Anterior</Button>
+                <span className="self-center">{summary.count} movimientos · página {Math.floor(pageOffset / PAGE_SIZE) + 1}</span>
+                <Button tone="secondary" disabled={loadingDetails || pageOffset + PAGE_SIZE >= summary.count} onClick={() => setPageOffset(pageOffset + PAGE_SIZE)}>Siguiente</Button>
+              </div>}
               {!loadingDetails && activeTab === "statements" && statements.length === 0 ? (
                 <EmptyState
                   title="No hay cartolas importadas"
                   description="Importa la primera cartola de esta cuenta para comenzar a registrar movimientos."
                   action={
-                    <Button onClick={() => navigate(`/import?account_id=${account.id}`)}>
+                    <Button onClick={() => navigate(`/app/import?account_id=${account.id}`)}>
                       Importar cartola
                     </Button>
                   }
@@ -462,6 +555,17 @@ export function AccountsPage() {
             </div>
           </Panel>
         </>
+      ) : null}
+      {statementPendingDelete ? (
+        <DeleteStatementModal
+          deleting={deletingStatementId === statementPendingDelete.id}
+          error={deletionError}
+          impact={deletionImpact}
+          loadingImpact={loadingDeletionImpact}
+          onCancel={closeDeleteStatementModal}
+          onConfirm={() => void confirmDeleteStatement()}
+          statement={statementPendingDelete}
+        />
       ) : null}
     </div>
   );

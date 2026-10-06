@@ -2,6 +2,7 @@ import unittest
 
 from sqlalchemy.pool import StaticPool
 from sqlmodel import Session, SQLModel, create_engine
+from tests.fixtures import Session
 
 from app.domain.enums import CurrencyCode, InstitutionCode
 from app.schemas.account import AccountCreate
@@ -24,6 +25,7 @@ class AccountTests(unittest.TestCase):
             InstitutionCode.COPECPAY,
             InstitutionCode.MERCADOPAGO,
             InstitutionCode.BANCO_ESTADO,
+            InstitutionCode.BANCO_FALABELLA,
         )
 
         with Session(self.engine) as session:

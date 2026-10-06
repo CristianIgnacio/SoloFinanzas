@@ -108,9 +108,18 @@ class LayoutLine:
 
 
 @dataclass(frozen=True)
+class LayoutVerticalEdge:
+    page_index: int
+    x: float
+    top: float
+    bottom: float
+
+
+@dataclass(frozen=True)
 class PdfContent:
     text: str
     layout_lines: tuple[LayoutLine, ...]
+    vertical_edges: tuple[LayoutVerticalEdge, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -141,6 +150,8 @@ class TabularParserProfile:
     summary_totals_extractor: SummaryTotalsExtractor | None = None
     layout_columns: LayoutColumnProfile | None = None
     description_normalizer: DescriptionNormalizer | None = None
+    movement_columns_pattern: re.Pattern[str] | None = None
+    period_from_transactions: bool = False
 
 
 @dataclass(frozen=True)
@@ -166,6 +177,8 @@ def inspect_pdf(
         raise PdfImportError("El archivo debe tener extension PDF.")
 
     reader, requires_password = _build_reader(file_bytes, password)
+    if len(reader.pages) > 50:
+        raise PdfImportError("El PDF supera el límite de 50 páginas.")
     pdf_content = _extract_pdf_content(file_bytes, password)
     extracted_text = pdf_content.text
     preview_lines = _build_preview_lines(extracted_text, preview_line_limit) # no se ocupa en el front
@@ -183,6 +196,7 @@ def inspect_pdf(
         parser_key,
         extracted_text,
         layout_lines=pdf_content.layout_lines,
+        vertical_edges=pdf_content.vertical_edges,
     )
 
     return PdfPreview(
@@ -246,20 +260,38 @@ def _build_reader(
 
 
 def _extract_pdf_content(file_bytes: bytes, password: str | None) -> PdfContent:
-    """Extrae texto plano y palabras con posicion desde un PDF en una pasada."""
+    """Extrae texto, palabras posicionadas y bordes desde un PDF en una pasada."""
     try:
         with pdfplumber.open(BytesIO(file_bytes), password=password) as pdf:
             page_texts: list[str] = []
             layout_lines: list[LayoutLine] = []
+            vertical_edges: list[LayoutVerticalEdge] = []
             for page_index, page in enumerate(pdf.pages):
                 page_texts.append(page.extract_text() or "")
                 layout_lines.extend(_extract_layout_lines(page, page_index))
+                vertical_edges.extend(_extract_vertical_edges(page, page_index))
             return PdfContent(
                 text="\n".join(page_texts).strip(),
                 layout_lines=tuple(layout_lines),
+                vertical_edges=tuple(vertical_edges),
             )
     except Exception as error:
         raise PdfImportError(f"No se pudo extraer texto del PDF: {error}") from error
+
+
+def _extract_vertical_edges(page, page_index: int) -> list[LayoutVerticalEdge]:
+    """Conserva divisiones verticales de lineas, rectangulos y otros trazos PDF."""
+    return [
+        LayoutVerticalEdge(
+            page_index=page_index,
+            x=(float(edge["x0"]) + float(edge["x1"])) / 2,
+            top=float(edge["top"]),
+            bottom=float(edge["bottom"]),
+        )
+        for edge in page.edges
+        if abs(edge["x0"] - edge["x1"]) <= 1
+        and edge["bottom"] > edge["top"]
+    ]
 
 
 def _extract_layout_lines(page, page_index: int) -> list[LayoutLine]:
@@ -336,6 +368,7 @@ def _parse_document(
     parser_key: ParserKey,
     extracted_text: str,
     layout_lines: tuple[LayoutLine, ...] = (),
+    vertical_edges: tuple[LayoutVerticalEdge, ...] = (),
 ) -> ParserResult:
     """Despacha el texto extraido al parser registrado para la institucion."""
     try:
@@ -344,7 +377,9 @@ def _parse_document(
         raise PdfImportError(
             f"El parser {parser_key.value} no tiene una implementacion configurada."
         ) from error
-    return parser(extracted_text, layout_lines=layout_lines)
+    return parser(
+        extracted_text, layout_lines=layout_lines, vertical_edges=vertical_edges
+    )
 
 
 def _build_institution_validator(
@@ -353,8 +388,12 @@ def _build_institution_validator(
     """Crea un validador que confirma marcadores de la institucion esperada."""
     def validate(extracted_text: str) -> None:
         """Valida que el texto del PDF contenga marcadores del perfil."""
-        upper_text = extracted_text.upper()
-        if not any(marker in upper_text for marker in profile.document_markers):
+        normalized_text = _normalize_document_marker(extracted_text)
+        if not any(
+            variant in normalized_text
+            for marker in profile.document_markers
+            for variant in _document_marker_variants(marker)
+        ):
             raise PdfImportError(
                 f"El PDF no parece pertenecer a {profile.display_name}, que es la "
                 "institucion de la cuenta seleccionada."
@@ -363,14 +402,27 @@ def _build_institution_validator(
     return validate
 
 
+def _normalize_document_marker(text: str) -> str:
+    """Ignora espacios y puntuacion al comparar nombres institucionales."""
+    return re.sub(r"[^A-Z0-9]", "", text.upper())
+
+
+def _document_marker_variants(marker: str) -> tuple[str, str]:
+    """Acepta el marcador normal o con cada glifo extraido dos veces."""
+    normalized = _normalize_document_marker(marker)
+    doubled = "".join(character * 2 for character in normalized)
+    return normalized, doubled
+
+
 def _parse_tabular_document(
     extracted_text: str,
     profile: TabularParserProfile,
     layout_lines: tuple[LayoutLine, ...] = (),
+    vertical_edges: tuple[LayoutVerticalEdge, ...] = (),
 ) -> ParserResult:
     """Parsea cartolas tabulares y devuelve candidatos, errores y periodo."""
     explicit_period = _extract_optional_period(extracted_text, profile)
-    layout_context = _build_layout_context(layout_lines, profile)
+    layout_context = _build_layout_context(layout_lines, profile, vertical_edges)
     candidates: list[TransactionCandidate] = []
     errors: list[str] = []
 
@@ -387,9 +439,12 @@ def _parse_tabular_document(
                 errors.append(f"{line.text} -> {error}")
             continue
         if candidate is not None:
+            candidate.source_id = f"row-{len(candidates) + 1:06d}"
             candidates.append(candidate)
 
-    if explicit_period is not None:
+    if profile.period_from_transactions and candidates:
+        period_month = max(candidate.date for candidate in candidates).strftime("%Y-%m")
+    elif explicit_period is not None:
         period_month = explicit_period[1].strftime("%Y-%m")
     elif candidates:
         period_month = max(candidate.date for candidate in candidates).strftime("%Y-%m")
@@ -458,6 +513,7 @@ def _iter_tabular_lines(
 def _build_layout_context(
     layout_lines: tuple[LayoutLine, ...],
     profile: TabularParserProfile,
+    vertical_edges: tuple[LayoutVerticalEdge, ...] = (),
 ) -> dict[str, object]:
     """Construye indices para cruzar filas de texto con rangos de columnas PDF."""
     lines_by_text: dict[str, list[LayoutLine]] = {}
@@ -466,7 +522,9 @@ def _build_layout_context(
 
     return {
         "lines_by_text": lines_by_text,
-        "column_ranges_by_page": _build_column_ranges_by_page(layout_lines, profile),
+        "column_ranges_by_page": _build_column_ranges_by_page(
+            layout_lines, profile, vertical_edges
+        ),
     }
 
 
@@ -489,6 +547,7 @@ def _normalize_layout_text(text: str) -> str:
 def _build_column_ranges_by_page(
     layout_lines: tuple[LayoutLine, ...],
     profile: TabularParserProfile,
+    vertical_edges: tuple[LayoutVerticalEdge, ...] = (),
 ) -> dict[int, LayoutColumnRanges]:
     """Infiere rangos de columnas de cargos, abonos y saldo por pagina."""
     if profile.layout_columns is None:
@@ -519,16 +578,74 @@ def _build_column_ranges_by_page(
         if None in (expense_center, income_center, balance_center):
             continue
 
-        ranges_by_page[page_index] = _build_ordered_column_ranges(
-            {
-                "expense": expense_center,
-                "income": income_center,
-                "balance": balance_center,
-            },
-            description_center,
+        column_centers = {
+            "expense": expense_center,
+            "income": income_center,
+            "balance": balance_center,
+        }
+        border_ranges = _build_bordered_column_ranges(
+            page_lines, vertical_edges, column_centers, description_center
+        )
+        ranges_by_page[page_index] = border_ranges or _build_ordered_column_ranges(
+            column_centers, description_center
         )
 
     return ranges_by_page
+
+
+def _build_bordered_column_ranges(
+    header_lines: list[LayoutLine],
+    vertical_edges: tuple[LayoutVerticalEdge, ...],
+    column_centers: dict[str, float],
+    description_center: float | None,
+) -> LayoutColumnRanges | None:
+    """Usa celdas contiguas del cuerpo de la tabla cuando delimitan los titulos."""
+    header_words = [word for line in header_lines for word in line.words]
+    if not header_words:
+        return None
+
+    header_bottom = max(word.bottom for word in header_words)
+    row_height = max(word.bottom - word.top for word in header_words)
+    page_index = header_lines[0].page_index
+    # Algunas cartolas comienzan sus divisiones justo debajo del encabezado.
+    # Excluimos bordes del resumen, subrayados y tablas ubicadas mas abajo.
+    positions = sorted(
+        edge.x
+        for edge in vertical_edges
+        if edge.page_index == page_index
+        and edge.top <= header_bottom + 3
+        and edge.bottom >= header_bottom + row_height
+    )
+    boundaries: list[float] = []
+    for position in positions:
+        if not boundaries or position - boundaries[-1] > 1:
+            boundaries.append(position)
+
+    cells = list(zip(boundaries, boundaries[1:]))
+    ranges: dict[str, tuple[float, float]] = {}
+    for column, center in column_centers.items():
+        cell = next((cell for cell in cells if cell[0] <= center < cell[1]), None)
+        if cell is None:
+            return None
+        ranges[column] = cell
+
+    ordered_ranges = sorted(ranges.values())
+    if any(
+        left[1] != right[0]
+        for left, right in zip(ordered_ranges, ordered_ranges[1:])
+    ):
+        # Bordes incompletos o decorativos no bastan para separar las columnas.
+        return None
+    if description_center is not None and any(
+        left <= description_center < right for left, right in ordered_ranges
+    ):
+        return None
+
+    return LayoutColumnRanges(
+        expense=ranges["expense"],
+        income=ranges["income"],
+        balance=ranges["balance"],
+    )
 
 
 def _build_ordered_column_ranges(
@@ -669,30 +786,35 @@ def _parse_tabular_line(
     if upper_remainder.startswith(IGNORED_MOVEMENT_PREFIXES):
         return None
 
-    amount_matches = list(AMOUNT_PATTERN.finditer(remainder))
-    if not amount_matches:
-        raise PdfImportError("No se detecto un monto interpretable.")
+    if profile.movement_columns_pattern is not None:
+        description, signed_amount = _parse_explicit_movement_columns(
+            remainder, profile.movement_columns_pattern
+        )
+    else:
+        amount_matches = list(AMOUNT_PATTERN.finditer(remainder))
+        if not amount_matches:
+            raise PdfImportError("No se detecto un monto interpretable.")
 
-    selected_matches = _select_amount_block(
-        remainder,
-        amount_matches,
-        layout_line=line.layout_line,
-        layout_context=layout_context,
-    )
-    raw_amounts = [amount_match.group(0) for amount_match in selected_matches]
-    amounts = [normalize_amount_clp(raw_amount) for raw_amount in raw_amounts]
-    description = remainder[: selected_matches[0].start()].strip(" :-")
-    if not description:
-        raise PdfImportError("No se pudo reconstruir la descripcion.")
+        selected_matches = _select_amount_block(
+            remainder,
+            amount_matches,
+            layout_line=line.layout_line,
+            layout_context=layout_context,
+        )
+        raw_amounts = [amount_match.group(0) for amount_match in selected_matches]
+        amounts = [normalize_amount_clp(raw_amount) for raw_amount in raw_amounts]
+        description = remainder[: selected_matches[0].start()].strip(" :-")
+        if not description:
+            raise PdfImportError("No se pudo reconstruir la descripcion.")
 
-    signed_amount = _resolve_tabular_amount(
-        description=description,
-        raw_amounts=raw_amounts,
-        amounts=amounts,
-        profile=profile,
-        layout_line=line.layout_line,
-        layout_context=layout_context,
-    )
+        signed_amount = _resolve_tabular_amount(
+            description=description,
+            raw_amounts=raw_amounts,
+            amounts=amounts,
+            profile=profile,
+            layout_line=line.layout_line,
+            layout_context=layout_context,
+        )
     cleaned_description = _normalize_profile_description(description, profile)
     normalized_date = raw_date.replace("-", "/")
     if len(normalized_date.split("/")) == 3:
@@ -725,6 +847,26 @@ def _parse_tabular_line(
             else TransactionType.EXPENSE
         ),
     )
+
+
+def _parse_explicit_movement_columns(
+    remainder: str,
+    pattern: re.Pattern[str],
+) -> tuple[str, int]:
+    """Lee cargo/abono/saldo completos, incluidos guiones como celdas vacias."""
+    match = pattern.fullmatch(remainder)
+    if match is None:
+        raise PdfImportError("No se pudieron leer las columnas cargo, abono y saldo.")
+
+    expense, income = (
+        0 if match[name] == "-" else normalize_amount_clp(match[name])
+        for name in ("expense", "income")
+    )
+    # El saldo se valida pero nunca se usa como importe de la transaccion.
+    normalize_amount_clp(match["balance"])
+    if expense < 0 or income < 0 or (expense == 0) == (income == 0):
+        raise PdfImportError("La fila debe contener un unico cargo o abono positivo.")
+    return match["description"].strip(), income - expense
 
 
 def _select_amount_block(
@@ -1105,7 +1247,7 @@ def _extract_santander_summary_totals(
     """Extrae cargos y abonos totales del resumen de Banco Santander."""
     match = re.search(
         r"SALDO\s+INICIAL\s+CHEQUES\s+O\s+CARGOS\s+"
-        r"DEP[OÓ]SITOS\s+O\s+ABONOS\s+SALDO\s+FINAL\s+"
+        r"DEP\S*SITOS\s+O(?:\s+ABONOS)?\s+SALDO\s+FINAL\s+"
         r"([\d.]+)\s+([\d.]+)\s+([\d.]+)\s+([\d.]+)",
         extracted_text,
         re.IGNORECASE,
@@ -1147,6 +1289,12 @@ def _validate_summary_totals(
 
     expected_totals = profile.summary_totals_extractor(extracted_text)
     if expected_totals is None:
+        upper_text = extracted_text.upper()
+        if "SALDO INICIAL" in upper_text and "SALDO FINAL" in upper_text:
+            raise PdfImportError(
+                f"No se pudieron validar los totales declarados en la cartola "
+                f"{profile.display_name}."
+            )
         return
 
     expected_expenses, expected_income = expected_totals
@@ -1166,6 +1314,45 @@ def _validate_summary_totals(
             "el resumen de la cartola: "
             f"cargos {parsed_expenses}/{expected_expenses}, "
             f"abonos {parsed_income}/{expected_income}."
+        )
+
+
+def _validate_falabella_document(extracted_text: str) -> None:
+    """Reconoce la estructura de cuenta corriente: el logo puede ser una imagen."""
+    required_headers = (
+        r"^\s*Cartola de Movimientos\s*$",
+        r"^\s*Cuenta Corriente\s*$",
+        r"^\s*Saldo Disponible\s+\$",
+        r"^\s*Saldo Contable\s+\$",
+        r"^\s*Listado de movimientos\s*$",
+        r"^\s*FECHA\s+DESCRIPCI[OÓ]N\s+CARGO\s+ABONO\s+SALDO\s*$",
+    )
+    header_text = re.split(
+        r"Listado de movimientos", extracted_text, maxsplit=1, flags=re.IGNORECASE
+    )[0]
+    normalized_header_lines = [
+        _normalize_document_marker(line) for line in header_text.splitlines()
+    ]
+    other_institution = any(
+        line.startswith(variant)
+        for parser_key, profile in PARSER_PROFILES.items()
+        if parser_key != ParserKey.BANCO_FALABELLA
+        for marker in profile.document_markers
+        for variant in _document_marker_variants(marker)
+        for line in normalized_header_lines
+    )
+    if (
+        other_institution
+        or not all(
+            re.search(pattern, extracted_text, re.IGNORECASE | re.MULTILINE)
+            for pattern in required_headers
+        )
+        or _extract_optional_period(extracted_text, FALABELLA_PROFILE) is None
+    ):
+        raise PdfImportError(
+            "El PDF no corresponde al formato compatible de Banco Falabella: "
+            "Cartola de Movimientos de Cuenta Corriente. "
+            "Los estados de cuenta CMR aun no estan soportados."
         )
 
 
@@ -1216,7 +1403,13 @@ SANTANDER_PROFILE = TabularParserProfile(
         "PAT",
     ),
     continuation_lines=True,
-    movement_start_markers=("CARGOS ABONOS", "CARGO ABONO"),
+    movement_start_markers=(
+        "MOVIMIENTO DE SU CUENTA",
+        "CARGOS ABONOS",
+        "CARGOS Y ABONOS",
+        "CARGO ABONO",
+        "CARGO Y ABONO",
+    ),
     movement_end_markers=("MENSAJES", "RESUMEN DE COMISIONES"),
     summary_totals_extractor=_extract_santander_summary_totals,
     layout_columns=LayoutColumnProfile(
@@ -1326,18 +1519,46 @@ BANCO_ESTADO_PROFILE = TabularParserProfile(
     ),
 )
 
+FALABELLA_PROFILE = TabularParserProfile(
+    display_name="Banco Falabella",
+    document_markers=("BANCO FALABELLA", "BANCOFALABELLA"),
+    period_patterns=(
+        re.compile(
+            r"PER[IÍ]ODO\s+DE\s+MOVIMIENTOS\s*:?\s*"
+            r"(\d{1,2}/\d{1,2}/\d{4})\s+AL\s+(\d{1,2}/\d{1,2}/\d{4})",
+            re.IGNORECASE,
+        ),
+    ),
+    income_keywords=(),
+    expense_keywords=(),
+    movement_start_markers=("FECHA DESCRIPCI",),
+    # La celda vacia se conserva como '-'; asi no se confunde con el saldo
+    # ni se depende de keywords como COMPRA, ABONO o TRANSF. en la descripcion.
+    movement_columns_pattern=re.compile(
+        r"(?P<description>.+?)\s+"
+        r"(?P<expense>-|\$\s*[+-]?\s*\d[\d.,]*)\s+"
+        r"(?P<income>-|\$\s*[+-]?\s*\d[\d.,]*)\s+"
+        r"(?P<balance>\$\s*[+-]?\s*\d[\d.,]*)"
+    ),
+    # Es un rango de consulta que puede terminar en una fecha futura,
+    # no un mes de facturacion. Se conserva para validar las fechas.
+    period_from_transactions=True,
+)
+
 PARSER_PROFILES: dict[ParserKey, TabularParserProfile] = {
     ParserKey.BANCO_DE_CHILE: BANCO_CHILE_PROFILE,
     ParserKey.BANCO_SANTANDER: SANTANDER_PROFILE,
     ParserKey.COPECPAY: COPECPAY_PROFILE,
     ParserKey.MERCADOPAGO: MERCADOPAGO_PROFILE,
     ParserKey.BANCO_ESTADO: BANCO_ESTADO_PROFILE,
+    ParserKey.BANCO_FALABELLA: FALABELLA_PROFILE,
 }
 
 PDF_DOCUMENT_VALIDATORS: dict[ParserKey, DocumentValidator] = {
     parser_key: _build_institution_validator(profile)
     for parser_key, profile in PARSER_PROFILES.items()
 }
+PDF_DOCUMENT_VALIDATORS[ParserKey.BANCO_FALABELLA] = _validate_falabella_document
 
 PDF_PARSERS: dict[ParserKey, ParserHandler] = {
     parser_key: partial(_parse_tabular_document, profile=profile)

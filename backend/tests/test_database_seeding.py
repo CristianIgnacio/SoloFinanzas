@@ -2,6 +2,7 @@ import unittest
 
 from sqlalchemy.pool import StaticPool
 from sqlmodel import Session, SQLModel, create_engine, select
+from tests.fixtures import Session
 
 from app.core.database import (
     seed_default_categories,

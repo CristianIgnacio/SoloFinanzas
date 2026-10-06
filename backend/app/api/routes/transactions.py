@@ -5,7 +5,11 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlmodel import Session
 
 from app.core.database import get_session
-from app.schemas.transaction import Transaction, TransactionCreate
+from app.schemas.transaction import (
+    Transaction,
+    TransactionCategoryUpdate,
+    TransactionCreate,
+)
 from app.services.transactions import (
     create_transaction,
     create_bulk_transactions,
@@ -44,6 +48,19 @@ def get_transactions(
     )
 
 
+@router.get("/transaction-pages")
+def get_transaction_page(session: SessionDep, account_id: int | None = None,
+    statement_id: int | None = None, date_from: date | None = None, date_to: date | None = None,
+    transaction_type: str | None = None, category_id: int | None = None,
+    uncategorized: bool = False, exclude_internal: bool = False,
+    limit: int = Query(50, ge=1, le=1000), offset: int = Query(0, ge=0)):
+    from app.services.transactions import transaction_page
+    return transaction_page(session, account_id=account_id, statement_id=statement_id,
+        date_from=date_from, date_to=date_to, transaction_type=transaction_type,
+        category_id=category_id, uncategorized=uncategorized, exclude_internal=exclude_internal,
+        limit=limit, offset=offset)
+
+
 @router.get("/transactions/{transaction_id}", response_model=Transaction)
 def get_transaction_detail(transaction_id: int, session: SessionDep) -> Transaction:
     """Devuelve una transaccion especifica."""
@@ -71,14 +88,16 @@ def post_transactions_bulk(
 @router.patch("/transactions/{transaction_id}/category")
 def patch_transaction_category(
     transaction_id: int,
-    category_id: int | None = Query(...),
-    category_source: str | None = Query(None),
-    session: SessionDep = None,
+    payload: TransactionCategoryUpdate,
+    session: SessionDep,
 ) -> Transaction:
     """Actualiza la categoria asociada a una transaccion."""
     try:
         transaction = update_transaction_category(
-            session, transaction_id, category_id, category_source
+            session,
+            transaction_id,
+            payload.category_id,
+            payload.category_source.value if payload.category_source else None,
         )
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error

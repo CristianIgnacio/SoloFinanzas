@@ -17,7 +17,6 @@ class StatementBase(SQLModel):
     file_checksum: str | None = Field(default=None)
     period_month: str | None = Field(default=None)
     status: StatementStatus = StatementStatus.PENDING
-    raw_path: str | None = Field(default=None)
 
 
 class StatementCreate(StatementBase):
@@ -27,6 +26,21 @@ class StatementCreate(StatementBase):
 class Statement(StatementBase):
     id: int
     uploaded_at: datetime
+
+
+class StatementDeletionImpact(SQLModel):
+    statement_id: int
+    transaction_count: int
+    income_total_clp: int
+    expense_total_clp: int
+    net_total_clp: int
+    affected_periods: list[str]
+    internal_transfer_match_count: int
+    raw_file_delete_eligible: bool
+
+
+class StatementDeletionResult(StatementDeletionImpact):
+    raw_file_deleted: bool
 
 
 class PdfPreview(SQLModel):

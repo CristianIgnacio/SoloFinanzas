@@ -11,6 +11,7 @@ class ParserKey(StrEnum):
     COPECPAY = "copecpay"
     MERCADOPAGO = "mercadopago"
     BANCO_ESTADO = "banco_estado"
+    BANCO_FALABELLA = "banco_falabella"
 
 
 INSTITUTION_PARSER_MAP: dict[InstitutionCode, ParserKey] = {
@@ -19,6 +20,7 @@ INSTITUTION_PARSER_MAP: dict[InstitutionCode, ParserKey] = {
     InstitutionCode.COPECPAY: ParserKey.COPECPAY,
     InstitutionCode.MERCADOPAGO: ParserKey.MERCADOPAGO,
     InstitutionCode.BANCO_ESTADO: ParserKey.BANCO_ESTADO,
+    InstitutionCode.BANCO_FALABELLA: ParserKey.BANCO_FALABELLA,
 }
 
 
