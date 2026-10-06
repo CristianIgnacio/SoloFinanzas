@@ -1,4 +1,5 @@
 from datetime import date
+from contextlib import closing
 import hashlib
 from pathlib import Path
 import sqlite3
@@ -10,7 +11,7 @@ from sqlmodel import SQLModel, Session, select
 from app.core.database import make_engine
 from app.models import AccountModel, TransactionModel
 from app.models.user import UserModel
-from scripts.migrate_sqlite import migrate
+from scripts.migrate_sqlite import migrate, read_source
 
 
 class LegacyImportTests(unittest.TestCase):
@@ -21,6 +22,7 @@ class LegacyImportTests(unittest.TestCase):
                 db.executescript("""
                 CREATE TABLE accounts (id integer, name text, account_type text);
                 INSERT INTO accounts VALUES (7, 'Demo', 'debito');
+                CREATE TABLE users (id text);
                 CREATE TABLE categories (id integer, name text, type text);
                 INSERT INTO categories VALUES (9, 'Demo', 'expense');
                 CREATE TABLE statements (id integer, account_id integer, file_name text, file_type text, file_checksum text, raw_path text);
@@ -47,3 +49,22 @@ class LegacyImportTests(unittest.TestCase):
             self.assertEqual(hashlib.sha256(source.read_bytes()).hexdigest(), digest)
             SQLModel.metadata.drop_all(engine)
             engine.dispose()
+
+    def test_rejects_source_with_users_or_owned_financial_tables(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / 'already-multiuser.db'
+            with closing(sqlite3.connect(source)) as db:
+                db.executescript("""
+                CREATE TABLE users (id text);
+                INSERT INTO users VALUES ('someone');
+                CREATE TABLE accounts (id integer, name text);
+                """)
+            with self.assertRaisesRegex(ValueError, 'contiene usuarios'):
+                read_source(source)
+            with closing(sqlite3.connect(source)) as db:
+                db.executescript("""
+                DELETE FROM users;
+                ALTER TABLE accounts ADD COLUMN user_id text;
+                """)
+            with self.assertRaisesRegex(ValueError, 'contiene propietarios'):
+                read_source(source)
