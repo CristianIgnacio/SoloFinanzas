@@ -2,7 +2,7 @@
 
 ## Comprobado localmente
 
-- **102 pruebas del backend aprobadas**, ejecutando la suite con PostgreSQL 17.11 temporal y datos ficticios. Incluye pruebas históricas de parsers sobre SQLite y nuevas pruebas de integración sobre PostgreSQL.
+- **102 pruebas del backend aprobadas** en una ejecución con PostgreSQL 17.11 temporal y datos ficticios. Tras agregar el caso para la clave secreta actual de Supabase, la suite local ejecutó 103 casos: 102 aprobados y uno específico de despliegue PostgreSQL omitido porque ese servidor temporal ya no estaba activo. Incluye pruebas históricas de parsers sobre SQLite y nuevas pruebas de integración sobre PostgreSQL.
 - Migración Alembic a una base vacía; permisos del rol de ejecución sin acceso de modificación al esquema o a `alembic_version`.
 - Aislamiento entre usuarios en consultas, agregados, alias ORM, páginas, exportación, categorías, reglas, relaciones, importaciones y eliminación. Una relación cruzada también falla con una sesión SQL sin la protección ORM.
 - Importaciones duplicadas concurrentes: una sola confirmación; fallos de operaciones en lote sin guardados parciales.
@@ -20,7 +20,7 @@
 
 No se publicaron servicios, no se activaron planes de pago, no se migraron datos personales y no se instaló la tarea diaria en Windows. Debes crear Supabase, Render y Vercel y seguir [la guía de despliegue](despliegue-beta.md).
 
-Después de configurar los proyectos, quedan las pruebas reales de Google/PKCE, callbacks, CORS, HTTPS, reactivación de Render, Data API deshabilitada, importación con PDF ficticio y eliminación en Supabase Auth. Las suites de backend y frontend permanecen solo en este equipo y no se subirán al repositorio. El workflow de CI comprueba migraciones y compilación, pero no ejecuta esas suites; esta verificación describe ejecuciones locales, no un workflow ya ejecutado en GitHub.
+Después de configurar los proyectos, quedan las pruebas reales de Google/PKCE, callbacks, CORS, HTTPS, reactivación de Render, Data API deshabilitada, importación con PDF ficticio y eliminación en Supabase Auth. Las suites de backend y frontend están versionadas y el workflow de CI las ejecutará; esta verificación describe ejecuciones locales, no un workflow ya ejecutado en GitHub.
 
 La cadena de desarrollo de Tailwind 3 conserva avisos de `braces` documentados en la guía; la auditoría anterior no cubre herramientas de desarrollo. Vite advierte que el módulo diferido de gráficos supera 500 KB. La página de Análisis carga los registros de los meses elegidos y puede consumir más memoria si se seleccionan muchos períodos.
 

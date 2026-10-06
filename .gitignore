@@ -4,11 +4,6 @@ __pycache__/
 .pytest_cache/
 .mypy_cache/
 
-# Pruebas conservadas solo en este equipo; no subir a Git.
-/backend/tests/
-/frontend/tests/
-/frontend/playwright.config.ts
-
 node_modules/
 dist/
 .vite/

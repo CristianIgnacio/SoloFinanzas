@@ -133,7 +133,7 @@ npx playwright install chromium
 npx playwright test
 ```
 
-Estas pruebas se conservan solo en este equipo: `backend/tests/`, `frontend/tests/` y `frontend/playwright.config.ts` están excluidos de Git. Los comandos de pruebas funcionan únicamente donde existan esos archivos locales. Playwright simula las respuestas de Auth/API para probar rutas, cancelación, sesión vencida, recarga, cambio de identidad y cierre de sesión en móvil/escritorio; no acredita que Google esté bien configurado. Para probar PostgreSQL define `TEST_DATABASE_URL` en una base desechable: sus tablas se crean y eliminan. `TEST_POSTGRES_ADMIN_URL` habilita el ensayo de migraciones, permisos, dump cifrado y restauración en dos bases temporales. **Nunca uses una base personal o de producción para estas variables.** El workflow `.github/workflows/ci.yml` comprueba sintaxis, migraciones, dependencias y compilación; no ejecuta las pruebas locales.
+Las pruebas de `backend/tests/`, `frontend/tests/` y la configuración de Playwright están versionadas. Playwright simula las respuestas de Auth/API para probar rutas, cancelación, sesión vencida, recarga, cambio de identidad y cierre de sesión en móvil/escritorio; no acredita que Google esté bien configurado. Para probar PostgreSQL define `TEST_DATABASE_URL` en una base desechable: sus tablas se crean y eliminan. `TEST_POSTGRES_ADMIN_URL` habilita el ensayo de migraciones, permisos, dump cifrado y restauración en dos bases temporales. **Nunca uses una base personal o de producción para estas variables.** El workflow `.github/workflows/ci.yml` prepara PostgreSQL y ejecuta estas pruebas, además de comprobar dependencias, migraciones y compilación.
 
 Antes de abrir nuevos registros, confirma:
 

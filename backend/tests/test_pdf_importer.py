@@ -1,0 +1,909 @@
+import unittest
+from io import BytesIO
+
+from pypdf import PdfWriter
+from pypdf.generic import DecodedStreamObject, DictionaryObject, NameObject
+
+from app.domain.enums import InstitutionCode
+from app.domain.parsers import INSTITUTION_PARSER_MAP, ParserKey
+from app.services.pdf_importer import (
+    PDF_DOCUMENT_VALIDATORS,
+    PDF_PARSERS,
+    SANTANDER_PROFILE,
+    LayoutLine,
+    LayoutVerticalEdge,
+    LayoutWord,
+    PARSER_PROFILES,
+    PdfImportError,
+    _build_column_ranges_by_page,
+    _build_reader,
+    _build_preview_lines,
+    _extract_optional_period,
+    _parse_document,
+    _resolve_parser,
+    _validate_document,
+    inspect_pdf,
+)
+
+
+BANCO_CHILE_SAMPLE = """
+BANCO DE CHILE
+CUENTA CORRIENTE
+TELEFONO : 0 DESDE : 30/12/2025 HASTA : 01/04/2026
+FECHA DETALLE DE TRANSACCION SUCURSAL N° DOCTO MONTO CHEQUES MONTO DEPOSITOS SALDO
+DIA/MES O CARGOS O ABONOS
+30/12 SALDO INICIAL 50.156 D
+07/01 TRASPASO A:Persona Ejemplo INTERNET 43.383 D
+07/01 TRASPASO DE:DLOCAL CHILE SPA INTERNET 43.383 50.156 D
+26/01 PAGO:GOOGLE PLAY YOUTU OFICINA BAN VI 20.200 29.800 D
+02/03 PAGO:DE HONORARIOS 0111111111 CENTRAL 1.449.225 1.449.225 D
+01/04 SALDO FINAL 1.438.355 D
+""".strip()
+
+SANTANDER_SAMPLE = """
+BANCO SANTANDER CHILE
+CARTOLA CUENTA CORRIENTE
+PERIODO DESDE: 01/05/2026 HASTA: 31/05/2026
+FECHA DESCRIPCION CARGO ABONO SALDO
+01/05 COMPRA SUPERMERCADO CARGO 12.345 SALDO 87.655
+02/05 TRANSFERENCIA RECIBIDA ABONO 50.000 SALDO 137.655
+""".strip()
+
+SANTANDER_MULTILINE_SAMPLE = """
+CUENTA VISTA
+ESTADO CUENTA VISTA
+CARTOLA DESDE HASTA PAGINA
+0-000-00-12345-6 75 27/02/2026 31/03/2026 1 DE 2
+Saldo Inicial Cheques o Cargos Depositos o Abonos Saldo Final
+32.010 1.219.871 1.215.397 27.536
+MOVIMIENTO DE SU CUENTA SALDO DIARIO
+FECHA NUMERO SUC DESCRIPCION CHEQUES Y DEPOSITOS Y SALDO
+CARGOS ABONOS
+02/03 93 Compra PAGO ONLINE KUSHK 20.000
+--- Saldo Dia --- 12.010
+04/03 93 Compra PAYU *UBER TRIP 4.516
+--- Saldo Dia --- 7.494
+06/03 9260651 401 0111111111 Transf. 20.000
+93 0222222222 Transf a PERSONA UNO 7.494
+--- Saldo Dia --- 20.000
+09/03 9001812 401 0333333333 Transf. COMERCIO UNO 20.000
+93 Compra RIPLEY FLORIDA 20.240
+--- Saldo Dia --- 19.760
+12/03 93 Compra PAYU *UBER TRIP 1.615
+93 0222222222 Transf a PERSONA UNO 18.145
+--- Saldo Dia --- 0
+16/03 2157027 401 0444444444 Transf. PERSONA DOS 3.800
+93 Compra PAYU *UBER TRIP 3.764
+--- Saldo Dia --- 36
+17/03 1123916 401 0222222222 Transf. PERSONA TRES 1.087.864
+93 0222222222 Transf a PERSONA UNO 1.087.900
+--- Saldo Dia --- 0
+19/03 9260776 401 0111111111 Transf. 10.000
+9260776 401 0111111111 Transf. 10.000
+--- Saldo Dia --- 20.000
+20/03 9260788 401 0111111111 Transf. 20.000
+--- Saldo Dia --- 40.000
+23/03 9260813 401 0111111111 Transf. 20.000
+MENSAJES
+CUENTA VISTA
+ESTADO CUENTA VISTA
+CARTOLA DESDE HASTA PAGINA
+0-000-00-12345-6 75 27/02/2026 31/03/2026 2 DE 2
+MOVIMIENTO DE SU CUENTA SALDO DIARIO
+FECHA NUMERO SUC DESCRIPCION CHEQUES Y DEPOSITOS Y SALDO
+CARGOS ABONOS
+23/03 93 Compra PAYU *UBER TRIP 4.217
+401 0555555555 Transf a COMERCIO DOS 20.000
+--- Saldo Dia --- 35.783
+24/03 93 Compra UBER 3.990
+--- Saldo Dia --- 31.793
+26/03 93 Compra DL*GOOGLE YOUTUBE 7.990
+--- Saldo Dia --- 23.803
+27/03 401 0555555555 Transf a COMERCIO DOS 20.000
+--- Saldo Dia --- 3.803
+30/03 0390684 401 UBER 3.733
+9260887 401 0111111111 Transf. 20.000
+--- Saldo Dia --- 27.536
+Resumen de Comisiones
+SIN COMISIONES EN EL PERIODO
+Banco Santander Chile.
+""".strip()
+
+COPECPAY_SAMPLE = """
+COPECPAY
+HISTORIAL DE MOVIMIENTOS
+Fecha Descripción Cargos Abonos Saldo
+01/05/2026 10:30 COMPRA ESTACION DE SERVICIO -15.000
+02/05/2026 09:15 RECARGA DESDE BANCO +25.000
+""".strip()
+
+COPECPAY_COLUMN_SAMPLE = """
+COPECPAY
+HISTORIAL DE MOVIMIENTOS
+DESDE: 01/05/2026 HASTA: 31/05/2026
+Fecha Descripción Cargos Abonos Saldo
+03/05/2026 Recarga desde banco 0 40.000 55.000
+04/05/2026 Compra combustible 18.750 0 36.250
+31/05/2026 Compra tarjeta digital DOM AHUMADA 146 16.940 0 19.310
+Total Cargos Total Abonos Saldo Final
+35.690 40.000 19.310
+""".strip()
+
+MERCADOPAGO_SAMPLE = """
+MERCADO PAGO
+ESTADO DE CUENTA
+03-05-2026 DINERO RECIBIDO +20.000
+04-05-2026 PAGO CON QR -8.500
+""".strip()
+
+MERCADOPAGO_COLUMN_SAMPLE = """
+MERCADO PAGO
+REPORTE DE MOVIMIENTOS
+Periodo: 01/05/2026 - 31/05/2026
+Fecha Detalle Ingresos Egresos Saldo
+05/05/2026 Venta QR local 35.000 0 135.000
+06/05/2026 Retiro a cuenta bancaria 0 22.500 112.500
+""".strip()
+
+MERCADOPAGO_ACCOUNT_STATEMENT_SAMPLE = """
+MERCADO PAGO
+DESDE HASTA FECHA DE GENERACION ID DE USUARIO
+01-05-2026 00:00:00 31-05-2026 23:59:59 17-06-2026 03:03:34 123456789
+FECHA DE ACREDITACION TIPO DE MOVIMIENTO TIPO DE TRANSACCION ID DE TRANSACCION MONEDA MONTO DE TRANSACCION OTROS CONCEPTOS
+01-05-2026 01:04:33 Abono Ganancias 1111111111111 CLP 7,00 0,00
+03-05-2026 13:19:34 Cargo Pago 222222222222 CLP -5.490,00 0,00
+""".strip()
+
+BANCO_ESTADO_SAMPLE = """
+BANCOESTADO
+CARTOLA CUENTARUT
+DESDE 01/05/2026 AL 31/05/2026
+FECHA DETALLE CARGOS ABONOS SALDO
+01/05/2026 COMPRA REDCOMPRA 10.000 0 90.000
+02/05/2026 ABONO REMUNERACION 0 50.000 140.000
+""".strip()
+
+
+def _layout_line(
+    text: str,
+    page_index: int,
+    top: float,
+    words: list[tuple[str, float, float]],
+) -> LayoutLine:
+    return LayoutLine(
+        text=text,
+        page_index=page_index,
+        top=top,
+        words=tuple(
+            LayoutWord(
+                text=word,
+                x0=x0,
+                x1=x1,
+                top=top,
+                bottom=top + 8,
+            )
+            for word, x0, x1 in words
+        ),
+    )
+
+
+COPECPAY_COLUMN_LAYOUT = (
+    _layout_line(
+        "Fecha Descripción Cargos Abonos Saldo",
+        0,
+        110,
+        [
+            ("Fecha", 35, 60),
+            ("Descripción", 110, 170),
+            ("Cargos", 406, 438),
+            ("Abonos", 463, 498),
+            ("Saldo", 534, 560),
+        ],
+    ),
+    _layout_line(
+        "03/05/2026 Recarga desde banco 0 40.000 55.000",
+        0,
+        132,
+        [
+            ("03/05/2026", 35, 86),
+            ("Recarga", 110, 150),
+            ("desde", 154, 186),
+            ("banco", 190, 220),
+            ("0", 419, 425),
+            ("40.000", 466, 498),
+            ("55.000", 524, 556),
+        ],
+    ),
+    _layout_line(
+        "04/05/2026 Compra combustible 18.750 0 36.250",
+        0,
+        154,
+        [
+            ("04/05/2026", 35, 86),
+            ("Compra", 110, 148),
+            ("combustible", 152, 210),
+            ("18.750", 404, 436),
+            ("0", 489, 495),
+            ("36.250", 524, 556),
+        ],
+    ),
+    _layout_line(
+        "31/05/2026 Compra tarjeta digital DOM AHUMADA 146 16.940 0 19.310",
+        0,
+        176,
+        [
+            ("31/05/2026", 35, 86),
+            ("Compra", 110, 148),
+            ("tarjeta", 152, 190),
+            ("digital", 194, 226),
+            ("DOM", 230, 256),
+            ("AHUMADA", 260, 306),
+            ("146", 310, 326),
+            ("16.940", 402, 434),
+            ("0", 489, 495),
+            ("19.310", 524, 556),
+        ],
+    ),
+)
+
+
+MERCADOPAGO_COLUMN_LAYOUT = (
+    _layout_line(
+        "Fecha Detalle Ingresos Egresos Saldo",
+        0,
+        120,
+        [
+            ("Fecha", 35, 60),
+            ("Detalle", 110, 145),
+            ("Ingresos", 300, 345),
+            ("Egresos", 390, 432),
+            ("Saldo", 500, 528),
+        ],
+    ),
+    _layout_line(
+        "05/05/2026 Venta QR local 35.000 0 135.000",
+        0,
+        142,
+        [
+            ("05/05/2026", 35, 86),
+            ("Venta", 110, 138),
+            ("QR", 142, 156),
+            ("local", 160, 186),
+            ("35.000", 306, 338),
+            ("0", 410, 416),
+            ("135.000", 496, 535),
+        ],
+    ),
+    _layout_line(
+        "06/05/2026 Retiro a cuenta bancaria 0 22.500 112.500",
+        0,
+        164,
+        [
+            ("06/05/2026", 35, 86),
+            ("Retiro", 110, 144),
+            ("a", 148, 154),
+            ("cuenta", 158, 192),
+            ("bancaria", 196, 240),
+            ("0", 322, 328),
+            ("22.500", 396, 428),
+            ("112.500", 496, 535),
+        ],
+    ),
+)
+
+
+SANTANDER_REAL_LAYOUT = (
+    _layout_line(
+        "FECHA NUMERO SUC DESCRIPCION CHEQUES Y DEPOSITOS Y SALDO",
+        1,
+        258,
+        [
+            ("FECHA", 35, 59),
+            ("NUMERO", 69, 100),
+            ("SUC", 111, 126),
+            ("DESCRIPCION", 188, 244),
+            ("CHEQUES", 321, 361),
+            ("Y", 363, 368),
+            ("DEPOSITOS", 406, 453),
+            ("Y", 455, 461),
+            ("SALDO", 510, 538),
+        ],
+    ),
+    _layout_line(
+        "CARGOS ABONOS",
+        1,
+        268,
+        [
+            ("CARGOS", 327, 362),
+            ("ABONOS", 416, 451),
+        ],
+    ),
+    _layout_line(
+        "30/03 0390684 401 UBER 3.733",
+        1,
+        394,
+        [
+            ("30/03", 35, 59),
+            ("0390684", 69, 103),
+            ("401", 112, 127),
+            ("UBER", 136, 160),
+            ("3.733", 453, 477),
+        ],
+    ),
+)
+
+SANTANDER_DUPLICATED_AMOUNT_SAMPLE = """
+BANCO SANTANDER CHILE
+CARTOLA CUENTA CORRIENTE
+PERIODO DESDE: 01/05/2026 HASTA: 31/05/2026
+MOVIMIENTO DE SU CUENTA SALDO DIARIO
+FECHA NUMERO SUC DESCRIPCION CHEQUES Y DEPOSITOS Y SALDO
+CARGOS ABONOS
+01/05 93 Transf. MISMO BANCO 20.000 20.000
+""".strip()
+
+SANTANDER_DUPLICATED_AMOUNT_LAYOUT = (
+    _layout_line(
+        "FECHA NUMERO SUC DESCRIPCION CHEQUES Y DEPOSITOS Y SALDO",
+        0,
+        258,
+        [
+            ("FECHA", 35, 59),
+            ("NUMERO", 69, 100),
+            ("SUC", 111, 126),
+            ("DESCRIPCION", 188, 244),
+            ("CHEQUES", 321, 361),
+            ("Y", 363, 368),
+            ("DEPOSITOS", 406, 453),
+            ("Y", 455, 461),
+            ("SALDO", 510, 538),
+        ],
+    ),
+    _layout_line(
+        "CARGOS ABONOS",
+        0,
+        268,
+        [
+            ("CARGOS", 327, 362),
+            ("ABONOS", 416, 451),
+        ],
+    ),
+    _layout_line(
+        "01/05 93 Transf. MISMO BANCO 20.000 20.000",
+        0,
+        286,
+        [
+            ("01/05", 35, 59),
+            ("93", 69, 82),
+            ("Transf.", 136, 170),
+            ("MISMO", 174, 205),
+            ("BANCO", 209, 244),
+            ("20.000", 330, 360),
+            ("20.000", 512, 542),
+        ],
+    ),
+)
+
+SANTANDER_AMOUNT_IN_DESCRIPTION_SAMPLE = """
+BANCO SANTANDER CHILE
+CARTOLA CUENTA CORRIENTE
+PERIODO DESDE: 01/01/2026 HASTA: 31/01/2026
+MOVIMIENTO DE SU CUENTA SALDO DIARIO
+FECHA NUMERO SUC DESCRIPCION CHEQUES Y DEPOSITOS Y SALDO
+CARGOS ABONOS
+09/01 93 Compra FLORIDA CENTER 2 21.945
+""".strip()
+
+SANTANDER_AMOUNT_IN_DESCRIPTION_LAYOUT = (
+    _layout_line(
+        "FECHA NUMERO SUC DESCRIPCION CHEQUES Y DEPOSITOS Y SALDO",
+        0,
+        258,
+        [
+            ("FECHA", 35, 59),
+            ("NUMERO", 69, 100),
+            ("SUC", 111, 126),
+            ("DESCRIPCION", 188, 244),
+            ("CHEQUES", 321, 361),
+            ("Y", 363, 368),
+            ("DEPOSITOS", 406, 453),
+            ("Y", 455, 461),
+            ("SALDO", 510, 538),
+        ],
+    ),
+    _layout_line(
+        "CARGOS ABONOS",
+        0,
+        268,
+        [
+            ("CARGOS", 327, 362),
+            ("ABONOS", 416, 451),
+        ],
+    ),
+    _layout_line(
+        "09/01 93 Compra FLORIDA CENTER 2 21.945",
+        0,
+        286,
+        [
+            ("09/01", 35, 59),
+            ("93", 69, 82),
+            ("Compra", 136, 170),
+            ("FLORIDA", 174, 216),
+            ("CENTER", 220, 256),
+            ("2", 241, 247),
+            ("21.945", 357, 386),
+        ],
+    ),
+)
+
+
+def _santander_right_aligned_pdf(*, scale: float = 1, offset: float = 0) -> bytes:
+    """Cartola sintetica: titulos a la izquierda, montos a la derecha y bordes."""
+    writer = PdfWriter()
+    page = writer.add_blank_page(width=650, height=800)
+    fonts = DictionaryObject()
+    for key, name in (("F1", "Helvetica-Bold"), ("F2", "Courier")):
+        fonts[NameObject(f"/{key}")] = writer._add_object(
+            DictionaryObject({
+                NameObject("/Type"): NameObject("/Font"),
+                NameObject("/Subtype"): NameObject("/Type1"),
+                NameObject("/BaseFont"): NameObject(f"/{name}"),
+            })
+        )
+    page[NameObject("/Resources")] = DictionaryObject({NameObject("/Font"): fonts})
+    commands = [f"{scale} 0 0 {scale} {offset} 0 cm"]
+
+    def write_text(x: float, top: float, value: str, font: str = "F2") -> None:
+        commands.append(
+            f"BT /{font} 8 Tf 1 0 0 1 {x} {800 - top - 8} Tm ({value}) Tj ET"
+        )
+
+    write_text(25, 100, "BANCO SANTANDER CHILE")
+    write_text(25, 120, "CARTOLA DESDE HASTA PAGINA")
+    write_text(25, 132, "80 31/07/2026 31/08/2026 1 DE 1")
+    write_text(25, 240, "Saldo Inicial Cheques o Cargos Depositos o Abonos Saldo Final")
+    write_text(25, 252, "20.000 281.158 261.158 0")
+    write_text(25, 264, "MOVIMIENTO DE SU CUENTA")
+    for x, value in (
+        (25, "FECHA"), (156, "DESCRIPCION"), (340, "CHEQUES"),
+        (422, "DEPOSITOS"), (500, "SALDO"),
+    ):
+        write_text(x, 275, value, "F1")
+    write_text(340, 285, "Y CARGOS", "F1")
+    write_text(422, 285, "Y ABONOS", "F1")
+    # Como en Cuentamatica, las divisiones comienzan debajo del encabezado.
+    for x in (25.5, 156.5, 340.5, 422.5, 500.5, 583.5):
+        commands.append(f"{x} 505 m {x} 120 l S")
+    rows = [
+        ("03/08", "Transf. PERSONA UNO", 21158),
+        ("", "Compra COMERCIO UNO", -500),
+        ("", "Compra COMERCIO UNO", -1440),
+        ("", "Compra COMERCIO DOS", -9000),
+        ("", "Transf a PERSONA DOS", -9060),
+        ("", "Transf a COMERCIO TRES", -20000),
+        ("11/08", "Compra COMERCIO CUATRO", -350),
+        ("13/08", "Transf. PERSONA UNO", 20000),
+        ("", "Transf a COMERCIO TRES", -20000),
+        ("24/08", "Transf. PERSONA UNO", 20000),
+        ("", "Transf a COMERCIO TRES", -20000),
+        ("28/08", "Transf. PERSONA TRES", 200000),
+        ("", "Transf a PERSONA DOS", -200808),
+    ]
+    for index, (raw_date, description, amount) in enumerate(rows):
+        top = 300 + index * 12
+        if raw_date:
+            write_text(25, top, raw_date)
+        write_text(160, top, description)
+        raw_amount = f"{abs(amount):,}".replace(",", ".")
+        right = 419 if amount < 0 else 496
+        write_text(right - len(raw_amount) * 4.8, top, raw_amount)
+    write_text(160, 460, "--- Saldo Dia ---")
+    write_text(573, 460, "0")
+    write_text(160, 480, "Resumen de Comisiones")
+    stream = DecodedStreamObject()
+    stream.set_data("\n".join(commands).encode("ascii"))
+    page[NameObject("/Contents")] = writer._add_object(stream)
+    output = BytesIO()
+    writer.write(output)
+    return output.getvalue()
+
+
+class PdfImporterTests(unittest.TestCase):
+    def test_santander_inspection_uses_table_borders_for_right_aligned_amounts(self) -> None:
+        for scale, offset in ((1, 0), (0.8, 40)):
+            with self.subTest(scale=scale, offset=offset):
+                preview = inspect_pdf(
+                    file_name="santander-sintetico.pdf",
+                    file_bytes=_santander_right_aligned_pdf(scale=scale, offset=offset),
+                    institution=InstitutionCode.BANCO_SANTANDER,
+                )
+
+                self.assertEqual(preview.parsing_errors, [])
+                self.assertEqual(preview.period_month, "2026-08")
+                self.assertEqual(
+                    [item.amount_clp for item in preview.candidate_transactions],
+                    [
+                        21158, -500, -1440, -9000, -9060, -20000, -350,
+                        20000, -20000, 20000, -20000, 200000, -200808,
+                    ],
+                )
+
+    def test_santander_ignores_borders_outside_the_movement_table(self) -> None:
+        # Estas divisiones cambiarian el signo del monto si se usaran por error.
+        for page_index, top, bottom in (
+            (1, 250, 650), (0, 20, 80), (0, 350, 650), (0, 250, 277),
+        ):
+            with self.subTest(page_index=page_index, top=top, bottom=bottom):
+                edges = tuple(
+                    LayoutVerticalEdge(page_index, x, top, bottom)
+                    for x in (300, 345, 450, 550)
+                )
+                candidates, errors, _ = _parse_document(
+                    ParserKey.BANCO_SANTANDER,
+                    SANTANDER_DUPLICATED_AMOUNT_SAMPLE,
+                    layout_lines=SANTANDER_DUPLICATED_AMOUNT_LAYOUT,
+                    vertical_edges=edges,
+                )
+
+                self.assertEqual(errors, [])
+                self.assertEqual([item.amount_clp for item in candidates], [-20000])
+
+    def test_incomplete_or_decorative_borders_preserve_header_fallback(self) -> None:
+        expected = _build_column_ranges_by_page(
+            SANTANDER_DUPLICATED_AMOUNT_LAYOUT, SANTANDER_PROFILE
+        )
+        for positions in (
+            (300, 450, 550), (100, 400, 480, 560), (300, 400, 450, 480, 560),
+        ):
+            with self.subTest(positions=positions):
+                edges = tuple(LayoutVerticalEdge(0, x, 275, 650) for x in positions)
+                actual = _build_column_ranges_by_page(
+                    SANTANDER_DUPLICATED_AMOUNT_LAYOUT, SANTANDER_PROFILE, edges
+                )
+
+                self.assertEqual(actual, expected)
+
+    def test_reader_accepts_encrypted_pdf_with_empty_password(self) -> None:
+        writer = PdfWriter()
+        writer.add_blank_page(width=100, height=100)
+        writer.encrypt(user_password="", owner_password="owner")
+        output = BytesIO()
+        writer.write(output)
+
+        reader, requires_password = _build_reader(output.getvalue(), None)
+
+        self.assertTrue(reader.is_encrypted)
+        self.assertFalse(requires_password)
+        self.assertEqual(len(reader.pages), 1)
+
+    def test_reader_still_requires_non_empty_pdf_password(self) -> None:
+        writer = PdfWriter()
+        writer.add_blank_page(width=100, height=100)
+        writer.encrypt(user_password="secret", owner_password="owner")
+        output = BytesIO()
+        writer.write(output)
+
+        with self.assertRaisesRegex(PdfImportError, "esta protegido"):
+            _build_reader(output.getvalue(), None)
+
+    def test_build_preview_lines_ignores_empty_lines(self) -> None:
+        self.assertEqual(
+            _build_preview_lines("  BANCO DE CHILE \n\n CUENTA CORRIENTE ", 2),
+            ["BANCO DE CHILE", "CUENTA CORRIENTE"],
+        )
+
+    def test_parse_banco_chile_transactions(self) -> None:
+        candidates, errors, period_month = _parse_document(
+            ParserKey.BANCO_DE_CHILE,
+            BANCO_CHILE_SAMPLE,
+        )
+
+        self.assertEqual(errors, [])
+        self.assertEqual(period_month, "2026-04")
+        self.assertEqual(len(candidates), 4)
+        self.assertEqual(candidates[0].date.isoformat(), "2026-01-07")
+        self.assertEqual(candidates[0].amount_clp, -43383)
+        self.assertEqual(candidates[1].amount_clp, 43383)
+        self.assertEqual(candidates[3].amount_clp, 1449225)
+        self.assertIn("0111111111 CENTRAL", candidates[3].description)
+
+    def test_resolve_parser_uses_account_institution(self) -> None:
+        expected_parsers = {
+            InstitutionCode.BANCO_DE_CHILE: ParserKey.BANCO_DE_CHILE,
+            InstitutionCode.BANCO_SANTANDER: ParserKey.BANCO_SANTANDER,
+            InstitutionCode.COPECPAY: ParserKey.COPECPAY,
+            InstitutionCode.MERCADOPAGO: ParserKey.MERCADOPAGO,
+            InstitutionCode.BANCO_ESTADO: ParserKey.BANCO_ESTADO,
+        }
+
+        for institution, parser_key in expected_parsers.items():
+            with self.subTest(institution=institution):
+                self.assertEqual(_resolve_parser(institution), parser_key)
+
+    def test_every_institution_parser_is_fully_registered(self) -> None:
+        self.assertEqual(set(INSTITUTION_PARSER_MAP), set(InstitutionCode))
+        self.assertEqual(set(INSTITUTION_PARSER_MAP.values()), set(ParserKey))
+        self.assertEqual(set(PARSER_PROFILES), set(ParserKey))
+        self.assertEqual(set(PDF_DOCUMENT_VALIDATORS), set(ParserKey))
+        self.assertEqual(set(PDF_PARSERS), set(ParserKey))
+
+    def test_parse_santander_transactions(self) -> None:
+        candidates, errors, period_month = _parse_document(
+            ParserKey.BANCO_SANTANDER,
+            SANTANDER_SAMPLE,
+        )
+
+        self.assertEqual(errors, [])
+        self.assertEqual(period_month, "2026-05")
+        self.assertEqual([item.amount_clp for item in candidates], [-12345, 50000])
+
+    def test_santander_profile_supports_known_period_formats(self) -> None:
+        standard_period = _extract_optional_period(
+            "PERIODO DESDE: 01/05/2026 HASTA: 31/05/2026",
+            SANTANDER_PROFILE,
+        )
+        positional_period = _extract_optional_period(
+            "CARTOLA DESDE HASTA PAGINA\n"
+            "0-000-00-12345-6 75 27/02/2026 31/03/2026 1 DE 2",
+            SANTANDER_PROFILE,
+        )
+
+        self.assertEqual(standard_period[1].strftime("%Y-%m-%d"), "2026-05-31")
+        self.assertEqual(positional_period[0].strftime("%Y-%m-%d"), "2026-02-27")
+
+    def test_parse_santander_multiline_statement(self) -> None:
+        _validate_document(
+            ParserKey.BANCO_SANTANDER,
+            SANTANDER_MULTILINE_SAMPLE,
+        )
+        candidates, errors, period_month = _parse_document(
+            ParserKey.BANCO_SANTANDER,
+            SANTANDER_MULTILINE_SAMPLE,
+            layout_lines=SANTANDER_REAL_LAYOUT,
+        )
+
+        self.assertEqual(errors, [])
+        self.assertEqual(period_month, "2026-03")
+        self.assertEqual(len(candidates), 23)
+        self.assertEqual(
+            sum(item.amount_clp for item in candidates if item.amount_clp > 0),
+            1215397,
+        )
+        self.assertEqual(
+            sum(abs(item.amount_clp) for item in candidates if item.amount_clp < 0),
+            1219871,
+        )
+        first_purchase = next(
+            item for item in candidates if item.amount_clp == -20000
+        )
+        self.assertEqual(first_purchase.description, "Compra PAGO ONLINE KUSHK")
+        transfer_income = next(
+            item for item in candidates if "PERSONA DOS" in item.description
+        )
+        self.assertEqual(transfer_income.description, "Transf. PERSONA DOS")
+        uber_refund = next(
+            item for item in candidates if item.description == "UBER"
+        )
+        self.assertEqual(uber_refund.amount_clp, 3733)
+        self.assertEqual(uber_refund.date.isoformat(), "2026-03-30")
+
+    def test_santander_restarts_movements_on_second_page_header_variant(self) -> None:
+        second_page_variant = SANTANDER_MULTILINE_SAMPLE.replace(
+            "CARGOS ABONOS\n23/03 93 Compra",
+            "Y CARGOS Y ABONOS\n23/03 93 Compra",
+        )
+
+        candidates, errors, period_month = _parse_document(
+            ParserKey.BANCO_SANTANDER,
+            second_page_variant,
+            layout_lines=SANTANDER_REAL_LAYOUT,
+        )
+
+        self.assertEqual(errors, [])
+        self.assertEqual(period_month, "2026-03")
+        self.assertEqual(len(candidates), 23)
+        self.assertEqual(candidates[-1].date.isoformat(), "2026-03-30")
+
+    def test_santander_accepts_summary_header_without_abonos_word(self) -> None:
+        summary_variant = SANTANDER_MULTILINE_SAMPLE.replace(
+            "Depositos o Abonos Saldo Final",
+            "Depositos o Saldo Final",
+        )
+
+        candidates, errors, _ = _parse_document(
+            ParserKey.BANCO_SANTANDER,
+            summary_variant,
+            layout_lines=SANTANDER_REAL_LAYOUT,
+        )
+
+        self.assertEqual(errors, [])
+        self.assertEqual(len(candidates), 23)
+
+    def test_santander_rejects_declared_summary_that_cannot_be_read(self) -> None:
+        unreadable_summary = SANTANDER_MULTILINE_SAMPLE.replace(
+            "Saldo Inicial Cheques o Cargos Depositos o Abonos Saldo Final",
+            "Saldo Inicial Resumen no compatible Saldo Final",
+        )
+
+        with self.assertRaisesRegex(PdfImportError, "validar los totales declarados"):
+            _parse_document(
+                ParserKey.BANCO_SANTANDER,
+                unreadable_summary,
+                layout_lines=SANTANDER_REAL_LAYOUT,
+            )
+
+    def test_santander_uses_layout_to_discard_balance_amounts(self) -> None:
+        candidates, errors, period_month = _parse_document(
+            ParserKey.BANCO_SANTANDER,
+            SANTANDER_DUPLICATED_AMOUNT_SAMPLE,
+            layout_lines=SANTANDER_DUPLICATED_AMOUNT_LAYOUT,
+        )
+
+        self.assertEqual(errors, [])
+        self.assertEqual(period_month, "2026-05")
+        self.assertEqual([item.amount_clp for item in candidates], [-20000])
+        self.assertEqual(candidates[0].description, "Transf. MISMO BANCO")
+
+    def test_santander_uses_pdf_column_when_description_has_numbers(self) -> None:
+        candidates, errors, period_month = _parse_document(
+            ParserKey.BANCO_SANTANDER,
+            SANTANDER_AMOUNT_IN_DESCRIPTION_SAMPLE,
+            layout_lines=SANTANDER_AMOUNT_IN_DESCRIPTION_LAYOUT,
+        )
+
+        self.assertEqual(errors, [])
+        self.assertEqual(period_month, "2026-01")
+        self.assertEqual(len(candidates), 1)
+        self.assertEqual(candidates[0].description, "Compra FLORIDA CENTER 2")
+        self.assertEqual(candidates[0].amount_clp, -21945)
+
+    def test_santander_rejects_movements_that_do_not_match_summary(self) -> None:
+        incomplete_statement = SANTANDER_MULTILINE_SAMPLE.replace(
+            "9260887 401 0111111111 Transf. 20.000\n",
+            "",
+        )
+
+        with self.assertRaisesRegex(PdfImportError, "no cuadran con el resumen"):
+            _parse_document(
+                ParserKey.BANCO_SANTANDER,
+                incomplete_statement,
+                layout_lines=SANTANDER_REAL_LAYOUT,
+            )
+
+    def test_santander_requires_layout_for_ambiguous_unlabeled_amounts(self) -> None:
+        with self.assertRaisesRegex(PdfImportError, "no cuadran con el resumen"):
+            _parse_document(
+                ParserKey.BANCO_SANTANDER,
+                SANTANDER_MULTILINE_SAMPLE,
+            )
+
+    def test_parse_copecpay_signed_transactions_and_infers_period(self) -> None:
+        candidates, errors, period_month = _parse_document(
+            ParserKey.COPECPAY,
+            COPECPAY_SAMPLE,
+        )
+
+        self.assertEqual(errors, [])
+        self.assertEqual(period_month, "2026-05")
+        self.assertEqual([item.amount_clp for item in candidates], [-15000, 25000])
+
+    def test_parse_copecpay_charge_credit_columns(self) -> None:
+        candidates, errors, period_month = _parse_document(
+            ParserKey.COPECPAY,
+            COPECPAY_COLUMN_SAMPLE,
+            layout_lines=COPECPAY_COLUMN_LAYOUT,
+        )
+
+        self.assertEqual(errors, [])
+        self.assertEqual(period_month, "2026-05")
+        self.assertEqual(
+            [item.description for item in candidates],
+            [
+                "Recarga desde banco",
+                "Compra combustible",
+                "Compra tarjeta digital DOM AHUMADA 146",
+            ],
+        )
+        self.assertEqual(
+            [item.amount_clp for item in candidates],
+            [40000, -18750, -16940],
+        )
+
+    def test_copecpay_rejects_movements_that_do_not_match_summary(self) -> None:
+        incomplete_statement = COPECPAY_COLUMN_SAMPLE.replace(
+            "04/05/2026 Compra combustible 18.750 0 36.250\n",
+            "",
+        )
+
+        with self.assertRaisesRegex(PdfImportError, "no cuadran con el resumen"):
+            _parse_document(
+                ParserKey.COPECPAY,
+                incomplete_statement,
+                layout_lines=COPECPAY_COLUMN_LAYOUT,
+            )
+
+    def test_parse_mercadopago_signed_transactions(self) -> None:
+        candidates, errors, period_month = _parse_document(
+            ParserKey.MERCADOPAGO,
+            MERCADOPAGO_SAMPLE,
+        )
+
+        self.assertEqual(errors, [])
+        self.assertEqual(period_month, "2026-05")
+        self.assertEqual([item.amount_clp for item in candidates], [20000, -8500])
+
+    def test_parse_mercadopago_income_expense_columns(self) -> None:
+        candidates, errors, period_month = _parse_document(
+            ParserKey.MERCADOPAGO,
+            MERCADOPAGO_COLUMN_SAMPLE,
+            layout_lines=MERCADOPAGO_COLUMN_LAYOUT,
+        )
+
+        self.assertEqual(errors, [])
+        self.assertEqual(period_month, "2026-05")
+        self.assertEqual([item.description for item in candidates], [
+            "Venta QR local",
+            "Retiro a cuenta bancaria",
+        ])
+        self.assertEqual([item.amount_clp for item in candidates], [35000, -22500])
+
+    def test_parse_mercadopago_account_statement_format(self) -> None:
+        candidates, errors, period_month = _parse_document(
+            ParserKey.MERCADOPAGO,
+            MERCADOPAGO_ACCOUNT_STATEMENT_SAMPLE,
+        )
+
+        self.assertEqual(errors, [])
+        self.assertEqual(period_month, "2026-05")
+        self.assertEqual([item.amount_clp for item in candidates], [7, -5490])
+        self.assertEqual(
+            [item.description for item in candidates],
+            ["Ganancias", "Pago"],
+        )
+
+    def test_parse_banco_estado_charge_credit_columns(self) -> None:
+        candidates, errors, period_month = _parse_document(
+            ParserKey.BANCO_ESTADO,
+            BANCO_ESTADO_SAMPLE,
+        )
+
+        self.assertEqual(errors, [])
+        self.assertEqual(period_month, "2026-05")
+        self.assertEqual([item.amount_clp for item in candidates], [-10000, 50000])
+
+    def test_document_content_only_validates_selected_institution(self) -> None:
+        with self.assertRaisesRegex(PdfImportError, "no parece pertenecer"):
+            _validate_document(
+                ParserKey.BANCO_DE_CHILE,
+                "CARTOLA DE OTRO BANCO\nCUENTA CORRIENTE",
+            )
+
+        validators = (
+            ParserKey.BANCO_SANTANDER,
+            ParserKey.COPECPAY,
+            ParserKey.MERCADOPAGO,
+            ParserKey.BANCO_ESTADO,
+        )
+        for parser_key in validators:
+            with self.subTest(parser_key=parser_key):
+                with self.assertRaisesRegex(PdfImportError, "no parece pertenecer"):
+                    _validate_document(
+                        parser_key,
+                        "CARTOLA DE OTRA INSTITUCION",
+                    )
+
+    def test_document_validation_accepts_doubled_bank_name_glyphs(self) -> None:
+        _validate_document(
+            ParserKey.BANCO_DE_CHILE,
+            "EENN WWWWWW..BBAANNCCOOCCHHIILLEE..CCLL",
+        )
+
+        with self.assertRaisesRegex(PdfImportError, "no parece pertenecer"):
+            _validate_document(
+                ParserKey.BANCO_SANTANDER,
+                "EENN WWWWWW..BBAANNCCOOCCHHIILLEE..CCLL",
+            )
+
+
+if __name__ == "__main__":
+    unittest.main()

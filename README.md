@@ -54,7 +54,7 @@ SoloFinanzas/
 │   │   ├── models/       # Modelos SQLModel
 │   │   ├── schemas/      # Contratos de entrada y salida
 │   │   └── services/     # Lógica de negocio
-│   └── tests/          # Pruebas locales, excluidas de Git
+│   └── tests/          # Pruebas de backend
 ├── frontend/
 │   └── src/
 │       ├── components/
@@ -79,9 +79,9 @@ La home se puede ver sin configurar Supabase. Las pantallas de gestión están e
 
 ## Verificación
 
-Si conservas las pruebas en este equipo, desde `backend/` puedes ejecutar `.venv/Scripts/python.exe -m unittest discover -s tests -v`; desde `frontend/`, `npm ci`, `npm run build`, `npx playwright install chromium` y `npx playwright test`. Las carpetas de pruebas y la configuración de Playwright no se versionan.
+Desde `backend/` puedes ejecutar `.venv/Scripts/python.exe -m unittest discover -s tests -v`; desde `frontend/`, `npm ci`, `npm run build`, `npx playwright install chromium` y `npx playwright test`. Las pruebas de ambas capas y la configuración de Playwright están versionadas.
 
-El workflow de CI comprueba dependencias, sintaxis de Python, migraciones sobre PostgreSQL desechable y compilación del frontend. Las pruebas de aislamiento, respaldo y navegador se ejecutaron localmente, pero no corren en GitHub al permanecer fuera del repositorio. El acceso real de Google y los proveedores se valida al configurar las cuentas externas.
+El workflow de CI comprueba dependencias, sintaxis de Python, migraciones y pruebas de backend sobre PostgreSQL desechable, además de compilación y pruebas de navegador del frontend. El acceso real de Google y los proveedores se valida al configurar las cuentas externas.
 
 ## Documentación
 
