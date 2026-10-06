@@ -45,7 +45,13 @@ No sobrescribas un `.env` existente. Edítalo localmente. Para migrar, `DATABASE
 .\.venv\Scripts\python.exe -m alembic upgrade head
 ```
 
-Ejecuta `scripts/runtime-role.sql` en el SQL Editor de Supabase, después de la migración. Define una contraseña propia de `finance_api` usando `\password finance_api` en `psql` o el administrador de roles de Supabase; no guardes contraseñas en el archivo SQL. Para Render usa la misma conexión Session pooler con usuario `finance_api.REFERENCIA-PROYECTO` y su contraseña. El administrador conserva su conexión exclusivamente para migraciones y respaldo. Reaplica los grants del script tras futuras migraciones que creen tablas.
+Ejecuta `scripts/runtime-role.sql` en el SQL Editor de Supabase, después de la migración. Si el editor dice «Success. No rows returned», terminó correctamente. Desde `backend/`, asigna una contraseña propia al rol en Windows:
+
+```powershell
+.\.venv\Scripts\python.exe scripts/set_runtime_password.py
+```
+
+El script la solicita dos veces sin mostrarla ni guardarla. También puedes usar `\password finance_api` en `psql` si lo tienes. No guardes contraseñas en el archivo SQL. Para Render usa la misma conexión Session pooler con usuario `finance_api.REFERENCIA-PROYECTO` y su contraseña. El administrador conserva su conexión exclusivamente para migraciones y respaldo. Reaplica los grants del script tras futuras migraciones que creen tablas.
 
 La API nunca crea ni actualiza tablas al arrancar. Para desarrollo sin PostgreSQL, el valor predeterminado crea **`backend/data/cloud_dev.db`**, separado de la base anterior. Ejecuta Alembic también para esa base. SQLite se usa para desarrollo y pruebas, no para Render.
 
