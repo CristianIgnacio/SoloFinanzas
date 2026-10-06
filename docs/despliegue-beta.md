@@ -59,6 +59,8 @@ La API nunca crea ni actualiza tablas al arrancar. Para desarrollo sin PostgreSQ
 
 Usa `render.yaml` como Blueprint o crea un Web Service con Docker, contexto `backend/` y Dockerfile `backend/Dockerfile`. El archivo fija el plan Free; no agregues discos ni instancias de pago.
 
+Si creaste el Web Service manualmente, `render.yaml` no configura sus variables: agrégalas en **Environment** del servicio que sirve la URL pública y elige **Save and deploy**. En Render, la API rechaza el arranque si `APP_ENV` no es exactamente `production`; así no puede publicar por accidente los valores locales predeterminados.
+
 | Variable exclusiva del backend | Valor |
 | --- | --- |
 | `APP_ENV` | `production` |

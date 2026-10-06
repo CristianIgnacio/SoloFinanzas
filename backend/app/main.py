@@ -1,4 +1,5 @@
 from contextlib import asynccontextmanager
+import os
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -12,7 +13,7 @@ from app.api.routes import (
     statements,
     transactions,
 )
-from app.core.config import settings
+from app.core.config import settings, validate_runtime_config
 from app.api.routes import profile, reports
 from fastapi import Request, HTTPException
 from fastapi.responses import JSONResponse
@@ -25,11 +26,7 @@ from ipaddress import ip_address
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     """Valida la configuración; las migraciones se ejecutan por separado."""
-    if settings.app_env == "production":
-        if not settings.database_url.startswith("postgres") or not settings.supabase_url.startswith("https://"):
-            raise RuntimeError("Production requires PostgreSQL and Supabase HTTPS.")
-        if any(origin == "*" or not origin.startswith("https://") for origin in settings.frontend_origins):
-            raise RuntimeError("Production requires exact HTTPS frontend origins.")
+    validate_runtime_config(settings, on_render=os.environ.get("RENDER") == "true")
     yield
 
 app = FastAPI(

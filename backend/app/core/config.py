@@ -19,10 +19,20 @@ class Settings(BaseSettings):
     frontend_origins: list[str] = [
         "http://127.0.0.1:5173",
         "http://localhost:5173",
-        "https://solofinanzas.vercel.app",
     ]
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
 
 settings = Settings()
+
+
+def validate_runtime_config(config: Settings, *, on_render: bool) -> None:
+    """Do not serve a hosted API with local development defaults."""
+    if on_render and config.app_env != "production":
+        raise RuntimeError("Render requires APP_ENV=production.")
+    if config.app_env == "production":
+        if not config.database_url.startswith("postgres") or not config.supabase_url.startswith("https://"):
+            raise RuntimeError("Production requires PostgreSQL and Supabase HTTPS.")
+        if any(origin == "*" or not origin.startswith("https://") for origin in config.frontend_origins):
+            raise RuntimeError("Production requires exact HTTPS frontend origins.")
