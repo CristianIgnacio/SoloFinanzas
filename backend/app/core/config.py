@@ -29,17 +29,6 @@ settings = Settings()
 
 def validate_runtime_config(config: Settings, *, on_render: bool) -> None:
     """Do not serve a hosted API with local development defaults."""
-    # --- DEBUG PARA RENDER ---
-    print("=" * 40)
-    print("🚀 INICIANDO APP - VERIFICANDO VARIABLES DE ENTORNO")
-    print(f"RENDER ENV VAR: {on_render}")
-    print(f"APP_ENV: {config.app_env}")
-    print(f"SUPABASE_URL: '{config.supabase_url}'")
-    print(f"DATABASE_URL: {'CONFIGURADO' if config.database_url else 'VACÍO'} (oculto por seguridad)")
-    print(f"FRONTEND_ORIGINS: {config.frontend_origins}")
-    print("=" * 40)
-    # -------------------------
-    
     if on_render and config.app_env != "production":
         raise RuntimeError("Render requires APP_ENV=production.")
     if config.app_env == "production":
