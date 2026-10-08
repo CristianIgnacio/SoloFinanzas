@@ -165,6 +165,7 @@ def inspect_pdf(
     file_name: str,
     file_bytes: bytes,
     institution: InstitutionCode,
+    parser_key: ParserKey | None = None,
     password: str | None = None,
     preview_line_limit: int = 20,
 ) -> PdfPreview:
@@ -188,7 +189,7 @@ def inspect_pdf(
             "que aun no esta soportado."
         )
 
-    parser_key = _resolve_parser(institution)
+    parser_key = parser_key or _resolve_parser(institution)
     _validate_document(parser_key, extracted_text)
     checksum = hashlib.sha256(file_bytes).hexdigest()
 

@@ -3,7 +3,8 @@ import bancoEstadoLogo from "../assets/institutions/banco_estado.png";
 // Fuente oficial: https://www.bancofalabella.cl/_next/static/media/logo.686cc6de.svg
 import bancoFalabellaLogo from "../assets/institutions/banco_falabella.svg";
 import bancoSantanderLogo from "../assets/institutions/banco_santander.png";
-import copecPayLogo from "../assets/institutions/copec_pay.webp";
+// Logotipo oficial de Copec Pay: https://copecpay.cl/wp-content/themes/chris/img/menu/logo-copecpay-active.svg
+import copecPayLogo from "../assets/institutions/copec_pay.svg";
 import mercadoPagoLogo from "../assets/institutions/mercadopago.png";
 import { InstitutionCode, InstitutionLabels } from "../types";
 
@@ -38,14 +39,22 @@ export function InstitutionLogo({
 }: InstitutionLogoProps) {
   const logo = institutionLogos[institution];
   const label = InstitutionLabels[institution];
-  const containerClass =
-    size === "sm"
+  const isWideLogo = institution === InstitutionCode.COPECPAY;
+  const containerClass = isWideLogo
+    ? size === "sm"
+      ? "flex h-5 w-20 shrink-0 items-center justify-center rounded-md bg-white"
+      : size === "lg"
+        ? "flex h-14 w-24 shrink-0 items-center justify-center rounded-2xl border border-outline bg-white shadow-sm"
+        : "flex h-12 w-20 shrink-0 items-center justify-center rounded-xl border border-outline bg-white shadow-sm"
+    : size === "sm"
       ? "flex h-5 w-8 shrink-0 items-center justify-center rounded-md bg-white"
       : size === "lg"
         ? "flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl border border-outline bg-white shadow-sm"
         : "flex h-12 w-12 shrink-0 items-center justify-center rounded-xl border border-outline bg-white shadow-sm";
   const imageClass =
-    size === "sm" ? "max-h-4 max-w-7" : size === "lg" ? "max-h-10 max-w-12" : "max-h-8 max-w-10";
+    isWideLogo
+      ? "max-h-8 max-w-[90%]"
+      : size === "sm" ? "max-h-4 max-w-7" : size === "lg" ? "max-h-10 max-w-12" : "max-h-8 max-w-10";
   const fallbackClass =
     size === "sm"
       ? "text-[0.6rem] font-bold tracking-[0.04em] text-primary"

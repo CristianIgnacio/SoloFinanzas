@@ -24,6 +24,8 @@ punto de partida recomendado depende de lo que necesites hacer:
 
 ## Documentos especializados e historicos
 
+- [Catálogo de productos financieros](catalogo-productos-financieros.md):
+  instituciones, tipos, códigos estables y evidencia PDF por producto.
 - [Flujo tecnico de inspeccion PDF](inspect_pdf_flow.md): detalle interno de
   `inspect_pdf`, extraccion de texto, layout y resolucion de montos.
 - [Modelo de datos legacy](legacy-data-model.md): decisiones heredadas durante

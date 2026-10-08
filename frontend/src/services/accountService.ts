@@ -1,7 +1,11 @@
 import { apiClient } from "../lib/apiClient";
-import type { Account, AccountCreate, AccountUpdate } from "../types";
+import type { Account, AccountCreate, AccountUpdate, FinancialProduct } from "../types";
 
 export class AccountService {
+  static async getProducts(): Promise<FinancialProduct[]> {
+    return apiClient.get<FinancialProduct[]>("/account-products");
+  }
+
   static async getAccounts(): Promise<Account[]> {
     return apiClient.get<Account[]>("/accounts");
   }

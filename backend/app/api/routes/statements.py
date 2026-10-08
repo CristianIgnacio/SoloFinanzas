@@ -6,7 +6,9 @@ from pydantic import ValidationError
 from sqlmodel import Session
 
 from app.core.database import get_session
+from app.domain.account_products import resolve_pdf_parser
 from app.domain.enums import StatementStatus
+from app.domain.parsers import ParserKey
 from app.models.account import AccountModel
 from app.schemas.statement import (
     PdfImportResponse,
@@ -34,6 +36,19 @@ from app.services.statements import (
 
 router = APIRouter()
 SessionDep = Annotated[Session, Depends(get_session)]
+
+
+def _account_pdf_parser(session: Session, account_id: int) -> tuple[AccountModel, ParserKey]:
+    account = session.get(AccountModel, account_id)
+    if account is None:
+        raise HTTPException(status_code=404, detail="La cuenta seleccionada no existe.")
+    try:
+        parser_key = resolve_pdf_parser(
+            account.institution, account.account_type, account.product_code,
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    return account, parser_key
 
 
 async def _read_pdf(file: UploadFile) -> tuple[str, bytes]:
@@ -122,15 +137,14 @@ async def preview_pdf_statement(
     password: Annotated[str | None, Form()] = None,
 ) -> PdfPreview:
     """Previsualiza un PDF sin persistir la cartola ni sus movimientos."""
-    account = session.get(AccountModel, account_id)
-    if account is None:
-        raise HTTPException(status_code=404, detail="La cuenta seleccionada no existe.")
+    account, parser_key = _account_pdf_parser(session, account_id)
     file_name, file_bytes = await _read_pdf(file)
     try:
         preview = await inspect_pdf_isolated(
             file_name=file_name,
             file_bytes=file_bytes,
             institution=account.institution,
+            parser_key=parser_key,
             password=password or None,
         )
         return preview.model_copy(
@@ -157,15 +171,14 @@ async def import_pdf_statement(
     password: Annotated[str | None, Form()] = None,
 ) -> PdfImportResponse:
     """Importa una cartola PDF y persiste sus movimientos detectados."""
-    account = session.get(AccountModel, account_id)
-    if account is None:
-        raise HTTPException(status_code=404, detail="La cuenta seleccionada no existe.")
+    account, parser_key = _account_pdf_parser(session, account_id)
     file_name, file_bytes = await _read_pdf(file)
     try:
         preview = await inspect_pdf_isolated(
             file_name=file_name,
             file_bytes=file_bytes,
             institution=account.institution,
+            parser_key=parser_key,
             password=password or None,
         )
         raw_path = None
@@ -198,9 +211,7 @@ async def import_reviewed_pdf_statement(
     password: Annotated[str | None, Form()] = None,
 ) -> PdfImportResponse:
     """Importa una cartola usando tipo/categoria revisados en la preview."""
-    account = session.get(AccountModel, account_id)
-    if account is None:
-        raise HTTPException(status_code=404, detail="La cuenta seleccionada no existe.")
+    account, parser_key = _account_pdf_parser(session, account_id)
     file_name, file_bytes = await _read_pdf(file)
     try:
         reviews = _parse_reviewed_transactions(reviewed_transactions)
@@ -208,6 +219,7 @@ async def import_reviewed_pdf_statement(
             file_name=file_name,
             file_bytes=file_bytes,
             institution=account.institution,
+            parser_key=parser_key,
             password=password or None,
         )
         reviewed_candidates, category_overrides = apply_transaction_reviews(

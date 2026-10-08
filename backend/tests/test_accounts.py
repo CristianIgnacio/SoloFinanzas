@@ -5,8 +5,13 @@ from sqlmodel import Session, SQLModel, create_engine
 from tests.fixtures import Session
 
 from app.domain.enums import CurrencyCode, InstitutionCode
-from app.schemas.account import AccountCreate
-from app.services.accounts import create_account, list_accounts
+from app.schemas.account import AccountCreate, AccountUpdate
+from app.services.accounts import (
+    AccountProductValidationError,
+    create_account,
+    list_accounts,
+    update_account,
+)
 
 
 class AccountTests(unittest.TestCase):
@@ -47,6 +52,64 @@ class AccountTests(unittest.TestCase):
             {account.institution for account in accounts},
             set(institutions),
         )
+
+    def test_product_link_is_validated_and_preserved_on_legacy_edit(self) -> None:
+        with Session(self.engine) as session:
+            account = create_account(session, AccountCreate(
+                name="Gastos diarios",
+                institution=InstitutionCode.BANCO_ESTADO,
+                account_type="vista",
+                product_code="banco_estado_cuenta_rut",
+                account_last4="1234",
+            ))
+            self.assertEqual(account.product_code, "banco_estado_cuenta_rut")
+
+            edited = update_account(session, account.id, AccountUpdate(
+                name="Mi CuentaRUT",
+                institution=InstitutionCode.BANCO_ESTADO,
+                account_type="vista",
+                account_last4="1234",
+            ))
+            self.assertEqual(edited.product_code, "banco_estado_cuenta_rut")
+            self.assertEqual(edited.account_last4, "1234")
+
+            moved = update_account(session, account.id, AccountUpdate(
+                name="Otra institución",
+                institution=InstitutionCode.BANCO_DE_CHILE,
+                account_type="vista",
+            ))
+            self.assertIsNone(moved.product_code)
+
+    def test_product_link_rejects_unknown_or_mismatched_values(self) -> None:
+        with Session(self.engine) as session:
+            for code, institution, kind in (
+                ("inexistente", InstitutionCode.BANCO_ESTADO, "vista"),
+                ("banco_estado_cuenta_rut", InstitutionCode.BANCO_DE_CHILE, "vista"),
+                ("banco_estado_cuenta_rut", InstitutionCode.BANCO_ESTADO, "credito"),
+            ):
+                with self.subTest(code=code, institution=institution, kind=kind):
+                    with self.assertRaises(AccountProductValidationError):
+                        create_account(session, AccountCreate(
+                            name="Ejemplo", institution=institution,
+                            account_type=kind, product_code=code,
+                        ))
+            self.assertEqual(list_accounts(session), [])
+
+    def test_new_account_products_can_be_selected_with_their_account_kind(self) -> None:
+        cases = (
+            ("banco_de_chile_corriente_tradicional", InstitutionCode.BANCO_DE_CHILE, "corriente"),
+            ("banco_estado_cuenta_pro", InstitutionCode.BANCO_ESTADO, "vista"),
+            ("banco_falabella_vista", InstitutionCode.BANCO_FALABELLA, "vista"),
+        )
+        with Session(self.engine) as session:
+            for code, institution, kind in cases:
+                with self.subTest(code=code):
+                    account = create_account(session, AccountCreate(
+                        name=code, institution=institution,
+                        account_type=kind, product_code=code,
+                    ))
+                    self.assertEqual(account.product_code, code)
+            self.assertEqual(len(list_accounts(session)), len(cases))
 
 
 if __name__ == "__main__":

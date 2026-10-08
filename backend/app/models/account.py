@@ -21,6 +21,7 @@ class AccountModel(OwnedModel, table=True):
         sa_column=Column(enum_sql_type(InstitutionCode), nullable=False),
     )
     account_type: str
+    product_code: str | None = Field(default=None, max_length=80)
     account_last4: str | None = Field(default=None, max_length=4)
     currency: CurrencyCode = Field(
         default=CurrencyCode.CLP,

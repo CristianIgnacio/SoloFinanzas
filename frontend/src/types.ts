@@ -70,19 +70,30 @@ export type Account = {
   name: string;
   institution: InstitutionCode;
   account_type: string;
+  product_code: string | null;
   account_last4: string | null;
   currency: CurrencyCode;
   created_at: string;
 };
 
-export type AccountCreate = Omit<Account, "id" | "created_at">;
+export type AccountCreate = Omit<Account, "id" | "created_at" | "product_code"> & {
+  product_code?: string | null;
+};
 export type AccountUpdate = AccountCreate;
+
+export type FinancialProduct = {
+  code: string;
+  institution: InstitutionCode;
+  name: string;
+  kind: "corriente" | "vista" | "ahorro" | "billetera_prepago" | "credito";
+  pdf_support: "muestra_probada" | "pendiente_verificacion" | "no_soportado";
+};
 
 export const InstitutionLabels: Record<InstitutionCode, string> = {
   [InstitutionCode.BANCO_FALABELLA]: "Banco Falabella",
   [InstitutionCode.BANCO_DE_CHILE]: "Banco de Chile",
   [InstitutionCode.BANCO_SANTANDER]: "Banco Santander",
-  [InstitutionCode.COPECPAY]: "CopecPay",
+  [InstitutionCode.COPECPAY]: "Copec Pay",
   [InstitutionCode.MERCADOPAGO]: "Mercado Pago",
   [InstitutionCode.BANCO_ESTADO]: "BancoEstado",
 };

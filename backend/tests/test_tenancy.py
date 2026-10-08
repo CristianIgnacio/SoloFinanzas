@@ -97,6 +97,119 @@ class TenancyTests(unittest.TestCase):
         with TenantSession(self.engine, user_id=B) as s:
             self.assertIsNone(s.get(AccountModel, result.json()['id']))
 
+    def test_account_product_mismatch_is_rejected(self):
+        valid = self.client.post('/api/v1/accounts', json={
+            'name': 'CuentaRUT para gastos',
+            'institution': 'banco_estado',
+            'account_type': 'vista',
+            'product_code': 'banco_estado_cuenta_rut',
+        })
+        self.assertEqual(valid.status_code, 201)
+        self.assertEqual(valid.json()['product_code'], 'banco_estado_cuenta_rut')
+        response = self.client.post('/api/v1/accounts', json={
+            'name': 'Otra cuenta',
+            'institution': 'banco_de_chile',
+            'account_type': 'vista',
+            'product_code': 'banco_estado_cuenta_rut',
+        })
+        self.assertEqual(response.status_code, 422)
+        self.assertIn('institución', response.json()['detail'])
+
+    def test_account_products_endpoint_exposes_catalog(self):
+        response = self.client.get('/api/v1/account-products')
+        self.assertEqual(response.status_code, 200)
+        products = {item['code']: item for item in response.json()}
+        self.assertEqual(products['banco_estado_cuenta_rut']['kind'], 'vista')
+        self.assertEqual(products['banco_estado_cuenta_rut']['pdf_support'], 'muestra_probada')
+        self.assertNotIn('parser_key', products['banco_estado_cuenta_rut'])
+        for code, kind in (
+            ('banco_de_chile_corriente_tradicional', 'corriente'),
+            ('banco_estado_cuenta_pro', 'vista'),
+            ('banco_falabella_vista', 'vista'),
+        ):
+            with self.subTest(code=code):
+                self.assertEqual(products[code]['kind'], kind)
+                self.assertEqual(products[code]['pdf_support'], 'pendiente_verificacion')
+
+    def test_linking_product_keeps_statement_and_transaction_filters(self):
+        account_id, _, statement_id, transaction_id = self.records[A]
+        response = self.client.put(f'/api/v1/accounts/{account_id}', json={
+            'name': 'Gastos diarios',
+            'institution': 'banco_de_chile',
+            'account_type': 'vista',
+            'product_code': 'banco_de_chile_cuenta_fan',
+        })
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()['id'], account_id)
+        self.assertEqual(response.json()['product_code'], 'banco_de_chile_cuenta_fan')
+
+        statements = self.client.get(f'/api/v1/statements?account_id={account_id}').json()
+        transactions = self.client.get(f'/api/v1/transaction-pages?account_id={account_id}').json()
+        self.assertEqual([item['id'] for item in statements], [statement_id])
+        self.assertEqual([item['id'] for item in transactions['items']], [transaction_id])
+        self.assertEqual(transactions['items'][0]['account_id'], account_id)
+
+    def test_pdf_routes_reject_credit_before_parsing(self):
+        created = self.client.post('/api/v1/accounts', json={
+            'name': 'Crédito demo', 'institution': 'banco_estado',
+            'account_type': 'credito', 'product_code': 'banco_estado_visa_smart',
+        })
+        self.assertEqual(created.status_code, 201)
+        legacy = self.client.post('/api/v1/accounts', json={
+            'name': 'Crédito antiguo', 'institution': 'banco_de_chile',
+            'account_type': 'credito',
+        })
+        self.assertEqual(legacy.status_code, 201)
+        with patch('app.main.limiter.check'), patch('app.api.routes.statements.inspect_pdf_isolated') as parser:
+            for account_id in (created.json()['id'], legacy.json()['id']):
+                for suffix in ('/preview', '', '/reviewed'):
+                    data = {'account_id': account_id}
+                    if suffix == '/reviewed':
+                        data['reviewed_transactions'] = '[]'
+                    with self.subTest(account_id=account_id, suffix=suffix):
+                        response = self.client.post(
+                            '/api/v1/statement-imports/pdf' + suffix,
+                            data=data,
+                            files={'file': ('demo.pdf', b'%PDF-invalid', 'application/pdf')},
+                        )
+                        self.assertEqual(response.status_code, 422)
+                        self.assertIn('crédito', response.json()['detail'])
+            parser.assert_not_called()
+
+    def test_pdf_routes_pass_product_or_legacy_parser_to_worker(self):
+        sample = self.client.post('/api/v1/accounts', json={
+            'name': 'CuentaRUT demo', 'institution': 'banco_estado',
+            'account_type': 'vista', 'product_code': 'banco_estado_cuenta_rut',
+        })
+        pending = self.client.post('/api/v1/accounts', json={
+            'name': 'Cuenta FAN demo', 'institution': 'banco_de_chile',
+            'account_type': 'vista', 'product_code': 'banco_de_chile_cuenta_fan',
+        })
+        self.assertEqual(sample.status_code, 201)
+        self.assertEqual(pending.status_code, 201)
+        cases = (
+            (sample.json()['id'], 'banco_estado'),
+            (pending.json()['id'], 'banco_de_chile'),
+            (self.records[A][0], 'banco_de_chile'),
+        )
+        with patch('app.main.limiter.check'), patch(
+            'app.api.routes.statements.inspect_pdf_isolated',
+            side_effect=HTTPException(418, 'parser reached'),
+        ) as parser:
+            for account_id, expected_parser in cases:
+                for suffix in ('/preview', '', '/reviewed'):
+                    data = {'account_id': account_id}
+                    if suffix == '/reviewed':
+                        data['reviewed_transactions'] = '[]'
+                    with self.subTest(account_id=account_id, suffix=suffix):
+                        response = self.client.post(
+                            '/api/v1/statement-imports/pdf' + suffix,
+                            data=data,
+                            files={'file': ('demo.pdf', b'%PDF-invalid', 'application/pdf')},
+                        )
+                        self.assertEqual(response.status_code, 418)
+                        self.assertEqual(parser.call_args.kwargs['parser_key'], expected_parser)
+
     def test_routes_cannot_read_modify_delete_or_import_foreign_records(self):
         account, category, statement, txn = self.records[B]
         for path in (f'/transactions/{txn}', f'/statements/{statement}', f'/statements/{statement}/deletion-impact'):
@@ -128,6 +241,7 @@ class TenancyTests(unittest.TestCase):
     def test_financial_routes_require_authentication(self):
         app.dependency_overrides.clear()
         self.assertEqual(self.client.get('/api/v1/accounts').status_code, 401)
+        self.assertEqual(self.client.get('/api/v1/account-products').status_code, 401)
 
     def test_reports_and_server_pagination_are_owner_scoped(self):
         report = self.client.get('/api/v1/reports/accounts').json()

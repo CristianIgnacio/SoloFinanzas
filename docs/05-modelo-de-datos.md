@@ -33,6 +33,7 @@ erDiagram
       string name
       enum institution
       string account_type
+      string product_code
       string account_last4
       enum currency
       datetime created_at
@@ -98,14 +99,23 @@ erDiagram
 | --- | --- | --- |
 | `id` | entero | Clave primaria. |
 | `name` | texto | Nombre visible; el frontend exige no vacio. |
-| `institution` | enum | Selecciona el parser de importacion. |
+| `institution` | enum | Determina el parser de importación para cuentas antiguas sin producto y productos pendientes de verificación. |
 | `account_type` | texto | No esta restringido por enum en backend. |
-| `account_last4` | texto nullable | Maximo cuatro caracteres en el esquema; UI exige cuatro digitos si existe. |
+| `product_code` | texto nullable | Código estable del catálogo; el servicio valida institución y tipo. Nulo en cuentas antiguas no identificables sin duda. |
+| `account_last4` | texto nullable | Identificador opcional de cuatro caracteres. No se vincula a una entidad de tarjeta; registros antiguos pueden contener dígitos de tarjeta ingresados en el formulario anterior y requieren revisión del usuario. |
 | `currency` | enum | Solo `CLP`. |
 | `created_at` | datetime UTC | Orden estable de listado. |
 
 Una cuenta no puede eliminarse si las claves foraneas encuentran cartolas o
 movimientos relacionados.
+
+La migración `b427eac61230` agrega `product_code` sin cambiar IDs ni relaciones.
+Solo asigna un código cuando el nombre y tipo heredados coinciden con un
+producto concreto del catálogo. Un alias personalizado o un tipo ambiguo como
+`debito` conserva `product_code = NULL` para revisión posterior. El catálogo
+es estático en el backend; no existe tabla de tarjetas ni clave foránea a
+productos. La API valida los códigos al crear y editar cuentas.
+La migración no interpreta ni modifica `account_last4`.
 
 ## `statements`
 

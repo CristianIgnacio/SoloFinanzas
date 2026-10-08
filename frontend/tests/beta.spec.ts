@@ -156,3 +156,203 @@ test("respuesta de token vencido limpia las pantallas privadas", async ({
   await expect(page).toHaveURL(/\/login$/);
   await expect(page.getByText("Cuenta demo A")).toHaveCount(0);
 });
+
+test("alta de cuenta selecciona producto y deriva el tipo", async ({ page }, info) => {
+  await mockApi(page);
+  const products = [
+    { code: "banco_de_chile_cuenta_fan", institution: "banco_de_chile", name: "Cuenta FAN", kind: "vista", pdf_support: "pendiente_verificacion" },
+    { code: "banco_estado_cuenta_rut", institution: "banco_estado", name: "CuentaRUT", kind: "vista", pdf_support: "muestra_probada" },
+    { code: "banco_estado_visa_smart", institution: "banco_estado", name: "Visa SMART", kind: "credito", pdf_support: "no_soportado" },
+  ];
+  await page.route("**/api/v1/account-products", (route) => route.fulfill({ json: products }));
+  let createdPayload: Record<string, unknown> | null = null;
+  await page.route("**/api/v1/accounts", (route) => {
+    if (route.request().method() === "POST") {
+      createdPayload = route.request().postDataJSON();
+      return route.fulfill({ status: 201, json: {
+        id: 3, created_at: "2026-01-01T00:00:00Z", ...createdPayload,
+      } });
+    }
+    return route.fulfill({ json: [] });
+  });
+  await page.addInitScript(
+    (value) => localStorage.setItem("sb-demo-auth-token", JSON.stringify(value)),
+    session(ownerA),
+  );
+  await page.goto("/app/settings");
+  await page.getByRole("button", { name: "Nueva cuenta" }).click();
+  await expect(page.getByRole("textbox", { name: "Moneda" })).toHaveCount(0);
+  await page.getByRole("textbox", { name: "Nombre visible" }).fill("Cuenta para gastos");
+  const preview = page.getByRole("img", { name: /Vista previa de/ });
+  const initialBackground = await preview.evaluate((element) => getComputedStyle(element).backgroundImage);
+  await page.getByRole("combobox", { name: "Institución" }).selectOption("banco_estado");
+  await expect(preview).toContainText("BancoEstado");
+  expect(await preview.evaluate((element) => getComputedStyle(element).backgroundImage)).not.toBe(initialBackground);
+  const kindSelect = page.getByRole("combobox", { name: "Tipo de cuenta" });
+  await expect(kindSelect).toBeEnabled();
+  const institutionBackground = await preview.evaluate((element) => getComputedStyle(element).backgroundImage);
+  await kindSelect.selectOption("credito");
+  expect(await preview.evaluate((element) => getComputedStyle(element).backgroundImage)).not.toBe(institutionBackground);
+  const productSelect = page.getByRole("combobox", { name: "Producto" });
+  await expect(productSelect).toBeEnabled();
+  await productSelect.selectOption("banco_estado_visa_smart");
+  await expect(preview).toContainText("Visa SMART");
+  await expect(page.getByRole("button", { name: "Agregar cuenta" })).toBeDisabled();
+  await kindSelect.selectOption("vista");
+  await expect(productSelect.locator("option")).toHaveCount(2);
+  await productSelect.selectOption("banco_estado_cuenta_rut");
+  await expect(preview).toContainText("CuentaRUT");
+  await preview.scrollIntoViewIfNeeded();
+  await page.screenshot({ path: info.outputPath("modal-preview.png") });
+  await page.getByRole("button", { name: "Agregar cuenta" }).click();
+  await expect(page.getByText("Cuenta para gastos").first()).toBeVisible();
+  expect(createdPayload).toMatchObject({
+    name: "Cuenta para gastos",
+    institution: "banco_estado",
+    account_type: "vista",
+    product_code: "banco_estado_cuenta_rut",
+  });
+});
+
+test("el formulario ofrece las nuevas cuentas según institución y tipo", async ({ page }) => {
+  await mockApi(page);
+  await page.route("**/api/v1/account-products", (route) => route.fulfill({ json: [
+    { code: "banco_de_chile_corriente_tradicional", institution: "banco_de_chile", name: "Cuenta Corriente (plan tradicional)", kind: "corriente", pdf_support: "pendiente_verificacion" },
+    { code: "banco_estado_cuenta_pro", institution: "banco_estado", name: "Cuenta Pro (Chequera Electrónica)", kind: "vista", pdf_support: "pendiente_verificacion" },
+    { code: "banco_falabella_vista", institution: "banco_falabella", name: "Cuenta Vista", kind: "vista", pdf_support: "pendiente_verificacion" },
+  ] }));
+  await page.addInitScript(
+    (value) => localStorage.setItem("sb-demo-auth-token", JSON.stringify(value)),
+    session(ownerA),
+  );
+  await page.goto("/app/settings");
+  await page.getByRole("button", { name: "Nueva cuenta" }).click();
+  const institution = page.getByRole("combobox", { name: "Institución" });
+  const kind = page.getByRole("combobox", { name: "Tipo de cuenta" });
+  const product = page.getByRole("combobox", { name: "Producto" });
+  const preview = page.getByRole("img", { name: /Vista previa de/ });
+  for (const item of [
+    { institution: "banco_de_chile", kind: "corriente", code: "banco_de_chile_corriente_tradicional", name: "Cuenta Corriente (plan tradicional)" },
+    { institution: "banco_estado", kind: "vista", code: "banco_estado_cuenta_pro", name: "Cuenta Pro (Chequera Electrónica)" },
+    { institution: "banco_falabella", kind: "vista", code: "banco_falabella_vista", name: "Cuenta Vista" },
+  ]) {
+    await institution.selectOption(item.institution);
+    await kind.selectOption(item.kind);
+    await product.selectOption(item.code);
+    await expect(preview).toContainText(item.name);
+  }
+});
+
+test("cuenta heredada sin producto conserva su tipo al editar el nombre", async ({ page }) => {
+  await mockApi(page);
+  await page.route("**/api/v1/account-products", (route) => route.fulfill({ json: [
+    { code: "banco_de_chile_cuenta_fan", institution: "banco_de_chile", name: "Cuenta FAN", kind: "vista", pdf_support: "pendiente_verificacion" },
+    { code: "banco_de_chile_visa_signature", institution: "banco_de_chile", name: "Visa Signature", kind: "credito", pdf_support: "no_soportado" },
+  ] }));
+  const account = {
+    id: 1, name: "Cuenta antigua", institution: "banco_de_chile",
+    account_type: "debito", product_code: null, account_last4: "1234",
+    currency: "CLP", created_at: "2026-01-01T00:00:00Z",
+  };
+  let updatedPayload: Record<string, unknown> | null = null;
+  await page.route("**/api/v1/accounts", (route) => route.fulfill({ json: [account] }));
+  await page.route("**/api/v1/accounts/1", (route) => {
+    updatedPayload = route.request().postDataJSON();
+    return route.fulfill({ json: { ...account, ...updatedPayload } });
+  });
+  await page.addInitScript(
+    (value) => localStorage.setItem("sb-demo-auth-token", JSON.stringify(value)),
+    session(ownerA),
+  );
+  await page.goto("/app/settings");
+  await page.getByTitle("Editar Cuenta antigua").click();
+  await expect(page.getByRole("combobox", { name: "Producto" })).toHaveValue("");
+  const kindSelect = page.getByRole("combobox", { name: "Tipo de cuenta" });
+  await kindSelect.selectOption("credito");
+  await expect(page.getByRole("button", { name: "Guardar cambios" })).toBeDisabled();
+  await kindSelect.selectOption("debito");
+  await page.getByRole("textbox", { name: "Nombre visible" }).fill("Cuenta antigua renovada");
+  await page.getByRole("button", { name: "Guardar cambios" }).click();
+  expect(updatedPayload).toMatchObject({
+    name: "Cuenta antigua renovada", account_type: "debito", product_code: null,
+  });
+});
+
+test("importación PDF avisa sobre productos pendientes y bloquea crédito", async ({ page }) => {
+  await mockApi(page);
+  const accounts = [
+    { id: 1, name: "Cuenta FAN", institution: "banco_de_chile", account_type: "vista", product_code: "banco_de_chile_cuenta_fan", account_last4: null, currency: "CLP", created_at: "2026-01-01T00:00:00Z" },
+    { id: 2, name: "Crédito", institution: "banco_estado", account_type: "credito", product_code: "banco_estado_visa_smart", account_last4: null, currency: "CLP", created_at: "2026-01-01T00:00:00Z" },
+    { id: 3, name: "Cuenta antigua", institution: "banco_de_chile", account_type: "debito", product_code: null, account_last4: null, currency: "CLP", created_at: "2026-01-01T00:00:00Z" },
+  ];
+  const products = [
+    { code: "banco_de_chile_cuenta_fan", institution: "banco_de_chile", name: "Cuenta FAN", kind: "vista", pdf_support: "pendiente_verificacion" },
+    { code: "banco_estado_visa_smart", institution: "banco_estado", name: "Visa SMART", kind: "credito", pdf_support: "no_soportado" },
+  ];
+  await page.route("**/api/v1/accounts", (route) => route.fulfill({ json: accounts }));
+  await page.route("**/api/v1/account-products", (route) => route.fulfill({ json: products }));
+  await page.addInitScript(
+    (value) => localStorage.setItem("sb-demo-auth-token", JSON.stringify(value)),
+    session(ownerA),
+  );
+  await page.goto("/app/import?account_id=1");
+  const accountSelect = page.getByRole("combobox", { name: "Cuenta Destino" });
+  await expect(accountSelect).toHaveValue("1");
+  await expect(page.getByText(/Aún no se verificó una cartola real/)).toBeVisible();
+  await page.locator('input[type="file"]').setInputFiles({
+    name: "demo.pdf", mimeType: "application/pdf", buffer: Buffer.from("%PDF-demo"),
+  });
+  await expect(page.getByRole("button", { name: "Analizar Documento" })).toBeEnabled();
+  await accountSelect.selectOption("2");
+  await expect(page.getByText(/tarjeta de crédito aún no está disponible/)).toBeVisible();
+  await expect(page.getByRole("button", { name: "Analizar Documento" })).toBeDisabled();
+  await accountSelect.selectOption("3");
+  await expect(page.getByText(/cuenta antigua no tiene producto asignado/)).toBeVisible();
+  await expect(page.getByRole("button", { name: "Analizar Documento" })).toBeEnabled();
+});
+
+test("cuentas, dashboard y configuración muestran alias, institución y producto", async ({ page }, info) => {
+  await mockApi(page);
+  const accounts = [
+    { id: 1, name: "Gastos diarios", institution: "banco_estado", account_type: "vista", product_code: "banco_estado_cuenta_rut", account_last4: "4321", currency: "CLP", created_at: "2026-01-01T00:00:00Z" },
+    { id: 2, name: "Cuenta antigua", institution: "banco_de_chile", account_type: "debito", product_code: null, account_last4: null, currency: "CLP", created_at: "2026-01-01T00:00:00Z" },
+  ];
+  await page.route("**/api/v1/accounts", (route) => route.fulfill({ json: accounts }));
+  await page.route("**/api/v1/account-products", (route) => route.fulfill({ json: [
+    { code: "banco_estado_cuenta_rut", institution: "banco_estado", name: "CuentaRUT", kind: "vista", pdf_support: "muestra_probada" },
+  ] }));
+  await page.route("**/api/v1/dashboard**", (route) => route.fulfill({ json: {
+    period_month: "2026-01", available_periods: [], cards: [], monthly_movements: [],
+  } }));
+  await page.addInitScript(
+    (value) => localStorage.setItem("sb-demo-auth-token", JSON.stringify(value)),
+    session(ownerA),
+  );
+
+  await page.goto("/app/accounts?account_id=1");
+  const selectedCard = page.getByRole("button", { name: /Gastos diarios/ });
+  await expect(selectedCard).toContainText("Gastos diarios");
+  await expect(selectedCard).toContainText("BancoEstado");
+  await expect(selectedCard).toContainText("CuentaRUT");
+  await expect(selectedCard).toContainText("**** 4321");
+  await expect(page.getByText("Producto sin identificar")).toBeVisible();
+  await selectedCard.screenshot({ path: info.outputPath("accounts-card.png") });
+
+  await page.goto("/app");
+  const dashboardCard = page.getByRole("link", { name: "Ver detalle de Gastos diarios" });
+  await expect(dashboardCard).toContainText("Gastos diarios");
+  await expect(dashboardCard).toContainText("BancoEstado");
+  await expect(dashboardCard).toContainText("CuentaRUT");
+  await expect(dashboardCard).toContainText("**** 4321");
+  await expect(dashboardCard).not.toContainText("Terminada en");
+  await dashboardCard.screenshot({ path: info.outputPath("dashboard-card.png") });
+
+  await page.goto("/app/settings");
+  const settingsCard = page.getByRole("link", { name: "Ver detalle de Gastos diarios" });
+  await expect(settingsCard).toContainText("Gastos diarios");
+  await expect(settingsCard).toContainText("BancoEstado");
+  await expect(settingsCard).toContainText("CuentaRUT");
+  await expect(settingsCard).toContainText("**** 4321");
+  await expect(page.getByRole("row", { name: /Cuenta antigua/ })).toContainText("Producto sin identificar");
+  await settingsCard.screenshot({ path: info.outputPath("settings-card.png") });
+});

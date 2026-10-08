@@ -82,9 +82,9 @@ export function RootLayout() {
         </div>
 
         <div className="space-y-6">
-          <p className="max-w-[13rem] text-base leading-6 text-muted">
+          {/* <p className="max-w-[13rem] text-base leading-6 text-muted">
             Tus finanzas, en tu espacio privado en la nube.
-          </p>
+          </p> */}
           <div className="subtle-divider" />
           <div className="flex items-center gap-4">
             <div className="flex h-11 w-11 items-center justify-center rounded-full bg-primary text-sm font-semibold text-white">

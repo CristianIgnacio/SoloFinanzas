@@ -55,6 +55,25 @@ El script la solicita dos veces sin mostrarla ni guardarla. También puedes usar
 
 La API nunca crea ni actualiza tablas al arrancar. Para desarrollo sin PostgreSQL, el valor predeterminado crea **`backend/data/cloud_dev.db`**, separado de la base anterior. Ejecuta Alembic también para esa base. SQLite se usa para desarrollo y pruebas, no para Render.
 
+### Actualizar una base de producción existente
+
+Si un cambio incluye una migración Alembic, coordina el push con el despliegue: deja en pausa los despliegues automáticos de Render y Vercel hasta terminar la migración. El backend nuevo puede consultar columnas que todavía no existen si se publica antes. Con el mismo commit que vas a desplegar:
+
+1. Espera a que CI termine correctamente y crea/verifica un respaldo cifrado reciente del esquema `finance` con el procedimiento de la sección 6. Guarda la clave fuera del repositorio.
+2. Desde `backend/`, configura **solo para esta operación** `DATABASE_URL` con la conexión administrativa PostgreSQL de Supabase (Session pooler y TLS). No uses el usuario limitado `finance_api` ni incluyas la URL en el historial de comandos o en Git.
+3. Comprueba la revisión actual y aplica las migraciones pendientes:
+
+```powershell
+.\.venv\Scripts\python.exe -m alembic current
+.\.venv\Scripts\python.exe -m alembic upgrade head
+.\.venv\Scripts\python.exe -m alembic current
+```
+
+4. Confirma que la última revisión coincide con `head` (para esta entrega, `b427eac61230`). Si la migración crea tablas o secuencias, vuelve a ejecutar `scripts/runtime-role.sql` como administrador para dar acceso al rol de la API; el script no cambia su contraseña.
+5. Despliega primero Render y después Vercel. Comprueba una consulta autenticada de cuentas y la creación/edición de una cuenta de prueba antes de reanudar los despliegues automáticos.
+
+Agregar productos al catálogo sin alterar tablas no requiere otra migración. Las cuentas antiguas que no tengan `product_code` conservan sus movimientos y pueden asociarse a un producto desde el formulario de edición. Si producción aún no tiene el esquema `finance`, sigue primero la instalación inicial de esta sección: `upgrade head` aplicará todas las revisiones en orden.
+
 ## 3. Publicar Render Free
 
 Usa `render.yaml` como Blueprint o crea un Web Service con Docker, contexto `backend/` y Dockerfile `backend/Dockerfile`. El archivo fija el plan Free; no agregues discos ni instancias de pago.

@@ -14,11 +14,11 @@ import {
   StatusNotice,
   UploadIcon,
 } from "../components";
-import { groupCategories } from "../lib";
+import { getAccountPdfAvailability, groupCategories } from "../lib";
 import { AccountService, CategoryService, StatementService } from "../services";
-import { CategoryType, InstitutionLabels, supportsPdfImport } from "../types";
+import { CategoryType, InstitutionLabels } from "../types";
 import { TransactionType } from "../types";
-import type { Account, Category, PdfPreview, TransactionPreviewCandidate } from "../types";
+import type { Account, Category, FinancialProduct, PdfPreview, TransactionPreviewCandidate } from "../types";
 
 const MAX_PDF_SIZE = 10 * 1024 * 1024;
 const currencyFormatter = new Intl.NumberFormat("es-CL", {
@@ -59,6 +59,7 @@ function DocumentPreview({ preview }: { preview: PdfPreview | null }) {
 
 export function ImportStatementsPage() {
   const [accounts, setAccounts] = useState<Account[]>([]);
+  const [products, setProducts] = useState<FinancialProduct[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [loadingAccounts, setLoadingAccounts] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -81,21 +82,23 @@ export function ImportStatementsPage() {
     let cancelled = false;
     async function loadAccounts() {
       try {
-        const [payload, categoriesPayload] = await Promise.all([
+        const [payload, productsPayload, categoriesPayload] = await Promise.all([
           AccountService.getAccounts(),
+          AccountService.getProducts(),
           CategoryService.getCategories(),
         ]);
         if (!cancelled) {
           const importableAccounts = payload.filter((account) =>
-            supportsPdfImport(account.institution),
+            getAccountPdfAvailability(account, productsPayload).allowed,
           );
-          setAccounts(importableAccounts);
+          setAccounts(payload);
+          setProducts(productsPayload);
           setCategories(categoriesPayload);
-          if (importableAccounts[0]) {
-            const requestedAccount = importableAccounts.find(
+          if (payload.length > 0) {
+            const requestedAccount = payload.find(
               (account) => String(account.id) === requestedAccountId,
             );
-            setSelectedAccount(String(requestedAccount?.id ?? importableAccounts[0].id));
+            setSelectedAccount(String(requestedAccount?.id ?? importableAccounts[0]?.id ?? ""));
           }
         }
       } catch (err) {
@@ -111,6 +114,9 @@ export function ImportStatementsPage() {
       cancelled = true;
     };
   }, [requestedAccountId]);
+
+  const account = accounts.find((item) => String(item.id) === selectedAccount);
+  const pdfAvailability = account ? getAccountPdfAvailability(account, products) : null;
 
   const summary = useMemo(() => {
     const income = editableTransactions
@@ -173,7 +179,7 @@ export function ImportStatementsPage() {
   };
 
   const analyzeDocument = async () => {
-    if (!selectedFile || !selectedAccount) return;
+    if (!selectedFile || !selectedAccount || !pdfAvailability?.allowed) return;
     setAnalyzing(true);
     resetAnalysis();
     try {
@@ -197,7 +203,7 @@ export function ImportStatementsPage() {
   };
 
   const importDocument = async () => {
-    if (!selectedFile || !selectedAccount || !preview) return;
+    if (!selectedFile || !selectedAccount || !preview || !pdfAvailability?.allowed) return;
     setImporting(true);
     setError(null);
     try {
@@ -271,7 +277,7 @@ export function ImportStatementsPage() {
       <PageIntro
         eyebrow="Importar PDF"
         title="Subir Cartola"
-        description="Importa cartolas PDF de Banco de Chile, Banco Santander, Banco Falabella (cuenta corriente), CopecPay, Mercado Pago y BancoEstado."
+        description="Importa cartolas PDF de tus cuentas y revisa la disponibilidad según su producto financiero."
       />
 
       {error ? <StatusNotice tone="error">{error}</StatusNotice> : null}
@@ -343,7 +349,7 @@ export function ImportStatementsPage() {
                     <option value="">
                       {accounts.length > 0
                         ? "Selecciona una cuenta..."
-                        : "No hay cuentas con importacion PDF disponible"}
+                        : "No hay cuentas registradas"}
                     </option>
                     {accounts.map((account) => (
                       <option key={account.id} value={account.id}>
@@ -351,12 +357,20 @@ export function ImportStatementsPage() {
                         {account.account_last4 ? ` **** ${account.account_last4}` : ""}
                         {" - "}
                         {InstitutionLabels[account.institution]}
+                        {" · "}
+                        {getAccountPdfAvailability(account, products).label}
                       </option>
                     ))}
                   </select>
                   <BankIcon className="pointer-events-none absolute right-4 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" />
                 </div>
               </label>
+
+              {pdfAvailability?.notice ? (
+                <StatusNotice tone={pdfAvailability.allowed ? "info" : "error"}>
+                  {pdfAvailability.notice}
+                </StatusNotice>
+              ) : null}
 
               <label className="space-y-2 text-sm">
                 <span className="font-medium text-ink">Contrasena del Documento</span>
@@ -410,7 +424,7 @@ export function ImportStatementsPage() {
             </Button>
             <Button
               className="min-h-14"
-              disabled={!selectedFile || !selectedAccount || analyzing}
+              disabled={!selectedFile || !selectedAccount || !pdfAvailability?.allowed || analyzing}
               onClick={analyzeDocument}
             >
               <UploadIcon className="h-5 w-5" />
@@ -435,7 +449,7 @@ export function ImportStatementsPage() {
               </p>
             </div>
             <Button
-              disabled={summary.count === 0 || importing}
+              disabled={summary.count === 0 || !pdfAvailability?.allowed || importing}
               onClick={importDocument}
             >
               <UploadIcon className="h-5 w-5" />

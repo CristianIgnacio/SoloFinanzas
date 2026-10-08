@@ -5,6 +5,7 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import {
   ArrowDownIcon,
   ArrowUpIcon,
+  AccountVisualCard,
   BankIcon,
   Button,
   DeleteStatementModal,
@@ -23,6 +24,7 @@ import {
   cn,
 } from "../components";
 import { useFormatCurrency } from "../hooks";
+import { accountProductName, useAccountProducts } from "../hooks/useAccountProducts";
 import { createCategoryMap, getCategoryPath, parseLocalDate } from "../lib";
 import {
   AccountService,
@@ -86,6 +88,7 @@ export function AccountsPage() {
   const [deletingStatementId, setDeletingStatementId] = useState<number | null>(null);
   const [deletionError, setDeletionError] = useState<string | null>(null);
   const formatCurrency = useFormatCurrency();
+  const { products } = useAccountProducts();
 
   useEffect(() => {
     let cancelled = false;
@@ -277,7 +280,7 @@ export function AccountsPage() {
           <section className="space-y-4" aria-label="Selector de cuentas">
             <div className="flex items-center justify-between gap-4">
               <div>
-                <p className="eyebrow m-0 text-primary">Selector de tarjetas</p>
+                <p className="eyebrow m-0 text-primary">Selector de cuentas</p>
                 <p className="mt-1 text-sm text-muted">
                   {selectedIndex + 1} de {accounts.length}
                 </p>
@@ -313,34 +316,24 @@ export function AccountsPage() {
                     type="button"
                     onClick={() => selectAccount(item.id)}
                     aria-pressed={active}
+                    aria-label={`Seleccionar ${item.name} de ${InstitutionLabels[item.institution]}`}
                     className={cn(
-                      "min-h-[180px] min-w-[280px] snap-start rounded-[1.75rem] border p-6 text-left transition sm:min-w-[340px]",
+                      "w-[280px] shrink-0 snap-start rounded-[1.6rem] text-left transition sm:w-[340px]",
                       active
-                        ? "border-primary bg-primary text-white shadow-paper"
-                        : "border-outline bg-white text-ink hover:border-primary/40",
+                        ? "ring-2 ring-primary ring-offset-2"
+                        : "hover:-translate-y-1",
                     )}
                   >
-                    <div className="flex h-full flex-col justify-between gap-8">
-                      <div className="flex items-start justify-between gap-4">
-                        <InstitutionLogo institution={item.institution} />
-                        <span
-                          className={cn(
-                            "rounded-full px-3 py-1 text-xs font-semibold uppercase",
-                            active ? "bg-white/15 text-white" : "bg-paper-soft text-muted",
-                          )}
-                        >
-                          {item.account_type}
-                        </span>
-                      </div>
-                      <div>
-                        <p className="text-2xl font-semibold">{item.name}</p>
-                        <p className={active ? "text-white/75" : "text-muted"}>
-                          {item.account_last4
-                            ? `•••• ${item.account_last4}`
-                            : InstitutionLabels[item.institution]}
-                        </p>
-                      </div>
-                    </div>
+                    <AccountVisualCard
+                      institution={item.institution}
+                      accountType={item.account_type}
+                      productCode={item.product_code}
+                      productName={accountProductName(item, products)}
+                      name={item.name}
+                      accountLast4={item.account_last4}
+                      currency={item.currency}
+                      compact
+                    />
                   </button>
                 );
               })}
@@ -353,7 +346,7 @@ export function AccountsPage() {
                   <PlusIcon className="h-6 w-6" />
                 </span>
                 <span>
-                  <strong className="block text-xl text-ink">Agregar nueva tarjeta</strong>
+                  <strong className="block text-xl text-ink">Agregar nueva cuenta</strong>
                   <span className="mt-1 block text-sm">Configura otra cuenta para importar sus cartolas.</span>
                 </span>
               </button>
@@ -373,8 +366,8 @@ export function AccountsPage() {
             </div>
             <dl className="grid grid-cols-2 gap-x-8 gap-y-4 text-sm sm:grid-cols-3">
               <div>
-                <dt className="text-muted">Tipo</dt>
-                <dd className="mt-1 font-semibold capitalize">{account.account_type}</dd>
+                <dt className="text-muted">Producto</dt>
+                <dd className="mt-1 font-semibold">{accountProductName(account, products)}</dd>
               </div>
               <div>
                 <dt className="text-muted">Identificador</dt>

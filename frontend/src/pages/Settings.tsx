@@ -4,11 +4,11 @@ import { Link, useSearchParams } from "react-router-dom";
 
 import {
   AccountFormModal,
+  AccountVisualCard,
   BankIcon,
   Button,
   EmptyState,
   ErrorState,
-  InstitutionLogo,
   LoadingState,
   PageIntro,
   Panel,
@@ -19,25 +19,25 @@ import {
   TrashIcon,
 } from "../components";
 import { useFormatCurrency } from "../hooks";
+import { accountProductName, useAccountProducts } from "../hooks/useAccountProducts";
+import { getAccountPdfAvailability } from "../lib";
 import { AccountService } from "../services";
 import {
   CurrencyCode,
   InstitutionCode,
   InstitutionLabels,
-  ParserLabels,
-  getParserForInstitution,
-  supportsPdfImport,
 } from "../types";
 import type { Account, AccountCreate, AccountUpdate } from "../types";
 import type { AccountFormValues } from "../components/AccountFormModal";
 
 function createEmptyAccountForm(): AccountFormValues {
   return {
-    account_type: "credito",
+    account_type: "",
     account_last4: "",
     currency: CurrencyCode.CLP,
     institution: InstitutionCode.BANCO_DE_CHILE,
     name: "",
+    product_code: "",
   };
 }
 
@@ -48,6 +48,7 @@ function toAccountFormValues(account: Account): AccountFormValues {
     currency: account.currency,
     institution: account.institution,
     name: account.name,
+    product_code: account.product_code ?? "",
   };
 }
 
@@ -143,6 +144,7 @@ export function SettingsPage() {
   const [deletingAccountId, setDeletingAccountId] = useState<number | null>(null);
   const [accountPendingDelete, setAccountPendingDelete] = useState<Account | null>(null);
   const formatCurrency = useFormatCurrency();
+  const { products } = useAccountProducts();
 
   useEffect(() => {
     if (searchParams.get("new_account") !== "1") return;
@@ -195,13 +197,10 @@ export function SettingsPage() {
   const totalsByAccount = useMemo(() => new Map(totals.map(item => [item.account_id, item.net])), [totals]);
 
   const parserReadyCount = accounts.filter((account) =>
-    supportsPdfImport(account.institution),
+    getAccountPdfAvailability(account, products).allowed,
   ).length;
 
-  const getParserLabel = (institution: InstitutionCode) => {
-    const parser = getParserForInstitution(institution);
-    return parser ? ParserLabels[parser] : "Importacion PDF no disponible";
-  };
+  const getParserLabel = (account: Account) => getAccountPdfAvailability(account, products).label;
 
   const updateAccountFormField = (field: keyof AccountFormValues, value: string) => {
     setAccountForm((current) => ({
@@ -244,7 +243,23 @@ export function SettingsPage() {
 
   const handleSubmitAccount = async () => {
     if (!accountForm.name.trim()) {
-      setAccountFormError("Completa al menos el nombre visible de la tarjeta.");
+      setAccountFormError("Completa el nombre visible de la cuenta.");
+      return;
+    }
+
+    const originalAccount = accounts.find((account) => account.id === modalAccountId);
+    if (!accountForm.product_code && (
+      modalMode === "create" ||
+      accountForm.institution !== originalAccount?.institution ||
+      !accountForm.account_type
+    )) {
+      setAccountFormError("Selecciona un producto para la cuenta.");
+      return;
+    }
+
+    const originalCredit = originalAccount && ["credito", "tarjeta de credito", "tarjeta de crédito"].includes(originalAccount.account_type.toLowerCase());
+    if (accountForm.account_type === "credito" && !originalCredit) {
+      setAccountFormError("Las tarjetas de crédito aún no se pueden registrar.");
       return;
     }
 
@@ -257,6 +272,7 @@ export function SettingsPage() {
       name: accountForm.name.trim(),
       institution: accountForm.institution,
       account_type: accountForm.account_type,
+      product_code: accountForm.product_code || null,
       account_last4: accountForm.account_last4 || null,
       currency: accountForm.currency,
     };
@@ -352,9 +368,9 @@ export function SettingsPage() {
           icon={<BankIcon className="h-5 w-5" />}
         />
         <StatCard
-          label="Parsers configurados"
+          label="Importación PDF habilitada"
           value={String(parserReadyCount)}
-          helper="Listas para importar cartolas"
+          helper="Incluye productos pendientes de verificar"
           tone="income"
           icon={<BankIcon className="h-5 w-5" />}
         />
@@ -378,26 +394,24 @@ export function SettingsPage() {
                 className="block rounded-[1.75rem] transition hover:-translate-y-1 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-primary"
               >
                 <Panel className="h-full space-y-6">
-                <div className="flex items-start justify-between gap-4">
-                  <div className="flex items-center gap-4">
-                    <InstitutionLogo institution={account.institution} size="lg" />
-                    <div>
-                      <h2 className="text-3xl font-medium tracking-[-0.03em]">
-                        {account.name}
-                      </h2>
-                      <p className="text-muted">{InstitutionLabels[account.institution]}</p>
-                    </div>
-                  </div>
-                  <span className="rounded-full bg-paper-soft px-3 py-1 text-sm font-medium text-muted">
-                    {account.account_type}
-                  </span>
+                <div className="max-w-md">
+                  <AccountVisualCard
+                    institution={account.institution}
+                    accountType={account.account_type}
+                    productCode={account.product_code}
+                    productName={accountProductName(account, products)}
+                    name={account.name}
+                    accountLast4={account.account_last4}
+                    currency={account.currency}
+                    compact
+                  />
                 </div>
 
-                <div className="grid gap-4 md:grid-cols-4">
+                <div className="grid grid-cols-2 gap-4">
                   <div>
                     <p className="text-sm uppercase tracking-[0.12em] text-muted">Parser</p>
                     <p className="mt-1 text-lg font-medium">
-                      {getParserLabel(account.institution)}
+                      {getParserLabel(account)}
                     </p>
                   </div>
                   <div>
@@ -431,7 +445,7 @@ export function SettingsPage() {
               <div className="space-y-2">
                 <h2 className="text-3xl font-medium tracking-[-0.03em]">Listado detallado</h2>
                 <p className="text-muted">
-                  Administra tus cuentas, revisa sus identificadores y mantÃ©n limpia la base de cuentas disponibles.
+                  Administra tus cuentas, revisa sus identificadores y mantención limpia la base de cuentas disponibles.
                 </p>
               </div>
               <Button tone="secondary" onClick={openCreateAccountModal}>
@@ -444,9 +458,9 @@ export function SettingsPage() {
               <table className="w-full min-w-[920px] border-collapse">
                 <thead className="text-left text-sm text-muted">
                   <tr className="border-b border-outline/80">
-                    <th className="px-4 py-3 font-medium">Nombre</th>
+                    <th className="px-4 py-3 font-medium">Alias</th>
                     <th className="px-4 py-3 font-medium">Institucion</th>
-                    <th className="px-4 py-3 font-medium">Tipo</th>
+                    <th className="px-4 py-3 font-medium">Producto</th>
                     <th className="px-4 py-3 font-medium">Ultimos 4</th>
                     <th className="px-4 py-3 font-medium">Parser</th>
                     <th className="px-4 py-3 font-medium">Moneda</th>
@@ -460,10 +474,10 @@ export function SettingsPage() {
                       <td className="px-4 py-4 text-muted">
                         {InstitutionLabels[account.institution]}
                       </td>
-                      <td className="px-4 py-4">{account.account_type}</td>
+                      <td className="px-4 py-4">{accountProductName(account, products)}</td>
                       <td className="px-4 py-4">{account.account_last4 ?? "No definido"}</td>
                       <td className="px-4 py-4">
-                        {getParserLabel(account.institution)}
+                        {getParserLabel(account)}
                       </td>
                       <td className="px-4 py-4">{account.currency}</td>
                       <td className="px-4 py-4">

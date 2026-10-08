@@ -35,10 +35,23 @@ Ejemplo de creacion:
   "name": "Cuenta principal",
   "institution": "banco_de_chile",
   "account_type": "corriente",
+  "product_code": "banco_de_chile_corriente_digital",
   "account_last4": "1234",
   "currency": "CLP"
 }
 ```
+
+`GET /api/v1/account-products` entrega los códigos, nombres, instituciones,
+tipos y estados PDF del catálogo usados en el formulario.
+
+`product_code` es opcional en la API por compatibilidad con cuentas existentes. Cuando se
+envía, debe existir en el [catálogo](catalogo-productos-financieros.md) y
+coincidir con `institution` y `account_type`; una combinación inválida responde
+`422`. En `PUT`, omitir el campo conserva el vínculo si sigue siendo coherente;
+enviar `null` lo elimina. Un cliente antiguo que cambie la institución o tipo
+sin enviar el código hace que el vínculo se limpie. `account_last4` es un
+identificador opcional independiente del producto; los valores heredados no se
+reinterpretan automáticamente.
 
 ## Categorias
 
@@ -116,6 +129,13 @@ de persistir.
 El resultado del `DELETE` agrega `raw_file_deleted`.
 
 ## Importacion PDF
+
+Las tres rutas PDF consultan `accounts.product_code` antes de leer el archivo.
+Un producto con `muestra_probada` usa su parser configurado; uno con
+`pendiente_verificacion` puede importarse con el parser de la institución y el
+frontend muestra un aviso para revisar el resultado. `no_soportado` y las
+cuentas de crédito, incluso las antiguas sin producto, responden `422`. Las
+otras cuentas antiguas sin producto conservan el parser de su institución.
 
 ### Vista previa
 
