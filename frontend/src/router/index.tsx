@@ -19,9 +19,6 @@ const AnalyticsPage = lazy(() =>
 const AccountsPage = lazy(() =>
   import("../pages/Accounts").then((m) => ({ default: m.AccountsPage })),
 );
-const SettingsPage = lazy(() =>
-  import("../pages/Settings").then((m) => ({ default: m.SettingsPage })),
-);
 const TransactionsPage = lazy(() =>
   import("../pages/Transactions").then((m) => ({
     default: m.TransactionsPage,
@@ -41,6 +38,16 @@ function LegacyRedirect() {
   return (
     <Navigate
       to={`/app${location.pathname}${location.search}${location.hash}`}
+      replace
+    />
+  );
+}
+
+function LegacySettingsRedirect() {
+  const location = useLocation();
+  return (
+    <Navigate
+      to={`/app/accounts${location.search}${location.hash}`}
       replace
     />
   );
@@ -88,12 +95,12 @@ export const router = createBrowserRouter([
                 ),
               },
               {
+                path: "accounts/manage",
+                element: <LegacySettingsRedirect />,
+              },
+              {
                 path: "settings",
-                element: (
-                  <Suspense fallback={<p className="p-8">Cargando…</p>}>
-                    <SettingsPage />
-                  </Suspense>
-                ),
+                element: <LegacySettingsRedirect />,
               },
               {
                 path: "import",

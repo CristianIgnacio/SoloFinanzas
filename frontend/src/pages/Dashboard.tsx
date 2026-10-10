@@ -362,10 +362,12 @@ export function DashboardPage() {
       .slice(0, 5);
   }, [categoryMap, categoryTypeMap, support.periodTransactions]);
 
-  const investmentGains = useMemo(() => {
-    const investmentCategoryIds = new Set(
+  const cardGains = useMemo(() => {
+    const cardGainCategoryIds = new Set(
       support.categories
-        .filter((category) => category.name.trim().toLowerCase() === "inversiones")
+        .filter((category) =>
+          category.name.trim().localeCompare("Ganancias tarjetas", "es", { sensitivity: "base" }) === 0,
+        )
         .map((category) => category.id),
     );
 
@@ -373,7 +375,7 @@ export function DashboardPage() {
       (transaction) =>
         transaction.transaction_type === "income" &&
         transaction.category_id !== null &&
-        investmentCategoryIds.has(transaction.category_id),
+        cardGainCategoryIds.has(transaction.category_id),
     );
 
     return {
@@ -787,15 +789,15 @@ export function DashboardPage() {
               </span>
               <div className="space-y-2">
                 <p className="text-sm font-semibold uppercase tracking-[0.16em] text-primary/80">
-                  Ganancias por inversion
+                  Ganancias tarjetas
                 </p>
                 <strong className="block text-5xl font-semibold tracking-[-0.05em] text-ink">
-                  {formatCurrency(investmentGains.total)}
+                  {formatCurrency(cardGains.total)}
                 </strong>
               </div>
               <div className="flex flex-wrap items-center justify-center gap-2">
                 <span className="rounded-full bg-primary-mist px-3 py-1.5 text-sm font-semibold text-primary">
-                  {investmentGains.count} movimientos
+                  {cardGains.count} movimientos
                 </span>
                 <span className="rounded-full bg-paper-soft px-3 py-1.5 text-sm font-semibold text-muted">
                   {dashboardPeriod}
@@ -869,27 +871,30 @@ export function DashboardPage() {
 
           <section className="grid gap-6 lg:grid-cols-[minmax(360px,1.1fr)_minmax(0,0.9fr)]">
             <Panel className="space-y-6">
-              <div className="flex items-center justify-between gap-4">
+              <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                 <div className="space-y-2">
-                  <h2 className="text-4xl font-medium tracking-[-0.04em]">Cuentas Activas</h2>
-                  <p className="text-muted">
-                    Tus cuentas principales quedan al centro del dashboard para revisar saldo y contexto rapido.
-                  </p>
+                  <h2 className="text-3xl font-medium tracking-[-0.04em]">Tus cuentas</h2>
+                  <p className="text-sm text-muted">Las más recientes aparecen primero.</p>
                 </div>
-                <Button className="shrink-0" onClick={openCreateAccountModal}>
-                  <PlusIcon className="h-6 w-6" />
-                  Agregar cuenta
-                </Button>
+                <div className="flex shrink-0 items-center gap-3">
+                  <Link to="/app/accounts" className="text-sm font-semibold text-primary transition hover:underline">Ver todas</Link>
+                  <Button className="px-4 py-2.5 text-sm" onClick={openCreateAccountModal}>
+                    <PlusIcon className="h-4 w-4" />Agregar cuenta
+                  </Button>
+                </div>
               </div>
 
               {support.accounts.length > 0 ? (
-                <div className="flex snap-x gap-4 overflow-x-auto pb-3">
-                  {support.accounts.slice(0, 4).map((account) => (
+                <div className="grid gap-4 sm:grid-cols-2">
+                  {[...support.accounts]
+                    .sort((left, right) => right.created_at.localeCompare(left.created_at) || right.id - left.id)
+                    .slice(0, 4)
+                    .map((account) => (
                     <Link
                       key={account.id}
                       to={`/app/accounts?account_id=${account.id}`}
                       aria-label={`Ver detalle de ${account.name}`}
-                      className="block w-[300px] shrink-0 snap-start rounded-[1.6rem] transition hover:-translate-y-1 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-primary sm:w-[340px]"
+                      className="block min-w-0 rounded-[1.6rem] transition hover:-translate-y-1 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-primary"
                     >
                       <AccountVisualCard
                         institution={account.institution}
@@ -905,10 +910,9 @@ export function DashboardPage() {
                   ))}
                 </div>
               ) : (
-                <EmptyState
-                  title="No hay cuentas activas"
-                  description="Agrega una cuenta para verla destacada aqui y usarla durante la importacion de cartolas."
-                />
+                <p className="rounded-2xl border border-dashed border-outline px-5 py-8 text-center text-sm text-muted">
+                  Aún no tienes cuentas. Agrega una para verla aquí.
+                </p>
               )}
             </Panel>
 

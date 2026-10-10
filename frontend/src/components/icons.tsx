@@ -8,6 +8,8 @@ import {
   faChartColumn,
   faChartLine,
   faChevronDown,
+  faChevronLeft,
+  faChevronRight,
   faCircleCheck,
   faCircleQuestion,
   faCircleUser,
@@ -136,6 +138,14 @@ export function SaveIcon(props: IconProps) {
 
 export function ChevronDownIcon(props: IconProps) {
   return <FontAwesomeIcon icon={faChevronDown} {...iconProps(props)} />;
+}
+
+export function ChevronLeftIcon(props: IconProps) {
+  return <FontAwesomeIcon icon={faChevronLeft} {...iconProps(props)} />;
+}
+
+export function ChevronRightIcon(props: IconProps) {
+  return <FontAwesomeIcon icon={faChevronRight} {...iconProps(props)} />;
 }
 
 export function CheckCircleIcon(props: IconProps) {

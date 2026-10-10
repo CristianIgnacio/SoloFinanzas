@@ -517,12 +517,12 @@ export function TransactionsPage() {
           </label>
         </div>
 
-        <div className="grid w-full gap-3 sm:grid-cols-2 lg:w-auto">
-          <div className="relative min-w-0 sm:min-w-[250px]">
+        <div className="grid w-full gap-3 sm:grid-cols-2 lg:w-[32rem] lg:max-w-full">
+          <div className="relative min-w-0">
             <select
               value={selectedCategory}
               onChange={(event) => setSelectedCategory(event.target.value)}
-              className="w-full appearance-none rounded-full border border-outline bg-white px-5 py-3 pr-12 text-lg outline-none transition focus:border-primary"
+              className="w-full min-w-0 truncate appearance-none rounded-full border border-outline bg-white px-5 py-3 pr-12 text-base outline-none transition focus:border-primary"
             >
               <option value={ALL_CATEGORIES}>Todas las categorias</option>
               <option value={UNCATEGORIZED_CATEGORY}>Sin categoria</option>
@@ -535,11 +535,11 @@ export function TransactionsPage() {
             <ChevronDownIcon className="pointer-events-none absolute right-4 top-1/2 h-5 w-5 -translate-y-1/2 text-muted" />
           </div>
 
-          <div className="relative min-w-0 sm:min-w-[250px]">
+          <div className="relative min-w-0">
             <select
               value={selectedAccount}
               onChange={(event) => setSelectedAccount(event.target.value)}
-              className="w-full appearance-none rounded-full border border-outline bg-white px-5 py-3 pr-12 text-lg outline-none transition focus:border-primary"
+              className="w-full min-w-0 truncate appearance-none rounded-full border border-outline bg-white px-5 py-3 pr-12 text-base outline-none transition focus:border-primary"
             >
               <option value={ALL_ACCOUNTS}>Todas las tarjetas</option>
               {accountOptions.map((account) => (
@@ -637,14 +637,14 @@ export function TransactionsPage() {
                           }).format(transaction.amount_clp)}
                         </p>
 
-                        <div className="relative min-w-[250px]">
+                        <div className="relative w-full min-w-0 md:w-64 md:flex-none">
                           <select
                             aria-label={`Categoria de ${transaction.description}`}
                             value={categoryValue}
                             onChange={(event) =>
                               updateDraftCategory(transaction, event.target.value)
                             }
-                            className="w-full appearance-none rounded-2xl border border-outline bg-paper-soft px-4 py-3 pr-10 text-base outline-none transition focus:border-primary"
+                            className="w-full min-w-0 truncate appearance-none rounded-2xl border border-outline bg-paper-soft px-4 py-3 pr-10 text-base outline-none transition focus:border-primary"
                           >
                             <option value="">Seleccionar categoria...</option>
                             {categoryGroups.map((group) => (

@@ -179,8 +179,9 @@ test("alta de cuenta selecciona producto y deriva el tipo", async ({ page }, inf
     (value) => localStorage.setItem("sb-demo-auth-token", JSON.stringify(value)),
     session(ownerA),
   );
-  await page.goto("/app/settings");
-  await page.getByRole("button", { name: "Nueva cuenta" }).click();
+  await page.goto("/app/accounts");
+  await page.getByRole("button", { name: "Agregar cuenta", exact: true }).click();
+  const accountDialog = page.getByRole("dialog", { name: "Elige tu producto financiero" });
   await expect(page.getByRole("textbox", { name: "Moneda" })).toHaveCount(0);
   await page.getByRole("textbox", { name: "Nombre visible" }).fill("Cuenta para gastos");
   const preview = page.getByRole("img", { name: /Vista previa de/ });
@@ -197,14 +198,14 @@ test("alta de cuenta selecciona producto y deriva el tipo", async ({ page }, inf
   await expect(productSelect).toBeEnabled();
   await productSelect.selectOption("banco_estado_visa_smart");
   await expect(preview).toContainText("Visa SMART");
-  await expect(page.getByRole("button", { name: "Agregar cuenta" })).toBeDisabled();
+  await expect(accountDialog.getByRole("button", { name: "Agregar cuenta" })).toBeDisabled();
   await kindSelect.selectOption("vista");
   await expect(productSelect.locator("option")).toHaveCount(2);
   await productSelect.selectOption("banco_estado_cuenta_rut");
   await expect(preview).toContainText("CuentaRUT");
   await preview.scrollIntoViewIfNeeded();
   await page.screenshot({ path: info.outputPath("modal-preview.png") });
-  await page.getByRole("button", { name: "Agregar cuenta" }).click();
+  await accountDialog.getByRole("button", { name: "Agregar cuenta" }).click();
   await expect(page.getByText("Cuenta para gastos").first()).toBeVisible();
   expect(createdPayload).toMatchObject({
     name: "Cuenta para gastos",
@@ -225,8 +226,8 @@ test("el formulario ofrece las nuevas cuentas según institución y tipo", async
     (value) => localStorage.setItem("sb-demo-auth-token", JSON.stringify(value)),
     session(ownerA),
   );
-  await page.goto("/app/settings");
-  await page.getByRole("button", { name: "Nueva cuenta" }).click();
+  await page.goto("/app/accounts");
+  await page.getByRole("button", { name: "Agregar cuenta", exact: true }).click();
   const institution = page.getByRole("combobox", { name: "Institución" });
   const kind = page.getByRole("combobox", { name: "Tipo de cuenta" });
   const product = page.getByRole("combobox", { name: "Producto" });
@@ -264,8 +265,8 @@ test("cuenta heredada sin producto conserva su tipo al editar el nombre", async 
     (value) => localStorage.setItem("sb-demo-auth-token", JSON.stringify(value)),
     session(ownerA),
   );
-  await page.goto("/app/settings");
-  await page.getByTitle("Editar Cuenta antigua").click();
+  await page.goto("/app/accounts");
+  await page.getByRole("button", { name: "Editar", exact: true }).click();
   await expect(page.getByRole("combobox", { name: "Producto" })).toHaveValue("");
   const kindSelect = page.getByRole("combobox", { name: "Tipo de cuenta" });
   await kindSelect.selectOption("credito");
@@ -311,7 +312,7 @@ test("importación PDF avisa sobre productos pendientes y bloquea crédito", asy
   await expect(page.getByRole("button", { name: "Analizar Documento" })).toBeEnabled();
 });
 
-test("cuentas, dashboard y configuración muestran alias, institución y producto", async ({ page }, info) => {
+test("cuentas y dashboard muestran alias, institución y producto", async ({ page }, info) => {
   await mockApi(page);
   const accounts = [
     { id: 1, name: "Gastos diarios", institution: "banco_estado", account_type: "vista", product_code: "banco_estado_cuenta_rut", account_last4: "4321", currency: "CLP", created_at: "2026-01-01T00:00:00Z" },
@@ -347,12 +348,50 @@ test("cuentas, dashboard y configuración muestran alias, institución y product
   await expect(dashboardCard).not.toContainText("Terminada en");
   await dashboardCard.screenshot({ path: info.outputPath("dashboard-card.png") });
 
-  await page.goto("/app/settings");
-  const settingsCard = page.getByRole("link", { name: "Ver detalle de Gastos diarios" });
-  await expect(settingsCard).toContainText("Gastos diarios");
-  await expect(settingsCard).toContainText("BancoEstado");
-  await expect(settingsCard).toContainText("CuentaRUT");
-  await expect(settingsCard).toContainText("**** 4321");
-  await expect(page.getByRole("row", { name: /Cuenta antigua/ })).toContainText("Producto sin identificar");
-  await settingsCard.screenshot({ path: info.outputPath("settings-card.png") });
+  await page.goto("/app/settings?account_id=1");
+  await expect(page).toHaveURL(/\/app\/accounts\?account_id=1$/);
+  await expect(page.getByRole("button", { name: "Editar", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Eliminar", exact: true })).toBeVisible();
+});
+
+test("cuentas distingue variación registrada y cobertura de cartolas", async ({ page }) => {
+  await mockApi(page);
+  await page.route("**/api/v1/accounts", (route) => route.fulfill({ json: [
+    { id: 1, name: "Cuenta principal", institution: "banco_estado", account_type: "vista", product_code: "banco_estado_cuenta_rut", account_last4: "1234", currency: "CLP", created_at: "2026-01-01T00:00:00Z" },
+  ] }));
+  await page.route("**/api/v1/statements?account_id=1", (route) => route.fulfill({ json: [
+    { id: 1, account_id: 1, file_name: "enero.pdf", file_type: "application/pdf", file_checksum: null, period_month: "2026-01", status: "processed", raw_path: null, uploaded_at: "2026-02-02T10:00:00Z" },
+    { id: 2, account_id: 1, file_name: "marzo.pdf", file_type: "application/pdf", file_checksum: null, period_month: "2026-03", status: "processed", raw_path: null, uploaded_at: "2026-04-03T10:00:00Z" },
+    { id: 3, account_id: 1, file_name: "febrero.pdf", file_type: "application/pdf", file_checksum: null, period_month: "2026-02", status: "failed", raw_path: null, uploaded_at: "2026-04-04T10:00:00Z" },
+    { id: 4, account_id: 1, file_name: "abril.pdf", file_type: "application/pdf", file_checksum: null, period_month: "2026-04", status: "pending", raw_path: null, uploaded_at: "2026-04-05T10:00:00Z" },
+  ] }));
+  await page.route("**/api/v1/reports/accounts", (route) => route.fulfill({ json: [
+    { account_id: 1, count: 2, income: 150000, expenses: 50000, net: 100000 },
+  ] }));
+  await page.addInitScript(
+    (value) => localStorage.setItem("sb-demo-auth-token", JSON.stringify(value)),
+    session(ownerA),
+  );
+
+  await page.goto("/app/accounts?account_id=1");
+  await expect(page.getByText("Variación registrada", { exact: true })).toBeVisible();
+  await expect(page.getByText("Saldo neto", { exact: true })).toHaveCount(0);
+  await expect(page.getByText(/Última cartola procesada: marzo de 2026/)).toBeVisible();
+  await expect(page.getByText(/Última importación correcta: 03 abr\.? 2026/)).toBeVisible();
+  await expect(page.getByText("1 con error", { exact: true })).toBeVisible();
+  await expect(page.getByText("1 pendiente", { exact: true })).toBeVisible();
+  await expect(page.getByText("1 mes sin cartola", { exact: true })).toBeVisible();
+  await expect(page.getByText(/Sin cartola registrada entre períodos importados: febrero de 2026/)).toBeVisible();
+  await expect(page.getByText("Cartolas por actualizar", { exact: true })).toBeVisible();
+
+  const lastClosedMonth = new Date();
+  lastClosedMonth.setDate(1);
+  lastClosedMonth.setMonth(lastClosedMonth.getMonth() - 1);
+  const currentPeriod = `${lastClosedMonth.getFullYear()}-${String(lastClosedMonth.getMonth() + 1).padStart(2, "0")}`;
+  await page.route("**/api/v1/statements?account_id=1", (route) => route.fulfill({ json: [
+    { id: 5, account_id: 1, file_name: "reciente.pdf", file_type: "application/pdf", file_checksum: null, period_month: currentPeriod, status: "processed", raw_path: null, uploaded_at: new Date().toISOString() },
+  ] }));
+  await page.reload();
+  await expect(page.getByText("Cartolas al día", { exact: true })).toBeVisible();
+  await expect(page.getByText("Cartolas por actualizar", { exact: true })).toHaveCount(0);
 });

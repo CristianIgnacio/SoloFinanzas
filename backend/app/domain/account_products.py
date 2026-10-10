@@ -49,8 +49,24 @@ FINANCIAL_PRODUCTS: tuple[FinancialProduct, ...] = (
         "Cuenta Corriente (plan tradicional)", ProductKind.CURRENT, PdfSupport.NOT_VERIFIED,
     ),
     FinancialProduct(
+        "banco_de_chile_plan_estudiante", InstitutionCode.BANCO_DE_CHILE,
+        "Plan Estudiante", ProductKind.CURRENT, PdfSupport.NOT_VERIFIED,
+    ),
+    FinancialProduct(
         "banco_de_chile_fan_ahorro", InstitutionCode.BANCO_DE_CHILE,
         "FAN Ahorro", ProductKind.SAVINGS, PdfSupport.NOT_VERIFIED,
+    ),
+    FinancialProduct(
+        "banco_de_chile_visa_fan", InstitutionCode.BANCO_DE_CHILE,
+        "Visa FAN", ProductKind.CREDIT, PdfSupport.UNSUPPORTED,
+    ),
+    FinancialProduct(
+        "banco_de_chile_visa_dorada", InstitutionCode.BANCO_DE_CHILE,
+        "Visa Dorada", ProductKind.CREDIT, PdfSupport.UNSUPPORTED,
+    ),
+    FinancialProduct(
+        "banco_de_chile_visa_platinum", InstitutionCode.BANCO_DE_CHILE,
+        "Visa Platinum", ProductKind.CREDIT, PdfSupport.UNSUPPORTED,
     ),
     FinancialProduct(
         "banco_de_chile_visa_signature", InstitutionCode.BANCO_DE_CHILE,
@@ -61,6 +77,22 @@ FINANCIAL_PRODUCTS: tuple[FinancialProduct, ...] = (
         "Visa Infinite", ProductKind.CREDIT, PdfSupport.UNSUPPORTED,
     ),
     FinancialProduct(
+        "banco_de_chile_mastercard_dorada", InstitutionCode.BANCO_DE_CHILE,
+        "Mastercard Dorada", ProductKind.CREDIT, PdfSupport.UNSUPPORTED,
+    ),
+    FinancialProduct(
+        "banco_de_chile_mastercard_platinum", InstitutionCode.BANCO_DE_CHILE,
+        "Mastercard Platinum", ProductKind.CREDIT, PdfSupport.UNSUPPORTED,
+    ),
+    FinancialProduct(
+        "banco_de_chile_mastercard_black", InstitutionCode.BANCO_DE_CHILE,
+        "Mastercard Black", ProductKind.CREDIT, PdfSupport.UNSUPPORTED,
+    ),
+    FinancialProduct(
+        "banco_de_chile_universal", InstitutionCode.BANCO_DE_CHILE,
+        "Tarjeta de Crédito Universal", ProductKind.CREDIT, PdfSupport.UNSUPPORTED,
+    ),
+    FinancialProduct(
         "banco_santander_mas_lucas", InstitutionCode.BANCO_SANTANDER,
         "Cuenta Vista Más Lucas", ProductKind.SIGHT, PdfSupport.NOT_VERIFIED,
     ),
@@ -69,12 +101,36 @@ FINANCIAL_PRODUCTS: tuple[FinancialProduct, ...] = (
         "Cuenta Corriente Digital", ProductKind.CURRENT, PdfSupport.NOT_VERIFIED,
     ),
     FinancialProduct(
+        "banco_santander_corriente_life", InstitutionCode.BANCO_SANTANDER,
+        "Cuenta Corriente Life", ProductKind.CURRENT, PdfSupport.NOT_VERIFIED,
+    ),
+    FinancialProduct(
         "banco_santander_ahorro", InstitutionCode.BANCO_SANTANDER,
         "Cuenta de Ahorro", ProductKind.SAVINGS, PdfSupport.NOT_VERIFIED,
     ),
     FinancialProduct(
+        "banco_santander_life", InstitutionCode.BANCO_SANTANDER,
+        "Santander Life", ProductKind.CREDIT, PdfSupport.UNSUPPORTED,
+    ),
+    FinancialProduct(
         "banco_santander_platinum_latam_pass", InstitutionCode.BANCO_SANTANDER,
         "Platinum Santander LATAM Pass", ProductKind.CREDIT, PdfSupport.UNSUPPORTED,
+    ),
+    FinancialProduct(
+        "banco_santander_worldmember_latam_pass", InstitutionCode.BANCO_SANTANDER,
+        "WorldMember Santander LATAM Pass", ProductKind.CREDIT, PdfSupport.UNSUPPORTED,
+    ),
+    FinancialProduct(
+        "banco_santander_worldmember_limited_latam_pass", InstitutionCode.BANCO_SANTANDER,
+        "WorldMember Limited Santander LATAM Pass", ProductKind.CREDIT, PdfSupport.UNSUPPORTED,
+    ),
+    FinancialProduct(
+        "banco_santander_amex_platinum_latam_pass", InstitutionCode.BANCO_SANTANDER,
+        "The Platinum Card American Express Santander LATAM Pass", ProductKind.CREDIT, PdfSupport.UNSUPPORTED,
+    ),
+    FinancialProduct(
+        "banco_santander_gold_latam_pass", InstitutionCode.BANCO_SANTANDER,
+        "Gold Santander LATAM Pass", ProductKind.CREDIT, PdfSupport.UNSUPPORTED,
     ),
     FinancialProduct(
         "banco_estado_cuenta_rut", InstitutionCode.BANCO_ESTADO,
@@ -90,8 +146,32 @@ FINANCIAL_PRODUCTS: tuple[FinancialProduct, ...] = (
         "Cuenta Corriente Digital", ProductKind.CURRENT, PdfSupport.NOT_VERIFIED,
     ),
     FinancialProduct(
+        "banco_estado_ahorro_premium", InstitutionCode.BANCO_ESTADO,
+        "Cuenta de Ahorro Premium", ProductKind.SAVINGS, PdfSupport.NOT_VERIFIED,
+    ),
+    FinancialProduct(
+        "banco_estado_ahorro_vivienda", InstitutionCode.BANCO_ESTADO,
+        "Cuenta de Ahorro Vivienda", ProductKind.SAVINGS, PdfSupport.NOT_VERIFIED,
+    ),
+    FinancialProduct(
         "banco_estado_visa_smart", InstitutionCode.BANCO_ESTADO,
         "Visa SMART", ProductKind.CREDIT, PdfSupport.UNSUPPORTED,
+    ),
+    FinancialProduct(
+        "banco_estado_visa_smart_plus", InstitutionCode.BANCO_ESTADO,
+        "Visa SMART+", ProductKind.CREDIT, PdfSupport.UNSUPPORTED,
+    ),
+    FinancialProduct(
+        "banco_estado_mastercard_estandar", InstitutionCode.BANCO_ESTADO,
+        "Mastercard Estándar", ProductKind.CREDIT, PdfSupport.UNSUPPORTED,
+    ),
+    FinancialProduct(
+        "banco_estado_visa_platinum", InstitutionCode.BANCO_ESTADO,
+        "Visa Platinum", ProductKind.CREDIT, PdfSupport.UNSUPPORTED,
+    ),
+    FinancialProduct(
+        "banco_estado_mastercard_black", InstitutionCode.BANCO_ESTADO,
+        "Mastercard Black", ProductKind.CREDIT, PdfSupport.UNSUPPORTED,
     ),
     FinancialProduct(
         "banco_falabella_corriente", InstitutionCode.BANCO_FALABELLA,
@@ -103,8 +183,20 @@ FINANCIAL_PRODUCTS: tuple[FinancialProduct, ...] = (
         "Cuenta Vista", ProductKind.SIGHT, PdfSupport.NOT_VERIFIED,
     ),
     FinancialProduct(
+        "banco_falabella_ahorro", InstitutionCode.BANCO_FALABELLA,
+        "Cuenta de Ahorro", ProductKind.SAVINGS, PdfSupport.NOT_VERIFIED,
+    ),
+    FinancialProduct(
         "banco_falabella_cmr_mastercard", InstitutionCode.BANCO_FALABELLA,
         "CMR Mastercard", ProductKind.CREDIT, PdfSupport.UNSUPPORTED,
+    ),
+    FinancialProduct(
+        "banco_falabella_cmr_mastercard_premium", InstitutionCode.BANCO_FALABELLA,
+        "CMR Mastercard Premium", ProductKind.CREDIT, PdfSupport.UNSUPPORTED,
+    ),
+    FinancialProduct(
+        "banco_falabella_cmr_mastercard_elite", InstitutionCode.BANCO_FALABELLA,
+        "CMR Mastercard Elite", ProductKind.CREDIT, PdfSupport.UNSUPPORTED,
     ),
     FinancialProduct(
         "mercadopago_cuenta", InstitutionCode.MERCADOPAGO,
