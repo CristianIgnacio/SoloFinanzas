@@ -1,0 +1,4 @@
+# Dependencias opcionales del benchmark; no forman parte del backend desplegado.
+laya==0.4.6
+torch==2.14.1
+transformers==5.19.0
