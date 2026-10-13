@@ -8,15 +8,8 @@ from types import MappingProxyType
 import unicodedata
 
 from app.domain.enums import InstitutionCode
-from app.domain.parsers import ParserKey, get_parser_for_institution
-
-
-class ProductKind(StrEnum):
-    CURRENT = "corriente"
-    SIGHT = "vista"
-    SAVINGS = "ahorro"
-    PREPAID_WALLET = "billetera_prepago"
-    CREDIT = "credito"
+from app.domain.parsers import ParserKey, get_parser_for_institution, get_parsers_for_product_kind
+from app.domain.product_types import ProductKind
 
 
 class PdfSupport(StrEnum):
@@ -58,39 +51,39 @@ FINANCIAL_PRODUCTS: tuple[FinancialProduct, ...] = (
     ),
     FinancialProduct(
         "banco_de_chile_visa_fan", InstitutionCode.BANCO_DE_CHILE,
-        "Visa FAN", ProductKind.CREDIT, PdfSupport.UNSUPPORTED,
+        "Visa FAN", ProductKind.CREDIT, PdfSupport.NOT_VERIFIED,
     ),
     FinancialProduct(
         "banco_de_chile_visa_dorada", InstitutionCode.BANCO_DE_CHILE,
-        "Visa Dorada", ProductKind.CREDIT, PdfSupport.UNSUPPORTED,
+        "Visa Dorada", ProductKind.CREDIT, PdfSupport.NOT_VERIFIED,
     ),
     FinancialProduct(
         "banco_de_chile_visa_platinum", InstitutionCode.BANCO_DE_CHILE,
-        "Visa Platinum", ProductKind.CREDIT, PdfSupport.UNSUPPORTED,
+        "Visa Platinum", ProductKind.CREDIT, PdfSupport.NOT_VERIFIED,
     ),
     FinancialProduct(
         "banco_de_chile_visa_signature", InstitutionCode.BANCO_DE_CHILE,
-        "Visa Signature", ProductKind.CREDIT, PdfSupport.UNSUPPORTED,
+        "Visa Signature", ProductKind.CREDIT, PdfSupport.NOT_VERIFIED,
     ),
     FinancialProduct(
         "banco_de_chile_visa_infinite", InstitutionCode.BANCO_DE_CHILE,
-        "Visa Infinite", ProductKind.CREDIT, PdfSupport.UNSUPPORTED,
+        "Visa Infinite", ProductKind.CREDIT, PdfSupport.NOT_VERIFIED,
     ),
     FinancialProduct(
         "banco_de_chile_mastercard_dorada", InstitutionCode.BANCO_DE_CHILE,
-        "Mastercard Dorada", ProductKind.CREDIT, PdfSupport.UNSUPPORTED,
+        "Mastercard Dorada", ProductKind.CREDIT, PdfSupport.NOT_VERIFIED,
     ),
     FinancialProduct(
         "banco_de_chile_mastercard_platinum", InstitutionCode.BANCO_DE_CHILE,
-        "Mastercard Platinum", ProductKind.CREDIT, PdfSupport.UNSUPPORTED,
+        "Mastercard Platinum", ProductKind.CREDIT, PdfSupport.NOT_VERIFIED,
     ),
     FinancialProduct(
         "banco_de_chile_mastercard_black", InstitutionCode.BANCO_DE_CHILE,
-        "Mastercard Black", ProductKind.CREDIT, PdfSupport.UNSUPPORTED,
+        "Mastercard Black", ProductKind.CREDIT, PdfSupport.NOT_VERIFIED,
     ),
     FinancialProduct(
         "banco_de_chile_universal", InstitutionCode.BANCO_DE_CHILE,
-        "Tarjeta de Crédito Universal", ProductKind.CREDIT, PdfSupport.UNSUPPORTED,
+        "Tarjeta de Crédito Universal", ProductKind.CREDIT, PdfSupport.NOT_VERIFIED,
     ),
     FinancialProduct(
         "banco_santander_mas_lucas", InstitutionCode.BANCO_SANTANDER,
@@ -110,27 +103,28 @@ FINANCIAL_PRODUCTS: tuple[FinancialProduct, ...] = (
     ),
     FinancialProduct(
         "banco_santander_life", InstitutionCode.BANCO_SANTANDER,
-        "Santander Life", ProductKind.CREDIT, PdfSupport.UNSUPPORTED,
+        "Santander Life", ProductKind.CREDIT, PdfSupport.NOT_VERIFIED,
     ),
     FinancialProduct(
         "banco_santander_platinum_latam_pass", InstitutionCode.BANCO_SANTANDER,
-        "Platinum Santander LATAM Pass", ProductKind.CREDIT, PdfSupport.UNSUPPORTED,
+        "Platinum Santander LATAM Pass", ProductKind.CREDIT, PdfSupport.NOT_VERIFIED,
     ),
     FinancialProduct(
         "banco_santander_worldmember_latam_pass", InstitutionCode.BANCO_SANTANDER,
-        "WorldMember Santander LATAM Pass", ProductKind.CREDIT, PdfSupport.UNSUPPORTED,
+        "WorldMember Santander LATAM Pass", ProductKind.CREDIT,
+        PdfSupport.SAMPLE_TESTED, ParserKey.SANTANDER_CREDIT_NATIONAL,
     ),
     FinancialProduct(
         "banco_santander_worldmember_limited_latam_pass", InstitutionCode.BANCO_SANTANDER,
-        "WorldMember Limited Santander LATAM Pass", ProductKind.CREDIT, PdfSupport.UNSUPPORTED,
+        "WorldMember Limited Santander LATAM Pass", ProductKind.CREDIT, PdfSupport.NOT_VERIFIED,
     ),
     FinancialProduct(
         "banco_santander_amex_platinum_latam_pass", InstitutionCode.BANCO_SANTANDER,
-        "The Platinum Card American Express Santander LATAM Pass", ProductKind.CREDIT, PdfSupport.UNSUPPORTED,
+        "The Platinum Card American Express Santander LATAM Pass", ProductKind.CREDIT, PdfSupport.NOT_VERIFIED,
     ),
     FinancialProduct(
         "banco_santander_gold_latam_pass", InstitutionCode.BANCO_SANTANDER,
-        "Gold Santander LATAM Pass", ProductKind.CREDIT, PdfSupport.UNSUPPORTED,
+        "Gold Santander LATAM Pass", ProductKind.CREDIT, PdfSupport.NOT_VERIFIED,
     ),
     FinancialProduct(
         "banco_estado_cuenta_rut", InstitutionCode.BANCO_ESTADO,
@@ -188,15 +182,16 @@ FINANCIAL_PRODUCTS: tuple[FinancialProduct, ...] = (
     ),
     FinancialProduct(
         "banco_falabella_cmr_mastercard", InstitutionCode.BANCO_FALABELLA,
-        "CMR Mastercard", ProductKind.CREDIT, PdfSupport.UNSUPPORTED,
+        "CMR Mastercard", ProductKind.CREDIT, PdfSupport.SAMPLE_TESTED,
+        ParserKey.FALABELLA_CMR_NATIONAL,
     ),
     FinancialProduct(
         "banco_falabella_cmr_mastercard_premium", InstitutionCode.BANCO_FALABELLA,
-        "CMR Mastercard Premium", ProductKind.CREDIT, PdfSupport.UNSUPPORTED,
+        "CMR Mastercard Premium", ProductKind.CREDIT, PdfSupport.NOT_VERIFIED,
     ),
     FinancialProduct(
         "banco_falabella_cmr_mastercard_elite", InstitutionCode.BANCO_FALABELLA,
-        "CMR Mastercard Elite", ProductKind.CREDIT, PdfSupport.UNSUPPORTED,
+        "CMR Mastercard Elite", ProductKind.CREDIT, PdfSupport.NOT_VERIFIED,
     ),
     FinancialProduct(
         "mercadopago_cuenta", InstitutionCode.MERCADOPAGO,
@@ -213,14 +208,11 @@ FINANCIAL_PRODUCTS: tuple[FinancialProduct, ...] = (
 if len({product.code for product in FINANCIAL_PRODUCTS}) != len(FINANCIAL_PRODUCTS):
     raise ValueError("Los codigos del catalogo de productos deben ser unicos.")
 for product in FINANCIAL_PRODUCTS:
-    expected_parser = (
-        get_parser_for_institution(product.institution)
-        if product.pdf_support == PdfSupport.SAMPLE_TESTED else None
-    )
-    if product.parser_key != expected_parser:
+    available_parsers = get_parsers_for_product_kind(product.institution, product.kind)
+    if product.parser_key is not None and product.parser_key not in available_parsers:
         raise ValueError(f"Perfil PDF inconsistente para {product.code}.")
-    if product.kind == ProductKind.CREDIT and product.pdf_support != PdfSupport.UNSUPPORTED:
-        raise ValueError(f"El credito no tiene importador PDF: {product.code}.")
+    if product.pdf_support == PdfSupport.SAMPLE_TESTED and product.parser_key is None:
+        raise ValueError(f"Falta el parser PDF probado para {product.code}.")
 
 FINANCIAL_PRODUCTS_BY_CODE = MappingProxyType(
     {product.code: product for product in FINANCIAL_PRODUCTS}
@@ -273,10 +265,15 @@ def resolve_pdf_parser(
 ) -> ParserKey:
     """Valida el producto antes de escoger el parser; conserva cuentas heredadas."""
     account_kind = kind_for_account_type(account_type)
-    if account_kind == ProductKind.CREDIT:
-        raise ValueError("La importación PDF de productos de crédito aún no está disponible.")
     if product_code is None:
-        return get_parser_for_institution(institution)
+        if account_kind == ProductKind.CREDIT:
+            raise ValueError("Asigna el producto de la tarjeta antes de importar su estado de cuenta.")
+        parsers = get_parsers_for_product_kind(institution, account_kind)
+        if len(parsers) == 1:
+            return parsers[0]
+        if account_kind is None:
+            return get_parser_for_institution(institution)
+        raise ValueError("No hay un formato PDF único para este tipo de cuenta.")
 
     product = get_financial_product(product_code)
     if product is None:
@@ -286,7 +283,10 @@ def resolve_pdf_parser(
     if product.pdf_support == PdfSupport.UNSUPPORTED:
         raise ValueError(f"La importación PDF no está disponible para {product.name}.")
     if product.pdf_support == PdfSupport.NOT_VERIFIED:
-        return get_parser_for_institution(institution)
+        parsers = get_parsers_for_product_kind(institution, product.kind)
+        if len(parsers) == 1:
+            return parsers[0]
+        raise ValueError(f"No hay un formato PDF único para {product.name}.")
     if product.parser_key is None:
         raise ValueError(f"No hay un parser PDF configurado para {product.name}.")
     return product.parser_key

@@ -65,7 +65,7 @@ class AccountProductMigrationTests(unittest.TestCase):
                 )
                 connection.commit()
 
-            migrate("head")
+            migrate("b427eac61230")
             with closing(sqlite3.connect(database)) as connection:
                 rows = connection.execute(
                     "SELECT id, product_code, account_last4 FROM accounts ORDER BY id"
