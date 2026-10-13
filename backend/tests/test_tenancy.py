@@ -173,7 +173,7 @@ class TenancyTests(unittest.TestCase):
                             files={'file': ('demo.pdf', b'%PDF-invalid', 'application/pdf')},
                         )
                         self.assertEqual(response.status_code, 422)
-                        self.assertIn('crédito', response.json()['detail'])
+                        self.assertEqual(response.json()['detail']['code'], 'ACCOUNT_PRODUCT_UNAVAILABLE')
             parser.assert_not_called()
 
     def test_pdf_routes_pass_product_or_legacy_parser_to_worker(self):
