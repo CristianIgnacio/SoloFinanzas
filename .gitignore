@@ -20,6 +20,7 @@ backend/data/
 
 # Archivos locales de herramientas y sesiones de desarrollo
 .codex/
+.codex-remote-attachments/
 *.log
 
 coverage/

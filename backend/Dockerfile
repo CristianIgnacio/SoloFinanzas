@@ -9,4 +9,4 @@ COPY alembic.ini .
 RUN useradd --create-home appuser && chown -R appuser:appuser /app
 USER appuser
 # One worker: one PDF process slot and one shared in-memory rate limiter.
-CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000} --workers 1 --no-access-log --no-proxy-headers"]
+CMD ["sh", "-c", "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000} --workers 1 --no-access-log --no-proxy-headers"]
