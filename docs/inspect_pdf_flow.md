@@ -1,7 +1,8 @@
 # Flujo visual de inspect_pdf
 
-Este documento resume que pasa cuando se analiza una cartola PDF. El centro del
-proceso esta en `backend/app/services/pdf_importer.py`, funcion `inspect_pdf`.
+Este documento resume que pasa cuando se analiza una cartola PDF. El flujo
+principal esta en `backend/app/services/parsing/pipeline.py`, funcion
+`inspect_pdf`. `services/pdf_importer.py` conserva la ruta de importacion previa.
 
 ## Vista general
 
@@ -196,7 +197,8 @@ flowchart TD
 
 ## Perfiles soportados
 
-`PARSER_PROFILES` registra los parsers tabulares para:
+`PARSER_PROFILES` en `services/parsing/registry.py` registra perfiles tabulares
+definidos en `services/parsing/institutions/` para:
 
 - `BANCO_DE_CHILE`
 - `BANCO_SANTANDER`
@@ -216,7 +218,7 @@ Corriente**. El logo puede estar rasterizado y no aparecer en el texto extraido;
 su validador comprueba conjuntamente el titulo, el producto, el periodo,
 `Saldo Disponible`, `Saldo Contable`, `Listado de movimientos` y el encabezado
 `FECHA DESCRIPCIÓN CARGO ABONO SALDO`. Rechaza encabezados de otras instituciones
-y no admite estados de cuenta CMR.
+y deja los estados de cuenta CMR al parser específico de crédito.
 
 `movement_columns_pattern` captura desde el final de cada fila la descripcion,
 cargo, abono y saldo. Cada celda monetaria lleva `$` y la celda vacia usa `-`.
@@ -235,3 +237,13 @@ el mes final declarado; la interfaz no permite confirmar una importacion vacia.
 El perfil reutiliza la vista previa, revision, categorizacion, identificadores
 por fila y proteccion contra duplicados del flujo comun. Las pruebas usan datos
 sinteticos y PDFs generados en memoria, sin incluir informacion del titular.
+
+### Banco Falabella: estado de cuenta CMR nacional
+
+`FALABELLA_CMR_NATIONAL` reconoce el encabezado `CLIENTE CMR`, el período
+facturado y las secciones de compras y cargos. Registra el valor mensual
+facturado de cada compra o cuota y los impuestos e intereses del período.
+Omite pagos de tarjeta, deuda anterior y vencimientos futuros. Compara el saldo
+adeudado final anterior más los cargos detectados con el monto total facturado;
+si no coincide, la vista previa exige revisar la diferencia. El número de
+tarjeta enmascarado del pie permite comprobar los últimos cuatro dígitos.

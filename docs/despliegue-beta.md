@@ -69,7 +69,7 @@ Si un cambio incluye una migración Alembic, coordina el push con el despliegue:
 .\.venv\Scripts\python.exe -m alembic current
 ```
 
-4. Confirma que la última revisión coincide con `head` (para esta entrega, `b427eac61230`). Si la migración crea tablas o secuencias, vuelve a ejecutar `scripts/runtime-role.sql` como administrador para dar acceso al rol de la API; el script no cambia su contraseña.
+4. Confirma que la última revisión coincide con `head` del mismo commit (`.\.venv\Scripts\python.exe -m alembic heads`). Si la migración crea tablas o secuencias, vuelve a ejecutar `scripts/runtime-role.sql` como administrador para dar acceso al rol de la API; el script no cambia su contraseña.
 5. Despliega primero Render y después Vercel. Comprueba una consulta autenticada de cuentas y la creación/edición de una cuenta de prueba antes de reanudar los despliegues automáticos.
 
 Agregar productos al catálogo sin alterar tablas no requiere otra migración. Las cuentas antiguas que no tengan `product_code` conservan sus movimientos y pueden asociarse a un producto desde el formulario de edición. Si producción aún no tiene el esquema `finance`, sigue primero la instalación inicial de esta sección: `upgrade head` aplicará todas las revisiones en orden.

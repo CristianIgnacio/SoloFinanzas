@@ -10,8 +10,9 @@ no debe cambiar el código ni reasignar cuentas existentes.
 El catálogo no tiene una entidad de tarjetas físicas o digitales. Una cuenta
 vista, corriente o de prepago puede tener medios de pago, pero la identidad que
 interesa a SoloFinanzas es la cuenta que reúne sus movimientos. Los productos
-de crédito se registran aquí para planificar su futura incorporación; su deuda,
-facturación e importación no están implementadas.
+de crédito se registran aquí. El estado nacional de WorldMember Santander ya
+permite importar cargos facturados en CLP; la deuda y el cupo aún no tienen un
+modelo propio.
 
 ## Tipos
 
@@ -21,7 +22,7 @@ facturación e importación no están implementadas.
 | `vista` | Cuenta de depósito a la vista. |
 | `ahorro` | Cuenta de ahorro. |
 | `billetera_prepago` | Cuenta digital con fondos disponibles/prepagados. |
-| `credito` | Producto de crédito con facturación propia; futuro. |
+| `credito` | Producto de crédito con facturación propia. |
 
 ## Productos iniciales
 
@@ -48,13 +49,27 @@ las cuentas antiguas sin producto pueden vincularse al editarlas.
 `muestra_probada` significa que hay una prueba automatizada con texto/PDF
 sintético del formato correspondiente. **No garantiza** que cualquier cartola
 real de ese producto funcione. Se aplica a CuentaRUT, Cuenta Corriente Falabella,
-Cuenta Mercado Pago y Cuenta Digital Copec Pay.
+Cuenta Mercado Pago, Cuenta Digital Copec Pay y el estado nacional de
+WorldMember Santander y CMR Mastercard de Banco Falabella.
 
 `pendiente_verificacion` significa que falta validar una cartola del producto
 concreto. Se permite analizarla con el parser actual de la institución y se
 muestra un aviso para revisar los movimientos antes de confirmar. `no_soportado`
-se aplica a los productos de crédito e impide la importación PDF. El frontend
-informa el estado y las tres rutas PDF del backend aplican la misma restricción.
+se aplica a los productos que siguen sin parser. En Santander, Life, Platinum,
+WorldMember Limited, The Platinum Card American Express y Gold quedan pendientes
+de verificación y reutilizan provisionalmente el parser nacional probado con
+WorldMember. El formato de cada tarjeta aún debe validarse con sus propios
+estados de cuenta. Las tarjetas de Banco de Chile también quedan pendientes y
+usan provisionalmente el parser de estado nacional mostrado por la muestra
+recibida; el producto concreto de esa muestra no está identificado. El parser
+incluye compras y cargos facturados, omite pagos anteriores y valida subtotales
+contra el monto total a pagar. El frontend informa el estado y las tres rutas PDF del backend
+aplican la misma restricción.
+CMR Mastercard tiene un parser nacional propio probado con una muestra real.
+Premium y Elite lo usan provisionalmente con estado `pendiente_verificacion`.
+Se importan las compras, cuotas y cargos facturados; se excluyen pagos,
+saldo anterior y vencimientos futuros. El saldo anterior más los cargos
+detectados debe cuadrar con el total facturado, o se informa una diferencia.
 Una cuenta antigua sin producto conserva el parser de su institución, salvo si
 su tipo es crédito. Las cartolas reales anonimizadas siguen siendo necesarias
 para verificar cada producto pendiente.
@@ -90,12 +105,18 @@ El endpoint `GET /api/v1/account-products` entrega el catálogo al formulario.
 Al crear una cuenta se elige institución, tipo de cuenta y producto. El tipo
 filtra los productos de esa institución y se guarda junto con el código del
 producto. El formulario muestra una tarjeta conceptual que cambia con la
-selección, sin crear una entidad de tarjeta. Los productos de crédito pueden
-explorarse en la vista previa, pero permanecen fuera de las nuevas altas hasta
-que exista soporte para su facturación. En
+selección, sin crear una entidad de tarjeta. WorldMember Santander se puede
+registrar e importar con su formato nacional probado. En
 edición, una cuenta antigua sin producto puede conservar esa condición si no
 cambia de institución. El importador consulta el estado PDF del producto antes
-de procesar el archivo.
+de procesar el archivo. La resolución del parser combina institución y tipo de
+producto mediante `domain/parsers.py`. Los parsers de cuenta leen movimientos;
+WorldMember Santander tiene además un parser de estado nacional. Cada perfil
+de institución
+reside en `backend/app/services/parsing/institutions/`, y la extracción, lectura
+tabular y selección de implementación están en módulos separados. Para
+incorporar otros estados de crédito se deberá registrar cada formato probado,
+habilitar el producto y ampliar el modelo de deuda según sus datos.
 
 Cuentas, Dashboard y Configuración muestran el alias elegido por el usuario,
 la institución y el nombre del producto. Las cuentas heredadas sin código se
