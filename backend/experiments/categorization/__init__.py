@@ -1,0 +1,1 @@
+"""Benchmark reproducible de categorización."""

@@ -86,7 +86,7 @@ class PdfLimitsTests(unittest.IsolatedAsyncioTestCase):
         with patch.object(settings, 'pdf_timeout_seconds', 0), patch.object(pdf_worker, '_slot', asyncio.Lock()):
             with self.assertRaises(HTTPException) as caught:
                 await pdf_worker.inspect_pdf_isolated(file_name='demo.pdf', file_bytes=b'%PDF-invalid', institution=InstitutionCode.BANCO_DE_CHILE)
-            self.assertIn('tiempo', caught.exception.detail)
+            self.assertEqual(caught.exception.detail['code'], 'PROCESSING_TIMEOUT')
 
 
 class BackupCryptoTests(unittest.TestCase):

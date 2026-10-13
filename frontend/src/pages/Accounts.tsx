@@ -1,12 +1,17 @@
 import { ReportService, type AccountTotal } from '../services/reportService';
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 
 import {
-  ArrowDownIcon,
-  ArrowUpIcon,
+  AccountActivitySummary,
+  AccountMovementsTable,
+  AccountVisualCard,
+  AccountFormModal,
+  CashAccountPanel,
   BankIcon,
   Button,
+  ChevronLeftIcon,
+  ChevronRightIcon,
   DeleteStatementModal,
   EmptyState,
   ErrorState,
@@ -16,23 +21,27 @@ import {
   Panel,
   PdfIcon,
   PlusIcon,
-  ReceiptIcon,
-  StatCard,
+  PencilIcon,
   StatusNotice,
   TrashIcon,
   cn,
 } from "../components";
 import { useFormatCurrency } from "../hooks";
-import { createCategoryMap, getCategoryPath, parseLocalDate } from "../lib";
+import { accountProductName, useAccountProducts } from "../hooks/useAccountProducts";
+import { createCategoryMap, parseLocalDate } from "../lib";
 import {
   AccountService,
   CategoryService,
   StatementService,
   TransactionService,
 } from "../services";
-import { InstitutionLabels, StatementStatus } from "../types";
+import { CurrencyCode, InstitutionCode, InstitutionLabels, StatementStatus } from "../types";
+import type { AccountCreate, AccountUpdate } from "../types";
+import type { AccountFormValues } from "../components/AccountFormModal";
 import type {
   Account,
+  CashAccount,
+  CashBalance,
   Category,
   Statement,
   StatementDeletionImpact,
@@ -41,6 +50,53 @@ import type {
 
 type DetailTab = "statements" | "transactions";
 const PAGE_SIZE = 50;
+
+function createEmptyAccountForm(): AccountFormValues {
+  return {
+    account_type: "",
+    account_last4: "",
+    currency: CurrencyCode.CLP,
+    institution: InstitutionCode.BANCO_DE_CHILE,
+    name: "",
+    product_code: "",
+  };
+}
+
+function toAccountFormValues(account: Account): AccountFormValues {
+  return {
+    account_type: account.account_type,
+    account_last4: account.account_last4 ?? "",
+    currency: account.currency,
+    institution: account.institution,
+    name: account.name,
+    product_code: account.product_code ?? "",
+  };
+}
+
+function DeleteAccountModal({ account, deleting, onCancel, onConfirm }: {
+  account: Account;
+  deleting: boolean;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  return (
+    <div role="dialog" aria-modal="true" aria-labelledby="delete-account-title" className="fixed inset-0 z-50 flex items-center justify-center bg-ink/30 px-4 py-8 backdrop-blur-sm">
+      <div className="surface-card w-full max-w-xl p-6 md:p-8">
+        <div className="space-y-3">
+          <p className="eyebrow m-0 text-danger">Eliminar cuenta</p>
+          <h2 id="delete-account-title" className="text-3xl font-medium text-ink">¿Eliminar {account.name}?</h2>
+          <p className="text-muted">Si esta cuenta tiene cartolas o movimientos asociados, el sistema protegerá esos datos y no permitirá eliminarla.</p>
+        </div>
+        <div className="mt-8 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+          <Button tone="secondary" onClick={onCancel} disabled={deleting}>Cancelar</Button>
+          <Button className="border-danger bg-danger text-white hover:bg-[#9d4337]" onClick={onConfirm} disabled={deleting}>
+            <TrashIcon className="h-5 w-5" />{deleting ? "Eliminando..." : "Eliminar cuenta"}
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 const statusLabels: Record<StatementStatus, string> = {
   [StatementStatus.PENDING]: "Pendiente",
@@ -65,10 +121,59 @@ function formatDate(value: string) {
   });
 }
 
+function periodIndex(period: string | null): number | null {
+  const match = /^(\d{4})-(0[1-9]|1[0-2])$/.exec(period ?? "");
+  return match ? Number(match[1]) * 12 + Number(match[2]) - 1 : null;
+}
+
+function periodFromIndex(index: number): string {
+  return `${Math.floor(index / 12)}-${String(index % 12 + 1).padStart(2, "0")}`;
+}
+
+function getStatementCoverage(statements: Statement[]) {
+  const processed = statements.filter((statement) => statement.status === StatementStatus.PROCESSED);
+  const periodIndexes = [...new Set(
+    processed.map((statement) => periodIndex(statement.period_month))
+      .filter((index): index is number => index !== null),
+  )].sort((a, b) => a - b);
+  const recordedPeriods = new Set(periodIndexes);
+  const missingPeriods: string[] = [];
+  if (periodIndexes.length > 1) {
+    for (let index = periodIndexes[0] + 1; index < periodIndexes[periodIndexes.length - 1]; index += 1) {
+      if (!recordedPeriods.has(index)) missingPeriods.push(periodFromIndex(index));
+    }
+  }
+  const lastUploadedAt = processed.reduce<string | null>((latest, statement) =>
+    !latest || statement.uploaded_at > latest ? statement.uploaded_at : latest, null);
+  const failedCount = statements.filter((statement) => statement.status === StatementStatus.FAILED).length;
+  const pendingCount = statements.filter((statement) => statement.status === StatementStatus.PENDING).length;
+  const processedWithoutPeriod = processed.length - processed.filter((statement) => periodIndex(statement.period_month) !== null).length;
+  const today = new Date();
+  const lastClosedPeriodIndex = today.getFullYear() * 12 + today.getMonth() - 1;
+  const isUpToDate = periodIndexes.length > 0
+    && periodIndexes[periodIndexes.length - 1] >= lastClosedPeriodIndex
+    && missingPeriods.length === 0
+    && failedCount === 0
+    && pendingCount === 0
+    && processedWithoutPeriod === 0;
+  return {
+    latestPeriod: periodIndexes.length ? periodFromIndex(periodIndexes[periodIndexes.length - 1]) : null,
+    lastClosedPeriod: periodFromIndex(lastClosedPeriodIndex),
+    lastUploadedAt,
+    missingPeriods,
+    failedCount,
+    pendingCount,
+    processedWithoutPeriod,
+    isUpToDate,
+  };
+}
+
 export function AccountsPage() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const [accounts, setAccounts] = useState<Account[]>([]);
+  const [cashAccount, setCashAccount] = useState<CashAccount | null>(null);
+  const [cashBalance, setCashBalance] = useState<CashBalance | null>(null);
   const [statements, setStatements] = useState<Statement[]>([]);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [pageOffset, setPageOffset] = useState(0);
@@ -78,6 +183,7 @@ export function AccountsPage() {
   const [activeTab, setActiveTab] = useState<DetailTab>("statements");
   const [loading, setLoading] = useState(true);
   const [loadingDetails, setLoadingDetails] = useState(false);
+  const [loadedDetailsAccountId, setLoadedDetailsAccountId] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<string | null>(null);
   const [statementPendingDelete, setStatementPendingDelete] = useState<Statement | null>(null);
@@ -85,22 +191,49 @@ export function AccountsPage() {
   const [loadingDeletionImpact, setLoadingDeletionImpact] = useState(false);
   const [deletingStatementId, setDeletingStatementId] = useState<number | null>(null);
   const [deletionError, setDeletionError] = useState<string | null>(null);
+  const [modalMode, setModalMode] = useState<"create" | "edit">("create");
+  const [isAccountModalOpen, setIsAccountModalOpen] = useState(false);
+  const [modalAccountId, setModalAccountId] = useState<number | null>(null);
+  const [accountFormError, setAccountFormError] = useState<string | null>(null);
+  const [accountForm, setAccountForm] = useState<AccountFormValues>(createEmptyAccountForm);
+  const [isSavingAccount, setIsSavingAccount] = useState(false);
+  const [accountPendingDelete, setAccountPendingDelete] = useState<Account | null>(null);
+  const [deletingAccountId, setDeletingAccountId] = useState<number | null>(null);
+  const accountSelectorRef = useRef<HTMLDivElement>(null);
   const formatCurrency = useFormatCurrency();
+  const { products } = useAccountProducts();
+
+  useEffect(() => {
+    if (searchParams.get("new_account") !== "1") return;
+    setModalMode("create");
+    setModalAccountId(null);
+    setAccountForm(createEmptyAccountForm());
+    setAccountFormError(null);
+    setIsAccountModalOpen(true);
+    const nextParams = new URLSearchParams(searchParams);
+    nextParams.delete("new_account");
+    setSearchParams(nextParams, { replace: true });
+  }, [searchParams, setSearchParams]);
 
   useEffect(() => {
     let cancelled = false;
     async function loadInitialData() {
       try {
-        const [accountData, categoryData] = await Promise.all([
+        const [accountData, categoryData, cashData, balanceData] = await Promise.all([
           AccountService.getAccounts(),
           CategoryService.getCategories(),
+          AccountService.getCashAccount(),
+          AccountService.getCashBalance(),
         ]);
         if (cancelled) return;
         setAccounts(accountData);
         setCategories(categoryData);
+        setCashAccount(cashData);
+        setCashBalance(balanceData);
         const requestedId = Number(searchParams.get("account_id"));
         const initial =
-          accountData.find((account) => account.id === requestedId) ?? accountData[0];
+          accountData.find((account) => account.id === requestedId) ??
+          (cashData.id === requestedId ? cashData : null) ?? accountData[0] ?? cashData;
         setSelectedAccountId(initial?.id ?? null);
       } catch (err) {
         if (!cancelled) {
@@ -117,10 +250,22 @@ export function AccountsPage() {
   }, []);
 
   useEffect(() => {
+    if (loading || window.location.hash !== "#cash-account") return;
+    const target = document.getElementById("cash-account");
+    if (target) requestAnimationFrame(() => target.scrollIntoView({ behavior: "smooth", block: "start" }));
+  }, [loading]);
+
+  useEffect(() => {
     if (selectedAccountId === null) return;
+    if (selectedAccountId === cashAccount?.id) {
+      setLoadedDetailsAccountId(null);
+      setLoadingDetails(false);
+      return;
+    }
     let cancelled = false;
     async function loadDetail() {
       setLoadingDetails(true);
+      setLoadedDetailsAccountId(null);
       setError(null);
       try {
         const [statementData, transactionData, accountTotals] = await Promise.all([
@@ -132,6 +277,7 @@ export function AccountsPage() {
           setStatements(statementData);
           setTransactions(transactionData.items);
           setTotals(accountTotals);
+          setLoadedDetailsAccountId(selectedAccountId);
         }
       } catch (err) {
         if (!cancelled) {
@@ -145,15 +291,36 @@ export function AccountsPage() {
     return () => {
       cancelled = true;
     };
-  }, [selectedAccountId, pageOffset]);
+  }, [selectedAccountId, pageOffset, cashAccount?.id]);
 
   const account = accounts.find((item) => item.id === selectedAccountId) ?? null;
-  const selectedIndex = accounts.findIndex((item) => item.id === selectedAccountId);
+  const selectableAccounts: (Account | CashAccount)[] = cashAccount ? [cashAccount, ...accounts] : accounts;
+  const selectedIndex = selectableAccounts.findIndex((item) => item.id === selectedAccountId);
   const categoryMap = useMemo(
     () => createCategoryMap(categories),
     [categories],
   );
-  const summary = totals.find(item => item.account_id === selectedAccountId) ?? {income: 0, expenses: 0, net: 0, count: 0};
+  const summary = totals.find(item => item.account_id === selectedAccountId) ?? {account_id: selectedAccountId ?? 0, income: 0, expenses: 0, net: 0, count: 0};
+  const detailsReady = !loadingDetails && loadedDetailsAccountId === selectedAccountId;
+  const statementCoverage = getStatementCoverage(statements);
+
+  useEffect(() => {
+    if (selectedAccountId === null || !accountSelectorRef.current) return;
+    const selector = accountSelectorRef.current;
+    const selectedCard = selector.querySelector<HTMLElement>(`[data-account-id="${selectedAccountId}"]`);
+    if (!selectedCard) return;
+
+    const selectorRect = selector.getBoundingClientRect();
+    const cardRect = selectedCard.getBoundingClientRect();
+    const inset = 12;
+    const delta = cardRect.left < selectorRect.left + inset
+      ? cardRect.left - selectorRect.left - inset
+      : cardRect.right > selectorRect.right - inset
+        ? cardRect.right - selectorRect.right + inset
+        : 0;
+
+    if (delta !== 0) selector.scrollBy({ left: delta, behavior: "smooth" });
+  }, [selectedAccountId]);
 
   const selectAccount = (accountId: number) => {
     setPageOffset(0);
@@ -162,9 +329,111 @@ export function AccountsPage() {
   };
 
   const moveSelection = (direction: -1 | 1) => {
-    if (accounts.length < 2 || selectedIndex < 0) return;
-    const nextIndex = (selectedIndex + direction + accounts.length) % accounts.length;
-    selectAccount(accounts[nextIndex].id);
+    if (selectableAccounts.length < 2 || selectedIndex < 0) return;
+    const nextIndex = (selectedIndex + direction + selectableAccounts.length) % selectableAccounts.length;
+    selectAccount(selectableAccounts[nextIndex].id);
+  };
+
+  const openCreateAccountModal = () => {
+    setModalMode("create");
+    setModalAccountId(null);
+    setAccountForm(createEmptyAccountForm());
+    setAccountFormError(null);
+    setFeedback(null);
+    setIsAccountModalOpen(true);
+  };
+
+  const openEditAccountModal = (selected: Account) => {
+    setModalMode("edit");
+    setModalAccountId(selected.id);
+    setAccountForm(toAccountFormValues(selected));
+    setAccountFormError(null);
+    setFeedback(null);
+    setIsAccountModalOpen(true);
+  };
+
+  const updateAccountFormField = (field: keyof AccountFormValues, value: string) => {
+    setAccountForm((current) => ({
+      ...current,
+      [field]: field === "account_last4" ? value.replace(/\D/g, "").slice(0, 4)
+        : field === "institution" ? value as InstitutionCode : value,
+    }));
+  };
+
+  const handleSubmitAccount = async () => {
+    if (!accountForm.name.trim()) {
+      setAccountFormError("Completa el nombre visible de la cuenta.");
+      return;
+    }
+    const original = accounts.find((item) => item.id === modalAccountId);
+    if (!accountForm.product_code && (modalMode === "create" || accountForm.institution !== original?.institution || !accountForm.account_type)) {
+      setAccountFormError("Selecciona un producto para la cuenta.");
+      return;
+    }
+    const originalCredit = original && ["credito", "tarjeta de credito", "tarjeta de crédito"].includes(original.account_type.toLowerCase());
+    const selectedProduct = products.find((item) => item.code === accountForm.product_code);
+    if (accountForm.account_type === "credito" && !originalCredit
+      && (!selectedProduct || selectedProduct.pdf_support === "no_soportado")) {
+      setAccountFormError("Este producto de crédito aún no admite importación de estados de cuenta.");
+      return;
+    }
+    if (accountForm.account_last4 && accountForm.account_last4.length !== 4) {
+      setAccountFormError("Los últimos 4 dígitos deben tener exactamente 4 números.");
+      return;
+    }
+    const payload: AccountCreate | AccountUpdate = {
+      name: accountForm.name.trim(), institution: accountForm.institution,
+      account_type: accountForm.account_type, product_code: accountForm.product_code || null,
+      account_last4: accountForm.account_last4 || null, currency: accountForm.currency,
+    };
+    setIsSavingAccount(true);
+    setAccountFormError(null);
+    try {
+      if (modalMode === "create") {
+        const created = await AccountService.createAccount(payload);
+        setAccounts((current) => [created, ...current]);
+        setPageOffset(0);
+        setSelectedAccountId(created.id);
+        setSearchParams({ account_id: String(created.id) }, { replace: true });
+        setFeedback("Cuenta creada correctamente.");
+      } else if (modalAccountId !== null) {
+        const updated = await AccountService.updateAccount(modalAccountId, payload);
+        setAccounts((current) => current.map((item) => item.id === updated.id ? updated : item));
+        setFeedback("Cuenta actualizada correctamente.");
+      }
+      setIsAccountModalOpen(false);
+      setModalAccountId(null);
+      setAccountForm(createEmptyAccountForm());
+    } catch (err) {
+      setAccountFormError(err instanceof Error ? err.message : "No fue posible guardar la cuenta.");
+    } finally {
+      setIsSavingAccount(false);
+    }
+  };
+
+  const confirmDeleteAccount = async () => {
+    if (!accountPendingDelete) return;
+    const target = accountPendingDelete;
+    setDeletingAccountId(target.id);
+    setError(null);
+    try {
+      await AccountService.deleteAccount(target.id);
+      const remaining = accounts.filter((item) => item.id !== target.id);
+      setAccounts(remaining);
+      setAccountPendingDelete(null);
+      const nextSelectedId = target.id === selectedAccountId
+        ? remaining[0]?.id ?? cashAccount?.id ?? null
+        : selectedAccountId;
+      setPageOffset(0);
+      setSelectedAccountId(nextSelectedId);
+      setSearchParams(nextSelectedId === null ? {} : { account_id: String(nextSelectedId) }, { replace: true });
+      setFeedback("Cuenta eliminada correctamente.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "No fue posible eliminar la cuenta.");
+      setAccountPendingDelete(null);
+    } finally {
+      setDeletingAccountId(null);
+    }
   };
   const openDeleteStatementModal = async (statement: Statement) => {
     setStatementPendingDelete(statement);
@@ -220,6 +489,7 @@ export function AccountsPage() {
       );
 
       try {
+        setLoadedDetailsAccountId(null);
         const [statementData, transactionData, accountTotals] = await Promise.all([
           StatementService.getStatements(accountId),
           TransactionService.getPage({account_id: accountId, limit: PAGE_SIZE, offset: 0}),
@@ -227,7 +497,8 @@ export function AccountsPage() {
         ]);
         setStatements(statementData);
         setTransactions(transactionData.items);
-          setTotals(accountTotals);
+        setTotals(accountTotals);
+        setLoadedDetailsAccountId(accountId);
       } catch (refreshError) {
         setError(
           refreshError instanceof Error
@@ -249,14 +520,20 @@ export function AccountsPage() {
       <PageIntro
         eyebrow="Cuentas"
         title="Mis cuentas"
-        description="Selecciona una cuenta para revisar sus cartolas, movimientos y resultados acumulados."
+        description="Revisa tu Efectivo o selecciona una cuenta financiera para ver sus cartolas y movimientos."
         actions={
-          account ? (
-            <Button onClick={() => navigate(`/app/import?account_id=${account.id}`)}>
+          <div className="flex flex-wrap gap-3">
+            <Button tone="secondary" onClick={openCreateAccountModal}>
               <PlusIcon className="h-5 w-5" />
-              Importar nueva cartola
+              Agregar cuenta
             </Button>
-          ) : null
+            {account ? (
+              <Button onClick={() => navigate(`/app/import?account_id=${account.id}`)}>
+                <PlusIcon className="h-5 w-5" />
+                Importar cartola
+              </Button>
+            ) : null}
+          </div>
         }
       />
 
@@ -264,137 +541,217 @@ export function AccountsPage() {
       {error ? <ErrorState message={error} /> : null}
       {feedback ? <StatusNotice tone="success">{feedback}</StatusNotice> : null}
 
-      {!loading && accounts.length === 0 ? (
+      {!loading && selectableAccounts.length === 0 ? (
         <EmptyState
-          title="Todavia no tienes cuentas"
-          description="Crea tu primera cuenta desde Configuracion para comenzar a importar cartolas."
-          action={<Button onClick={() => navigate("/app/settings")}>Ir a Configuracion</Button>}
+          title="Todavía no tienes cuentas bancarias"
+          description="Puedes usar Efectivo o agregar una cuenta financiera para importar cartolas."
+          action={<Button onClick={openCreateAccountModal}>Crear primera cuenta</Button>}
         />
       ) : null}
 
-      {account ? (
+      {!loading && selectedAccountId !== null ? (
         <>
           <section className="space-y-4" aria-label="Selector de cuentas">
             <div className="flex items-center justify-between gap-4">
               <div>
-                <p className="eyebrow m-0 text-primary">Selector de tarjetas</p>
+                <p className="eyebrow m-0 text-primary">Selector de cuentas</p>
                 <p className="mt-1 text-sm text-muted">
-                  {selectedIndex + 1} de {accounts.length}
+                  {selectedIndex + 1} de {selectableAccounts.length}
                 </p>
               </div>
               <div className="flex gap-2">
                 <button
                   type="button"
                   onClick={() => moveSelection(-1)}
-                  disabled={accounts.length < 2}
+                  disabled={selectableAccounts.length < 2}
                   aria-label="Cuenta anterior"
-                  className="flex h-11 w-11 items-center justify-center rounded-full border border-outline bg-white text-2xl transition hover:border-primary disabled:opacity-40"
+                  className="flex h-11 w-11 items-center justify-center rounded-full border border-outline bg-white text-muted transition-colors hover:border-primary/40 hover:bg-primary-mist hover:text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary disabled:cursor-not-allowed disabled:opacity-40"
                 >
-                  ‹
+                  <ChevronLeftIcon className="h-4 w-4" />
                 </button>
                 <button
                   type="button"
                   onClick={() => moveSelection(1)}
-                  disabled={accounts.length < 2}
+                  disabled={selectableAccounts.length < 2}
                   aria-label="Cuenta siguiente"
-                  className="flex h-11 w-11 items-center justify-center rounded-full border border-outline bg-white text-2xl transition hover:border-primary disabled:opacity-40"
+                  className="flex h-11 w-11 items-center justify-center rounded-full border border-outline bg-white text-muted transition-colors hover:border-primary/40 hover:bg-primary-mist hover:text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary disabled:cursor-not-allowed disabled:opacity-40"
                 >
-                  ›
+                  <ChevronRightIcon className="h-4 w-4" />
                 </button>
               </div>
             </div>
 
-            <div className="flex snap-x gap-4 overflow-x-auto pb-3">
-              {accounts.map((item) => {
-                const active = item.id === account.id;
+            <div ref={accountSelectorRef} className="flex snap-x gap-4 overflow-x-auto px-1 py-2 pb-4">
+              {selectableAccounts.map((item) => {
+                const active = item.id === selectedAccountId;
+                const financial = "institution" in item ? item : null;
                 return (
                   <button
-                    key={item.id}
+                    key={financial ? `financial-${item.id}` : `cash-${item.id}`}
                     type="button"
+                    data-account-id={item.id}
                     onClick={() => selectAccount(item.id)}
                     aria-pressed={active}
+                    aria-label={financial ? `Seleccionar ${item.name} de ${InstitutionLabels[financial.institution]}` : `Seleccionar ${item.name}`}
                     className={cn(
-                      "min-h-[180px] min-w-[280px] snap-start rounded-[1.75rem] border p-6 text-left transition sm:min-w-[340px]",
+                      "w-[280px] shrink-0 snap-start rounded-[1.6rem] text-left transition sm:w-[340px]",
                       active
-                        ? "border-primary bg-primary text-white shadow-paper"
-                        : "border-outline bg-white text-ink hover:border-primary/40",
+                        ? "ring-2 ring-primary ring-offset-2"
+                        : "hover:-translate-y-1",
                     )}
                   >
-                    <div className="flex h-full flex-col justify-between gap-8">
-                      <div className="flex items-start justify-between gap-4">
-                        <InstitutionLogo institution={item.institution} />
-                        <span
-                          className={cn(
-                            "rounded-full px-3 py-1 text-xs font-semibold uppercase",
-                            active ? "bg-white/15 text-white" : "bg-paper-soft text-muted",
-                          )}
-                        >
-                          {item.account_type}
-                        </span>
-                      </div>
-                      <div>
-                        <p className="text-2xl font-semibold">{item.name}</p>
-                        <p className={active ? "text-white/75" : "text-muted"}>
-                          {item.account_last4
-                            ? `•••• ${item.account_last4}`
-                            : InstitutionLabels[item.institution]}
-                        </p>
-                      </div>
-                    </div>
+                    {financial ? (
+                      <AccountVisualCard
+                        institution={financial.institution}
+                        accountType={financial.account_type}
+                        productCode={financial.product_code}
+                        productName={accountProductName(financial, products)}
+                        name={financial.name}
+                        accountLast4={financial.account_last4}
+                        currency={financial.currency}
+                        compact
+                      />
+                    ) : <AccountVisualCard variant="cash" name={item.name} cashBalance={cashBalance?.balance_clp ?? null} compact />}
                   </button>
                 );
               })}
               <button
                 type="button"
-                onClick={() => navigate("/app/settings?new_account=1")}
+                onClick={openCreateAccountModal}
                 className="flex min-h-[180px] min-w-[280px] snap-start flex-col items-center justify-center gap-4 rounded-[1.75rem] border-2 border-dashed border-outline bg-paper-soft/60 p-6 text-center text-muted transition hover:border-primary/50 hover:bg-primary-mist/40 hover:text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-primary sm:min-w-[340px]"
               >
                 <span className="flex h-14 w-14 items-center justify-center rounded-full bg-white text-primary shadow-sm">
                   <PlusIcon className="h-6 w-6" />
                 </span>
                 <span>
-                  <strong className="block text-xl text-ink">Agregar nueva tarjeta</strong>
+                  <strong className="block text-xl text-ink">Agregar nueva cuenta</strong>
                   <span className="mt-1 block text-sm">Configura otra cuenta para importar sus cartolas.</span>
                 </span>
               </button>
             </div>
           </section>
 
-          <Panel className="grid gap-6 lg:grid-cols-[1fr_auto] lg:items-center">
-            <div className="flex items-center gap-5">
-              <InstitutionLogo institution={account.institution} size="lg" />
-              <div>
-                <p className="eyebrow m-0 text-primary">Informacion de la cuenta</p>
-                <h2 className="mt-2 text-3xl font-semibold tracking-[-0.03em]">
-                  {account.name}
-                </h2>
-                <p className="mt-1 text-muted">{InstitutionLabels[account.institution]}</p>
+          {account ? <>
+          <Panel className="space-y-6">
+            <div className="flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex min-w-0 items-center gap-5">
+                <InstitutionLogo institution={account.institution} size="lg" />
+                <div className="min-w-0">
+                  <p className="eyebrow m-0 text-primary">Información de la cuenta</p>
+                  <h2 className="mt-2 break-words text-3xl font-semibold tracking-[-0.03em]">
+                    {account.name}
+                  </h2>
+                  <p className="mt-1 text-muted">{InstitutionLabels[account.institution]}</p>
+                </div>
+              </div>
+              <div aria-label="Acciones de la cuenta" className="flex shrink-0 items-center justify-end gap-2 sm:pl-4">
+                <Button tone="secondary" onClick={() => openEditAccountModal(account)}>
+                  <PencilIcon className="h-4 w-4" />Editar
+                </Button>
+                <Button tone="ghost" className="text-danger hover:!border-danger hover:!bg-danger hover:!text-white" onClick={() => setAccountPendingDelete(account)}>
+                  <TrashIcon className="h-4 w-4" />Eliminar
+                </Button>
               </div>
             </div>
-            <dl className="grid grid-cols-2 gap-x-8 gap-y-4 text-sm sm:grid-cols-3">
-              <div>
-                <dt className="text-muted">Tipo</dt>
-                <dd className="mt-1 font-semibold capitalize">{account.account_type}</dd>
+            <div className="subtle-divider" />
+            <dl className="grid divide-y divide-outline/70 sm:grid-cols-3 sm:divide-x sm:divide-y-0">
+              <div className="py-3 sm:pr-5 sm:pl-0">
+                <dt className="text-sm text-muted">Producto</dt>
+                <dd className="mt-1 break-words font-semibold">{accountProductName(account, products)}</dd>
               </div>
-              <div>
-                <dt className="text-muted">Identificador</dt>
+              <div className="py-3 sm:px-5">
+                <dt className="text-sm text-muted">Identificador</dt>
                 <dd className="mt-1 font-semibold">
                   {account.account_last4 ? `•••• ${account.account_last4}` : "No definido"}
                 </dd>
               </div>
-              <div>
-                <dt className="text-muted">Moneda</dt>
+              <div className="py-3 sm:pl-5 sm:pr-0">
+                <dt className="text-sm text-muted">Moneda</dt>
                 <dd className="mt-1 font-semibold">{account.currency}</dd>
               </div>
             </dl>
+            <div className="subtle-divider" />
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <p className="eyebrow m-0 text-primary">Estado de cartolas</p>
+                {!detailsReady ? (
+                  <p className="mt-2 text-sm text-muted">Cargando información de cartolas...</p>
+                ) : (
+                  <>
+                    <p className="mt-2 text-sm text-ink">
+                      {statementCoverage.latestPeriod
+                        ? <>Última cartola procesada: <strong className="capitalize">{formatPeriod(statementCoverage.latestPeriod)}</strong></>
+                        : statementCoverage.lastUploadedAt
+                          ? "Hay cartolas procesadas, pero su período no está identificado."
+                          : "Aún no hay cartolas procesadas para esta cuenta."}
+                    </p>
+                    {statementCoverage.lastUploadedAt ? (
+                      <p className="mt-1 text-sm text-muted">Última importación correcta: {formatDate(statementCoverage.lastUploadedAt)}</p>
+                    ) : null}
+                    {statementCoverage.missingPeriods.length > 0 ? (
+                      <p className="mt-2 text-sm text-muted">
+                        Sin cartola registrada entre períodos importados: {statementCoverage.missingPeriods.slice(0, 3).map(formatPeriod).join(", ")}
+                        {statementCoverage.missingPeriods.length > 3 ? ` y ${statementCoverage.missingPeriods.length - 3} más` : ""}.
+                      </p>
+                    ) : null}
+                  </>
+                )}
+              </div>
+              {detailsReady ? (
+                <div className="flex flex-wrap gap-2 sm:justify-end" aria-label="Avisos de cartolas">
+                  <span
+                    className={cn(
+                      "rounded-full px-3 py-1 text-xs font-semibold",
+                      statementCoverage.isUpToDate
+                        ? "bg-primary-mist text-primary"
+                        : statementCoverage.latestPeriod
+                          ? "bg-[#fff4e5] text-[#8a592e]"
+                          : "bg-paper-soft text-muted",
+                    )}
+                    title={`Según las cartolas importadas, se considera al día si hay una procesada de ${formatPeriod(statementCoverage.lastClosedPeriod)} o posterior, sin meses intermedios faltantes ni importaciones pendientes o con error. No consulta el banco en tiempo real.`}
+                  >
+                    {statementCoverage.isUpToDate
+                      ? "Cartolas al día"
+                      : statementCoverage.latestPeriod
+                        ? "Cartolas por actualizar"
+                        : statementCoverage.lastUploadedAt
+                          ? "Sin período verificable"
+                          : "Sin cartolas procesadas"}
+                  </span>
+                  {statementCoverage.failedCount > 0 ? (
+                    <span className="rounded-full bg-danger-soft px-3 py-1 text-xs font-semibold text-danger">
+                      {statementCoverage.failedCount} con error
+                    </span>
+                  ) : null}
+                  {statementCoverage.pendingCount > 0 ? (
+                    <span className="rounded-full bg-paper-soft px-3 py-1 text-xs font-semibold text-muted">
+                      {statementCoverage.pendingCount} pendiente{statementCoverage.pendingCount === 1 ? "" : "s"}
+                    </span>
+                  ) : null}
+                  {statementCoverage.missingPeriods.length > 0 ? (
+                    <span className="rounded-full bg-[#fff4e5] px-3 py-1 text-xs font-semibold text-[#8a592e]">
+                      {statementCoverage.missingPeriods.length} mes{statementCoverage.missingPeriods.length === 1 ? "" : "es"} sin cartola
+                    </span>
+                  ) : null}
+                  {statementCoverage.processedWithoutPeriod > 0 ? (
+                    <span className="rounded-full bg-paper-soft px-3 py-1 text-xs font-semibold text-muted">
+                      {statementCoverage.processedWithoutPeriod} sin período identificado
+                    </span>
+                  ) : null}
+                </div>
+              ) : null}
+            </div>
           </Panel>
 
-          <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-            <StatCard label="Saldo neto" value={formatCurrency(summary.net)} icon={<BankIcon className="h-5 w-5" />} />
-            <StatCard label="Ingresos" value={formatCurrency(summary.income)} tone="income" icon={<ArrowUpIcon className="h-5 w-5" />} />
-            <StatCard label="Gastos" value={formatCurrency(summary.expenses)} tone="expense" icon={<ArrowDownIcon className="h-5 w-5" />} />
-            <StatCard label="Movimientos" value={String(summary.count)} icon={<ReceiptIcon className="h-5 w-5" />} />
-          </section>
+          <AccountActivitySummary
+            description="Resumen de todo el historial importado. Ingresos y gastos excluyen transferencias internas; la variación registrada incluye todos los movimientos y no es el saldo disponible del banco."
+            firstLabel="Variación registrada"
+            firstValue={detailsReady ? formatCurrency(summary.net) : "—"}
+            firstIcon={<BankIcon className="h-5 w-5" />}
+            summary={summary}
+            ready={detailsReady}
+            formatCurrency={formatCurrency}
+          />
 
           <Panel className="p-0 md:p-0">
             <div className="flex gap-2 overflow-x-auto border-b border-outline px-5 pt-5 md:px-8 md:pt-7">
@@ -427,7 +784,7 @@ export function AccountsPage() {
             <div className="p-5 md:p-8">
               {loadingDetails ? <LoadingState message="Cargando detalle de la cuenta..." /> : null}
 
-              {!loadingDetails && activeTab === "statements" && statements.length > 0 ? (
+              {detailsReady && activeTab === "statements" && statements.length > 0 ? (
                 <div className="overflow-x-auto">
                   <table className="w-full min-w-[840px] border-collapse">
                     <thead className="text-left text-sm text-muted">
@@ -475,7 +832,7 @@ export function AccountsPage() {
                               </Button>
                               <Button
                                 aria-label={`Deshacer importacion de ${statement.file_name}`}
-                                className="px-3 py-2 text-sm text-danger hover:bg-danger-soft"
+                                className="px-3 py-2 text-sm text-danger hover:!border-danger hover:!bg-danger hover:!text-white"
                                 disabled={deletingStatementId !== null}
                                 onClick={() => void openDeleteStatementModal(statement)}
                                 title={`Deshacer importacion de ${statement.file_name}`}
@@ -493,48 +850,16 @@ export function AccountsPage() {
                 </div>
               ) : null}
 
-              {!loadingDetails && activeTab === "transactions" && transactions.length > 0 ? (
-                <div className="overflow-x-auto">
-                  <table className="w-full min-w-[720px] border-collapse">
-                    <thead className="text-left text-sm text-muted">
-                      <tr className="border-b border-outline">
-                        <th className="px-4 py-3 font-medium">Fecha</th>
-                        <th className="px-4 py-3 font-medium">Descripcion</th>
-                        <th className="px-4 py-3 font-medium">Categoria</th>
-                        <th className="px-4 py-3 text-right font-medium">Monto</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {transactions.map((transaction) => (
-                        <tr key={transaction.id} className="border-b border-outline/60 last:border-0">
-                          <td className="whitespace-nowrap px-4 py-4 text-muted">{formatDate(transaction.date)}</td>
-                          <td className="px-4 py-4 font-medium">{transaction.description}</td>
-                          <td className="px-4 py-4">
-                            <span className="rounded-full bg-paper-soft px-3 py-1 text-sm text-muted">
-                              {getCategoryPath(transaction.category_id, categoryMap)}
-                            </span>
-                          </td>
-                          <td
-                            className={cn(
-                              "whitespace-nowrap px-4 py-4 text-right font-semibold",
-                              transaction.amount_clp >= 0 ? "text-primary" : "text-ink",
-                            )}
-                          >
-                            {formatCurrency(transaction.amount_clp)}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+              {detailsReady && activeTab === "transactions" && transactions.length > 0 ? (
+                <AccountMovementsTable transactions={transactions} categoryMap={categoryMap} formatCurrency={formatCurrency} />
               ) : null}
 
-              {activeTab === 'transactions' && <div className="flex justify-center gap-3 py-4">
+              {activeTab === 'transactions' && detailsReady && <div className="flex justify-center gap-3 py-4">
                 <Button tone="secondary" disabled={loadingDetails || pageOffset === 0} onClick={() => setPageOffset(Math.max(0, pageOffset - PAGE_SIZE))}>Anterior</Button>
                 <span className="self-center">{summary.count} movimientos · página {Math.floor(pageOffset / PAGE_SIZE) + 1}</span>
                 <Button tone="secondary" disabled={loadingDetails || pageOffset + PAGE_SIZE >= summary.count} onClick={() => setPageOffset(pageOffset + PAGE_SIZE)}>Siguiente</Button>
               </div>}
-              {!loadingDetails && activeTab === "statements" && statements.length === 0 ? (
+              {detailsReady && activeTab === "statements" && statements.length === 0 ? (
                 <EmptyState
                   title="No hay cartolas importadas"
                   description="Importa la primera cartola de esta cuenta para comenzar a registrar movimientos."
@@ -546,7 +871,7 @@ export function AccountsPage() {
                 />
               ) : null}
 
-              {!loadingDetails && activeTab === "transactions" && transactions.length === 0 ? (
+              {detailsReady && activeTab === "transactions" && transactions.length === 0 ? (
                 <EmptyState
                   title="No hay movimientos"
                   description="Los movimientos apareceran cuando importes una cartola para esta cuenta."
@@ -554,6 +879,9 @@ export function AccountsPage() {
               ) : null}
             </div>
           </Panel>
+          </> : cashAccount && selectedAccountId === cashAccount.id ? (
+            <CashAccountPanel account={cashAccount} categories={categories} onBalanceChange={setCashBalance} />
+          ) : null}
         </>
       ) : null}
       {statementPendingDelete ? (
@@ -565,6 +893,25 @@ export function AccountsPage() {
           onCancel={closeDeleteStatementModal}
           onConfirm={() => void confirmDeleteStatement()}
           statement={statementPendingDelete}
+        />
+      ) : null}
+      {isAccountModalOpen ? (
+        <AccountFormModal
+          error={accountFormError}
+          form={accountForm}
+          mode={modalMode}
+          onChange={updateAccountFormField}
+          onClose={() => { if (!isSavingAccount) setIsAccountModalOpen(false); }}
+          onSubmit={() => void handleSubmitAccount()}
+          saving={isSavingAccount}
+        />
+      ) : null}
+      {accountPendingDelete ? (
+        <DeleteAccountModal
+          account={accountPendingDelete}
+          deleting={deletingAccountId === accountPendingDelete.id}
+          onCancel={() => { if (deletingAccountId === null) setAccountPendingDelete(null); }}
+          onConfirm={() => void confirmDeleteAccount()}
         />
       ) : null}
     </div>

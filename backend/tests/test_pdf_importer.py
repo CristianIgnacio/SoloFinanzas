@@ -5,7 +5,12 @@ from pypdf import PdfWriter
 from pypdf.generic import DecodedStreamObject, DictionaryObject, NameObject
 
 from app.domain.enums import InstitutionCode
-from app.domain.parsers import INSTITUTION_PARSER_MAP, ParserKey
+from app.domain.parsers import (
+    INSTITUTION_PARSER_MAP, DocumentKind, PARSER_DEFINITIONS, ParserKey,
+    get_parsers_for_product_kind,
+)
+from app.domain.product_types import ProductKind
+from app.domain.account_products import resolve_pdf_parser
 from app.services.pdf_importer import (
     PDF_DOCUMENT_VALIDATORS,
     PDF_PARSERS,
@@ -583,8 +588,9 @@ class PdfImporterTests(unittest.TestCase):
         output = BytesIO()
         writer.write(output)
 
-        with self.assertRaisesRegex(PdfImportError, "esta protegido"):
+        with self.assertRaises(PdfImportError) as raised:
             _build_reader(output.getvalue(), None)
+        self.assertEqual(getattr(raised.exception, "code", None), "PASSWORD_REQUIRED")
 
     def test_build_preview_lines_ignores_empty_lines(self) -> None:
         self.assertEqual(
@@ -620,10 +626,48 @@ class PdfImporterTests(unittest.TestCase):
             with self.subTest(institution=institution):
                 self.assertEqual(_resolve_parser(institution), parser_key)
 
+    def test_parser_registration_respects_product_and_document_kind(self) -> None:
+        self.assertEqual(
+            get_parsers_for_product_kind(InstitutionCode.BANCO_SANTANDER, ProductKind.CURRENT),
+            (ParserKey.BANCO_SANTANDER,),
+        )
+        self.assertEqual(
+            get_parsers_for_product_kind(InstitutionCode.BANCO_SANTANDER, ProductKind.CREDIT),
+            (ParserKey.SANTANDER_CREDIT_NATIONAL,),
+        )
+        self.assertIn(
+            DocumentKind.CREDIT_NATIONAL,
+            {definition.document_kind for definition in PARSER_DEFINITIONS},
+        )
+        self.assertEqual(
+            resolve_pdf_parser(
+                InstitutionCode.BANCO_SANTANDER,
+                "corriente",
+                "banco_santander_corriente_digital",
+            ),
+            ParserKey.BANCO_SANTANDER,
+        )
+        self.assertEqual(
+            resolve_pdf_parser(
+                InstitutionCode.BANCO_SANTANDER,
+                "credito",
+                "banco_santander_worldmember_latam_pass",
+            ),
+            ParserKey.SANTANDER_CREDIT_NATIONAL,
+        )
+        self.assertEqual(
+            resolve_pdf_parser(
+                InstitutionCode.BANCO_SANTANDER,
+                "credito",
+                "banco_santander_platinum_latam_pass",
+            ),
+            ParserKey.SANTANDER_CREDIT_NATIONAL,
+        )
+
     def test_every_institution_parser_is_fully_registered(self) -> None:
         self.assertEqual(set(INSTITUTION_PARSER_MAP), set(InstitutionCode))
-        self.assertEqual(set(INSTITUTION_PARSER_MAP.values()), set(ParserKey))
-        self.assertEqual(set(PARSER_PROFILES), set(ParserKey))
+        self.assertEqual(set(INSTITUTION_PARSER_MAP.values()), set(PARSER_PROFILES))
+        self.assertEqual({item.key for item in PARSER_DEFINITIONS}, set(ParserKey))
         self.assertEqual(set(PDF_DOCUMENT_VALIDATORS), set(ParserKey))
         self.assertEqual(set(PDF_PARSERS), set(ParserKey))
 

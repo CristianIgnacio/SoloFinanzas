@@ -13,12 +13,15 @@ import {
   PdfIcon,
   StatusNotice,
   UploadIcon,
+  WarningIcon,
 } from "../components";
-import { groupCategories } from "../lib";
+import { PdfImportFeedbackModal } from "../components/PdfImportFeedbackModal";
+import { getAccountPdfAvailability, groupCategories } from "../lib";
+import { ApiRequestError } from "../lib/apiClient";
 import { AccountService, CategoryService, StatementService } from "../services";
-import { CategoryType, InstitutionLabels, supportsPdfImport } from "../types";
+import { CategoryType, InstitutionLabels } from "../types";
 import { TransactionType } from "../types";
-import type { Account, Category, PdfPreview, TransactionPreviewCandidate } from "../types";
+import type { Account, Category, FinancialProduct, PdfPreview, TransactionPreviewCandidate } from "../types";
 
 const MAX_PDF_SIZE = 10 * 1024 * 1024;
 const currencyFormatter = new Intl.NumberFormat("es-CL", {
@@ -26,6 +29,21 @@ const currencyFormatter = new Intl.NumberFormat("es-CL", {
   currency: "CLP",
   maximumFractionDigits: 0,
 });
+
+const issueTitles: Record<string, string> = {
+  BANK_MISMATCH: "El banco es distinto",
+  DOCUMENT_TYPE_MISMATCH: "El tipo de documento es distinto",
+  CARD_LAST4_MISMATCH: "La tarjeta es distinta",
+  CARD_LAST4_UNREADABLE: "No pudimos comprobar la tarjeta",
+  CARD_LAST4_NOT_CONFIGURED: "Falta identificar la tarjeta",
+  TOTAL_MISMATCH: "Los movimientos no cuadran",
+  ROWS_UNREADABLE: "Hay filas sin interpretar",
+  PASSWORD_REQUIRED: "Falta la contraseña",
+  PASSWORD_INVALID: "Contraseña incorrecta",
+  UNSUPPORTED_FORMAT: "Formato no reconocido",
+  NO_SELECTABLE_TEXT: "PDF sin texto seleccionable",
+  DUPLICATE_STATEMENT: "Cartola ya importada",
+};
 
 type EditablePreviewTransaction = TransactionPreviewCandidate & {
   category_id: number | null;
@@ -59,43 +77,57 @@ function DocumentPreview({ preview }: { preview: PdfPreview | null }) {
 
 export function ImportStatementsPage() {
   const [accounts, setAccounts] = useState<Account[]>([]);
+  const [products, setProducts] = useState<FinancialProduct[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [loadingAccounts, setLoadingAccounts] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [codedError, setCodedError] = useState<ApiRequestError | null>(null);
   const [selectedAccount, setSelectedAccount] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<PdfPreview | null>(null);
+  const [issuesAccepted, setIssuesAccepted] = useState(false);
+  const [acknowledgementChecked, setAcknowledgementChecked] = useState(false);
+  const [feedbackModal, setFeedbackModal] = useState<"issues" | "error" | null>(null);
   const [editableTransactions, setEditableTransactions] = useState<
     EditablePreviewTransaction[]
   >([]);
   const [analyzing, setAnalyzing] = useState(false);
   const [importing, setImporting] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const accountSelectRef = useRef<HTMLSelectElement>(null);
+  const feedbackRef = useRef<HTMLDivElement>(null);
+  const previewRef = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const requestedAccountId = searchParams.get("account_id");
 
   useEffect(() => {
+    if (error) feedbackRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+  }, [error]);
+
+  useEffect(() => {
     let cancelled = false;
     async function loadAccounts() {
       try {
-        const [payload, categoriesPayload] = await Promise.all([
+        const [payload, productsPayload, categoriesPayload] = await Promise.all([
           AccountService.getAccounts(),
+          AccountService.getProducts(),
           CategoryService.getCategories(),
         ]);
         if (!cancelled) {
           const importableAccounts = payload.filter((account) =>
-            supportsPdfImport(account.institution),
+            getAccountPdfAvailability(account, productsPayload).allowed,
           );
-          setAccounts(importableAccounts);
+          setAccounts(payload);
+          setProducts(productsPayload);
           setCategories(categoriesPayload);
-          if (importableAccounts[0]) {
-            const requestedAccount = importableAccounts.find(
+          if (payload.length > 0) {
+            const requestedAccount = payload.find(
               (account) => String(account.id) === requestedAccountId,
             );
-            setSelectedAccount(String(requestedAccount?.id ?? importableAccounts[0].id));
+            setSelectedAccount(String(requestedAccount?.id ?? importableAccounts[0]?.id ?? ""));
           }
         }
       } catch (err) {
@@ -112,6 +144,9 @@ export function ImportStatementsPage() {
     };
   }, [requestedAccountId]);
 
+  const account = accounts.find((item) => String(item.id) === selectedAccount);
+  const pdfAvailability = account ? getAccountPdfAvailability(account, products) : null;
+
   const summary = useMemo(() => {
     const income = editableTransactions
       .filter((item) => item.amount_clp > 0)
@@ -126,6 +161,10 @@ export function ImportStatementsPage() {
     setPreview(null);
     setEditableTransactions([]);
     setError(null);
+    setCodedError(null);
+    setIssuesAccepted(false);
+    setAcknowledgementChecked(false);
+    setFeedbackModal(null);
   };
 
   const categoryOptionsFor = (transactionType: TransactionType) => {
@@ -161,19 +200,21 @@ export function ImportStatementsPage() {
     resetAnalysis();
     if (file && file.size > MAX_PDF_SIZE) {
       setSelectedFile(null);
-      setError("El PDF supera el limite de 10 MB.");
+      setCodedError(new ApiRequestError("El PDF supera el límite de 10 MB.", "FILE_TOO_LARGE", "Selecciona un archivo más pequeño."));
+      setFeedbackModal("error");
       return;
     }
     if (file && file.type !== "application/pdf" && !file.name.toLowerCase().endsWith(".pdf")) {
       setSelectedFile(null);
-      setError("Selecciona un archivo PDF valido.");
+      setCodedError(new ApiRequestError("Selecciona un archivo PDF válido.", "INVALID_FILE_TYPE", "El archivo debe tener extensión .pdf."));
+      setFeedbackModal("error");
       return;
     }
     setSelectedFile(file);
   };
 
   const analyzeDocument = async () => {
-    if (!selectedFile || !selectedAccount) return;
+    if (!selectedFile || !selectedAccount || !pdfAvailability?.allowed) return;
     setAnalyzing(true);
     resetAnalysis();
     try {
@@ -183,6 +224,7 @@ export function ImportStatementsPage() {
         password || undefined,
       );
       setPreview(payload);
+      if (payload.issues.length > 0) setFeedbackModal("issues");
       setEditableTransactions(
         payload.candidate_transactions.map((transaction) => ({
           ...transaction,
@@ -190,16 +232,21 @@ export function ImportStatementsPage() {
         })),
       );
     } catch (err) {
-      setError(err instanceof Error ? err.message : "No fue posible analizar el PDF.");
+      setCodedError(err instanceof ApiRequestError
+        ? err
+        : new ApiRequestError("No fue posible analizar el PDF.", "PROCESSING_FAILED", "Intenta nuevamente con otro archivo."));
+      setFeedbackModal("error");
     } finally {
       setAnalyzing(false);
     }
   };
 
   const importDocument = async () => {
-    if (!selectedFile || !selectedAccount || !preview) return;
+    if (!selectedFile || !selectedAccount || !preview || !pdfAvailability?.allowed
+      || (preview.issues.length > 0 && !issuesAccepted)) return;
     setImporting(true);
     setError(null);
+    setCodedError(null);
     try {
       const response = await StatementService.importReviewedPdf(
         Number(selectedAccount),
@@ -211,6 +258,7 @@ export function ImportStatementsPage() {
           category_id: transaction.category_id,
         })),
         password || undefined,
+        preview.issues.map((issue) => issue.code),
       );
       navigate(`/app/transactions?statement_id=${response.statement.id}`, {
         state: {
@@ -218,7 +266,10 @@ export function ImportStatementsPage() {
         },
       });
     } catch (err) {
-      setError(err instanceof Error ? err.message : "No fue posible importar la cartola.");
+      setCodedError(err instanceof ApiRequestError
+        ? err
+        : new ApiRequestError("No fue posible importar la cartola.", "IMPORT_FAILED", "Revisa el PDF e inténtalo nuevamente."));
+      setFeedbackModal("error");
     } finally {
       setImporting(false);
     }
@@ -271,10 +322,28 @@ export function ImportStatementsPage() {
       <PageIntro
         eyebrow="Importar PDF"
         title="Subir Cartola"
-        description="Importa cartolas PDF de Banco de Chile, Banco Santander, Banco Falabella (cuenta corriente), CopecPay, Mercado Pago y BancoEstado."
+        description="Importa cartolas PDF de tus cuentas y revisa la disponibilidad según su producto financiero."
       />
 
-      {error ? <StatusNotice tone="error">{error}</StatusNotice> : null}
+      {error || codedError ? (
+        <div ref={feedbackRef}>
+          {error ? <StatusNotice tone="error">{error}</StatusNotice> : null}
+          {codedError ? (
+            <button
+              type="button"
+              onClick={() => setFeedbackModal("error")}
+              className="flex w-full items-center gap-4 rounded-2xl border border-danger/25 bg-danger-soft/40 px-5 py-4 text-left transition hover:bg-danger-soft/70"
+            >
+              <WarningIcon className="h-6 w-6 shrink-0 text-danger" />
+              <span className="min-w-0 flex-1">
+                <span className="block font-semibold text-ink">{issueTitles[codedError.code] ?? "No pudimos analizar el PDF"}</span>
+                <span className="block text-sm text-muted">Abre el detalle para saber cómo resolverlo.</span>
+              </span>
+              <span className="shrink-0 text-sm font-semibold text-danger">Ver detalle</span>
+            </button>
+          ) : null}
+        </div>
+      ) : null}
 
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_340px]">
         <Panel className="space-y-6">
@@ -332,6 +401,7 @@ export function ImportStatementsPage() {
                 <span className="font-medium text-ink">Cuenta Destino</span>
                 <div className="relative">
                   <select
+                    ref={accountSelectRef}
                     value={selectedAccount}
                     onChange={(event) => {
                       setSelectedAccount(event.target.value);
@@ -343,7 +413,7 @@ export function ImportStatementsPage() {
                     <option value="">
                       {accounts.length > 0
                         ? "Selecciona una cuenta..."
-                        : "No hay cuentas con importacion PDF disponible"}
+                        : "No hay cuentas registradas"}
                     </option>
                     {accounts.map((account) => (
                       <option key={account.id} value={account.id}>
@@ -357,6 +427,12 @@ export function ImportStatementsPage() {
                   <BankIcon className="pointer-events-none absolute right-4 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" />
                 </div>
               </label>
+
+              {pdfAvailability?.notice ? (
+                <StatusNotice tone={pdfAvailability.allowed ? "info" : "error"}>
+                  {pdfAvailability.notice}
+                </StatusNotice>
+              ) : null}
 
               <label className="space-y-2 text-sm">
                 <span className="font-medium text-ink">Contrasena del Documento</span>
@@ -386,13 +462,6 @@ export function ImportStatementsPage() {
                   </button>
                 </div>
               </label>
-
-              <div className="flex items-start gap-3 rounded-2xl bg-paper-soft p-4 text-sm text-muted">
-                <LockIcon className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
-                <p className="m-0 leading-6">
-                  La contrasena no se guarda. Los PDFs escaneados que requieren OCR aun no estan soportados.
-                </p>
-              </div>
             </div>
           </div>
 
@@ -410,7 +479,7 @@ export function ImportStatementsPage() {
             </Button>
             <Button
               className="min-h-14"
-              disabled={!selectedFile || !selectedAccount || analyzing}
+              disabled={!selectedFile || !selectedAccount || !pdfAvailability?.allowed || analyzing}
               onClick={analyzeDocument}
             >
               <UploadIcon className="h-5 w-5" />
@@ -421,7 +490,30 @@ export function ImportStatementsPage() {
       </div>
 
       {preview ? (
+        <div ref={previewRef}>
         <Panel className="space-y-6">
+          {preview.issues.length > 0 ? (
+            <div className="flex flex-col gap-4 rounded-[1.5rem] border border-danger/25 bg-[linear-gradient(110deg,#fff1e9,#fffaf4)] p-5 sm:flex-row sm:items-center">
+              <span className="grid h-12 w-12 shrink-0 place-items-center rounded-2xl bg-danger text-white">
+                <WarningIcon className="h-5 w-5" />
+              </span>
+              <div className="min-w-0 flex-1">
+                <p className="font-semibold text-ink">{issuesAccepted ? "Diferencias revisadas" : "Tu documento requiere revisión"}</p>
+                <p className="mt-1 text-sm text-muted">
+                  {preview.issues.length} {preview.issues.length === 1 ? "diferencia detectada" : "diferencias detectadas"}. {issuesAccepted ? "Aceptaste continuar con esta cuenta." : "Revisa el detalle para habilitar la importación."}
+                </p>
+              </div>
+              <Button
+                tone="secondary"
+                onClick={() => {
+                  setAcknowledgementChecked(issuesAccepted);
+                  setFeedbackModal("issues");
+                }}
+              >
+                {issuesAccepted ? "Ver diferencias" : "Revisar diferencias"}
+              </Button>
+            </div>
+          ) : null}
           <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
             <div className="space-y-2">
               <p className="eyebrow m-0 text-primary">Vista previa</p>
@@ -435,7 +527,8 @@ export function ImportStatementsPage() {
               </p>
             </div>
             <Button
-              disabled={summary.count === 0 || importing}
+              disabled={summary.count === 0 || !pdfAvailability?.allowed || importing
+                || (preview.issues.length > 0 && !issuesAccepted)}
               onClick={importDocument}
             >
               <UploadIcon className="h-5 w-5" />
@@ -455,7 +548,7 @@ export function ImportStatementsPage() {
               </p>
             </div>
             <div className="rounded-2xl bg-danger-soft p-4 text-danger">
-              <p className="text-sm">Egresos</p>
+              <p className="text-sm">Gastos</p>
               <p className="mt-1 text-2xl font-semibold">
                 {currencyFormatter.format(summary.expenses)}
               </p>
@@ -498,7 +591,7 @@ export function ImportStatementsPage() {
                         }
                         className="w-full rounded-xl border border-outline bg-white px-3 py-2 text-sm outline-none transition focus:border-primary"
                       >
-                        <option value={TransactionType.EXPENSE}>Egreso</option>
+                        <option value={TransactionType.EXPENSE}>Gasto</option>
                         <option value={TransactionType.INCOME}>Ingreso</option>
                       </select>
                     </td>
@@ -545,12 +638,52 @@ export function ImportStatementsPage() {
             </table>
           </div>
         </Panel>
+        </div>
       ) : (
         <EmptyState
           title="Aun no hay una cartola analizada"
           description="Selecciona un PDF y usa Analizar Documento para revisar los movimientos antes de guardarlos."
         />
       )}
+
+      {feedbackModal === "issues" && preview?.issues.length ? (
+        <PdfImportFeedbackModal
+          issues={preview.issues}
+          fileName={selectedFile?.name ?? null}
+          accountName={account?.name ?? null}
+          institutionName={account ? InstitutionLabels[account.institution] : null}
+          transactionCount={summary.count}
+          acknowledgementChecked={acknowledgementChecked}
+          onAcknowledgementChange={setAcknowledgementChecked}
+          onAccept={() => {
+            setIssuesAccepted(true);
+            setFeedbackModal(null);
+            previewRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+          }}
+          onChangeAccount={() => {
+            setFeedbackModal(null);
+            accountSelectRef.current?.focus();
+          }}
+          onReviewMovements={() => {
+            setFeedbackModal(null);
+            previewRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+          }}
+          onClose={() => {
+            setFeedbackModal(null);
+            setAcknowledgementChecked(issuesAccepted);
+          }}
+        />
+      ) : null}
+      {feedbackModal === "error" && codedError ? (
+        <PdfImportFeedbackModal
+          error={codedError}
+          errorTitle={issueTitles[codedError.code] ?? "No pudimos analizar el PDF"}
+          fileName={selectedFile?.name ?? null}
+          accountName={account?.name ?? null}
+          institutionName={account ? InstitutionLabels[account.institution] : null}
+          onClose={() => setFeedbackModal(null)}
+        />
+      ) : null}
     </div>
   );
 }

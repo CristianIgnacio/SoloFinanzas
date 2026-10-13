@@ -129,12 +129,19 @@ commit. Si el endpoint captura un error de parseo o validacion realiza rollback.
 
 ### Importador PDF
 
-[`services/pdf_importer.py`](../backend/app/services/pdf_importer.py) tiene un
-limite de 10 MB y requiere texto seleccionable. Sus etapas son:
+[`services/pdf_importer.py`](../backend/app/services/pdf_importer.py) conserva la
+API anterior para el worker y las pruebas. La implementación está en
+[`services/parsing/`](../backend/app/services/parsing/): `pipeline.py` coordina
+la importación, `extractor.py` lee el PDF, `tabular.py` interpreta tablas,
+`institutions/` define los perfiles por institución y `registry.py` asocia
+validadores y parsers. El catálogo y
+[`domain/parsers.py`](../backend/app/domain/parsers.py) declaran la compatibilidad
+por institución, tipo de producto y tipo de documento. El límite es 10 MB y
+se requiere texto seleccionable. Las etapas son:
 
 1. validar bytes, extension y contraseña;
 2. extraer texto y palabras con coordenadas;
-3. resolver el parser desde la institucion de la cuenta;
+3. resolver el parser desde la institucion y el tipo de producto de la cuenta;
 4. validar marcadores institucionales;
 5. extraer periodo y lineas de movimientos;
 6. identificar montos y su columna visual cuando existe layout;
@@ -146,6 +153,18 @@ limite de 10 MB y requiere texto seleccionable. Sus etapas son:
 Los perfiles Santander y CopecPay validan totales declarados. Santander,
 CopecPay y Mercado Pago usan configuracion de columnas visuales. El detalle
 algoritmico esta en [Flujo tecnico de inspeccion PDF](inspect_pdf_flow.md).
+Los parsers de cuenta conservan un formato de movimientos por institución. El
+estado nacional en pesos de WorldMember Santander tiene un parser separado en
+`services/parsing/institutions/santander_credit_national.py`. Lee cargos
+facturados, excluye el pago anterior y las cuotas futuras, y comprueba sus
+subtotales contra el total a pagar. Conserva datos de cuotas en
+`transactions.raw_data`. La deuda y el cupo aún no tienen un modelo propio;
+el estado internacional requiere otro parser.
+El estado nacional de tarjeta Banco de Chile usa
+`services/parsing/institutions/banco_chile_credit_national.py`: reconcilia los
+grupos A-G y el total a pagar, pero importa solo los cargos D-G. Conserva
+referencia y datos de cuota en `transactions.raw_data`. Las tarjetas Banco de
+Chile del catálogo están pendientes de verificación individual.
 
 ### Transacciones
 
@@ -159,8 +178,17 @@ algoritmico esta en [Flujo tecnico de inspeccion PDF](inspect_pdf_flow.md).
 - elimina la referencia a regla cuando la categoria se cambia manualmente;
 - reconstruye matches despues de crear o recategorizar.
 
-No hay endpoints actuales para editar todos los campos ni eliminar una
-transaccion individual.
+Los movimientos importados no tienen endpoints para editar todos sus campos
+ni eliminar una transaccion individual. Los movimientos manuales de Efectivo
+si se pueden editar y eliminar mediante `/cash-transactions/{id}`. El saldo
+inicial de Efectivo se guarda en `accounts`, fuera de `transactions`, y se
+calcula con los movimientos desde su fecha inclusive.
+
+Los retiros y depósitos confirmados por el usuario crean una contraparte
+`cash_transfer` y un `InternalTransferMatchModel` de tipo `cash`. El recálculo
+de coincidencias automáticas conserva esos vínculos explícitos. Al deshacer
+una importación se eliminan sus contrapartes vinculadas y se conservan los
+movimientos manuales independientes.
 
 ### Transferencias internas
 

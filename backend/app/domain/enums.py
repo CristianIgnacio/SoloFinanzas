@@ -16,6 +16,11 @@ class InstitutionCode(StrEnum):
     BANCO_FALABELLA = "banco_falabella"
 
 
+class AccountKind(StrEnum):
+    FINANCIAL = "financial"
+    CASH = "cash"
+
+
 class StatementStatus(StrEnum):
     PENDING = "pending"
     PROCESSED = "processed"
@@ -31,6 +36,12 @@ class CategoryType(StrEnum):
 class TransactionType(StrEnum):
     INCOME = "income"
     EXPENSE = "expense"
+
+
+class TransactionOrigin(StrEnum):
+    PDF = "pdf"
+    MANUAL = "manual"
+    CASH_TRANSFER = "cash_transfer"
 
 
 class CategorySource(StrEnum):

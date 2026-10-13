@@ -32,9 +32,19 @@ jobs:
           cache-dependency-path: backend/requirements.txt
       - run: sudo apt-get update && sudo apt-get install -y postgresql-client-16
       - run: pip install -r requirements.txt
+      - run: mkdir -p data
       - run: python -m compileall -q app scripts alembic
       - run: python -m alembic upgrade head
-      - run: python -m unittest discover -s tests -v
+      - name: Run backend tests
+        run: |
+          python -m unittest discover -s tests -v 2>&1 | tee ci-tests.log
+          result=${PIPESTATUS[0]}
+          if [ "$result" -ne 0 ]; then
+            grep -E '^(FAIL|ERROR): test_' ci-tests.log | while IFS= read -r failure; do
+              echo "::error title=Backend test failure::$failure"
+            done
+          fi
+          exit "$result"
   frontend:
     runs-on: ubuntu-24.04
     defaults:

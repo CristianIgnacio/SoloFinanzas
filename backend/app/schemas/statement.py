@@ -36,11 +36,18 @@ class StatementDeletionImpact(SQLModel):
     net_total_clp: int
     affected_periods: list[str]
     internal_transfer_match_count: int
+    cash_counterpart_count: int = 0
     raw_file_delete_eligible: bool
 
 
 class StatementDeletionResult(StatementDeletionImpact):
     raw_file_deleted: bool
+
+
+class PdfIssue(SQLModel):
+    code: str
+    message: str
+    action: str
 
 
 class PdfPreview(SQLModel):
@@ -55,6 +62,7 @@ class PdfPreview(SQLModel):
     period_month: str
     candidate_transactions: list[TransactionPreviewCandidate]
     parsing_errors: list[str]
+    issues: list[PdfIssue] = Field(default_factory=list)
 
 
 class PdfImportResponse(SQLModel):

@@ -3,7 +3,7 @@ from datetime import date
 from sqlmodel import Session, select
 from sqlalchemy import func, or_
 
-from app.domain.enums import CategoryType, TransactionType
+from app.domain.enums import CategoryType, TransactionOrigin, TransactionType
 from app.models.category import CategoryModel
 from app.models.internal_transfer_match import InternalTransferMatchModel
 from app.models.transaction import TransactionModel
@@ -23,12 +23,27 @@ def _matched_transaction_ids(session: Session) -> set[int]:
     }
 
 
+def _cash_linked_transaction_ids(session: Session) -> set[int]:
+    matches = session.exec(select(InternalTransferMatchModel).where(
+        InternalTransferMatchModel.match_kind == "cash",
+    )).all()
+    return {
+        transaction_id
+        for match in matches
+        for transaction_id in (match.outgoing_transaction_id, match.incoming_transaction_id)
+    }
+
+
 def _to_transaction(
     transaction: TransactionModel,
     matched_ids: set[int],
+    cash_linked_ids: set[int] | None = None,
 ) -> Transaction:
     return Transaction.model_validate(transaction).model_copy(
-        update={"is_internal_transfer": transaction.id in matched_ids}
+        update={
+            "is_internal_transfer": transaction.id in matched_ids,
+            "cash_transfer_linked": transaction.id in (cash_linked_ids or set()),
+        }
     )
 
 
@@ -53,7 +68,7 @@ def create_transaction(session: Session, payload: TransactionCreate) -> Transact
     refresh_internal_transfer_matches(session)
     session.commit()
     session.refresh(transaction)
-    return _to_transaction(transaction, _matched_transaction_ids(session))
+    return _to_transaction(transaction, _matched_transaction_ids(session), _cash_linked_transaction_ids(session))
 
 
 def create_bulk_transactions(
@@ -67,7 +82,8 @@ def create_bulk_transactions(
     for model in models:
         session.refresh(model)
     matched_ids = _matched_transaction_ids(session)
-    return [_to_transaction(t, matched_ids) for t in models]
+    cash_linked_ids = _cash_linked_transaction_ids(session)
+    return [_to_transaction(t, matched_ids, cash_linked_ids) for t in models]
 
 
 def list_transactions(
@@ -86,7 +102,8 @@ def list_transactions(
     query = query.order_by(TransactionModel.date.desc(), TransactionModel.id.desc())
     transactions = session.exec(query.limit(limit).offset(offset)).all()
     matched_ids = _matched_transaction_ids(session)
-    return [_to_transaction(t, matched_ids) for t in transactions]
+    cash_linked_ids = _cash_linked_transaction_ids(session)
+    return [_to_transaction(t, matched_ids, cash_linked_ids) for t in transactions]
 
 
 def get_transaction(session: Session, transaction_id: int) -> Transaction | None:
@@ -96,7 +113,7 @@ def get_transaction(session: Session, transaction_id: int) -> Transaction | None
     ).first()
     if not transaction:
         return None
-    return _to_transaction(transaction, _matched_transaction_ids(session))
+    return _to_transaction(transaction, _matched_transaction_ids(session), _cash_linked_transaction_ids(session))
 
 
 def update_transaction_category(
@@ -110,6 +127,8 @@ def update_transaction_category(
         select(TransactionModel).where(TransactionModel.id == transaction_id)
     ).first()
     if transaction:
+        if transaction.origin == TransactionOrigin.CASH_TRANSFER:
+            raise ValueError("Deshaz el vínculo para modificar una contraparte de Efectivo.")
         if category_id is not None:
             category = session.get(CategoryModel, category_id)
             if category is None:
@@ -122,7 +141,10 @@ def update_transaction_category(
                 if transaction.transaction_type == TransactionType.INCOME
                 else CategoryType.EXPENSE
             )
-            if category.type not in {direction_type, CategoryType.TRANSFER}:
+            allowed_types = {direction_type}
+            if transaction.origin != TransactionOrigin.MANUAL:
+                allowed_types.add(CategoryType.TRANSFER)
+            if category.type not in allowed_types:
                 raise ValueError(
                     "La categoria debe coincidir con la direccion del movimiento "
                     "o ser una transferencia."
@@ -135,7 +157,7 @@ def update_transaction_category(
         refresh_internal_transfer_matches(session)
         session.commit()
         session.refresh(transaction)
-        return _to_transaction(transaction, _matched_transaction_ids(session))
+        return _to_transaction(transaction, _matched_transaction_ids(session), _cash_linked_transaction_ids(session))
     return None
 
 
@@ -191,4 +213,5 @@ def transaction_page(session, limit=50, offset=0, **filters):
     total = session.exec(query.with_only_columns(func.count(TransactionModel.id))).one()
     rows = session.exec(query.order_by(TransactionModel.date.desc(), TransactionModel.id.desc()).limit(limit).offset(offset)).all()
     matched = _matched_transaction_ids(session)
-    return dict(items=[_to_transaction(row, matched) for row in rows], total=total, limit=limit, offset=offset)
+    cash_linked = _cash_linked_transaction_ids(session)
+    return dict(items=[_to_transaction(row, matched, cash_linked) for row in rows], total=total, limit=limit, offset=offset)

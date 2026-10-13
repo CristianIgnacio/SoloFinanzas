@@ -1,5 +1,5 @@
 import { apiClient } from "../lib/apiClient";
-import type { Transaction, TransactionCreate } from "../types";
+import type { ManualTransactionInput, Transaction, TransactionCreate } from "../types";
 
 export type TransactionFilters = {
   account_id?: number; statement_id?: number; date_from?: string; date_to?: string;
@@ -7,6 +7,24 @@ export type TransactionFilters = {
   exclude_internal?: boolean; limit?: number; offset?: number;
 };
 export class TransactionService {
+  static async linkCash(transactionId: number): Promise<Transaction> {
+    return apiClient.post<Transaction>(`/transactions/${transactionId}/cash-link`);
+  }
+
+  static async unlinkCash(transactionId: number): Promise<Transaction> {
+    return apiClient.delete<Transaction>(`/transactions/${transactionId}/cash-link`);
+  }
+  static async createCashTransaction(data: ManualTransactionInput): Promise<Transaction> {
+    return apiClient.post<Transaction>("/cash-transactions", data);
+  }
+
+  static async updateCashTransaction(id: number, data: ManualTransactionInput): Promise<Transaction> {
+    return apiClient.put<Transaction>(`/cash-transactions/${id}`, data);
+  }
+
+  static async deleteCashTransaction(id: number): Promise<void> {
+    await apiClient.delete(`/cash-transactions/${id}`);
+  }
   static async getPage(filters: TransactionFilters) {
     return apiClient.get<{ items: Transaction[]; total: number; limit: number; offset: number }>('/transaction-pages', { params: filters });
   }

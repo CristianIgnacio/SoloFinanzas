@@ -4,10 +4,18 @@ import { supabase } from "./supabase";
 type FastApiValidationError = {
   msg?: string;
 };
+type CodedApiError = { code: string; message: string; action?: string };
 
 type FastApiErrorResponse = {
-  detail?: string | FastApiValidationError[];
+  detail?: string | FastApiValidationError[] | CodedApiError;
 };
+
+export class ApiRequestError extends Error {
+  constructor(message: string, public code: string, public action = "") {
+    super(message);
+    this.name = "ApiRequestError";
+  }
+}
 
 // In Vite, local development can avoid browser CORS entirely via the dev-server proxy.
 const API_BASE_URL = import.meta.env.VITE_API_URL || "/api/v1";
@@ -35,6 +43,9 @@ axiosClient.interceptors.response.use(
 
     const detail = error.response?.data?.detail;
     if (error.response?.status === 401) window.dispatchEvent(new Event("sf:session-expired"));
+    if (detail && !Array.isArray(detail) && typeof detail === "object" && "code" in detail) {
+      return Promise.reject(new ApiRequestError(detail.message, detail.code, detail.action ?? ""));
+    }
     const validationMessage = Array.isArray(detail)
       ? detail
           .map((item) => item.msg)

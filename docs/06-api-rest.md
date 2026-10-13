@@ -35,10 +35,23 @@ Ejemplo de creacion:
   "name": "Cuenta principal",
   "institution": "banco_de_chile",
   "account_type": "corriente",
+  "product_code": "banco_de_chile_corriente_digital",
   "account_last4": "1234",
   "currency": "CLP"
 }
 ```
+
+`GET /api/v1/account-products` entrega los códigos, nombres, instituciones,
+tipos y estados PDF del catálogo usados en el formulario.
+
+`product_code` es opcional en la API por compatibilidad con cuentas existentes. Cuando se
+envía, debe existir en el [catálogo](catalogo-productos-financieros.md) y
+coincidir con `institution` y `account_type`; una combinación inválida responde
+`422`. En `PUT`, omitir el campo conserva el vínculo si sigue siendo coherente;
+enviar `null` lo elimina. Un cliente antiguo que cambie la institución o tipo
+sin enviar el código hace que el vínculo se limpie. `account_last4` es un
+identificador opcional independiente del producto; los valores heredados no se
+reinterpretan automáticamente.
 
 ## Categorias
 
@@ -116,6 +129,24 @@ de persistir.
 El resultado del `DELETE` agrega `raw_file_deleted`.
 
 ## Importacion PDF
+
+Las tres rutas PDF consultan `accounts.product_code` antes de leer el archivo.
+Un producto con `muestra_probada` usa su parser configurado; uno con
+`pendiente_verificacion` puede importarse con el parser de la institución y el
+frontend muestra un aviso para revisar el resultado. Las tarjetas de Santander
+y Banco de Chile usan el parser nacional de crédito de su banco. `no_soportado`
+y las cuentas de crédito antiguas sin producto responden `422`. Las otras
+cuentas antiguas sin producto conservan el parser de su institución.
+
+La vista previa incluye `issues` con códigos estables cuando el banco, tipo de
+documento, últimos cuatro dígitos, filas o totales no coinciden. Si el parser
+logra extraer movimientos, el usuario puede aceptar esas diferencias tras
+revisarlas. Al importar, `/statement-imports/pdf` y
+`/statement-imports/pdf/reviewed` reciben `accepted_issues` como lista JSON en
+el formulario. El servidor vuelve a analizar el PDF y exige todos los códigos
+detectados; registra los códigos aceptados en `raw_data` de los movimientos.
+Los fallos que impiden extraer movimientos devuelven `detail` con `code`,
+`message` y `action`.
 
 ### Vista previa
 
@@ -218,9 +249,59 @@ La lista se ordena por fecha e ID descendentes y cada elemento incluye
 descripciones, monto y tipo; el resto de metadatos es opcional. La API no crea
 automaticamente una cartola para transacciones manuales.
 
-El endpoint valida que la categoria exista, este activa y sea compatible. Un
-`category_id: null` limpia la categoria sin ambiguedades de query string. Al
-filtrar por una categoria principal, el listado incluye tambien sus hijas.
+El endpoint de categoría valida que exista, esté activa y sea compatible.
+Un `category_id: null` limpia la categoría. Al filtrar por una categoría
+principal, el listado incluye también sus hijas.
+
+### Efectivo y saldo inicial
+
+`GET /api/v1/cash-account` devuelve la cuenta Efectivo del usuario. Sus
+movimientos manuales se crean con `POST /api/v1/cash-transactions` y se
+modifican o eliminan con `PUT`/`DELETE /api/v1/cash-transactions/{id}`.
+
+`GET /api/v1/cash-account/balance` devuelve `opening_balance_clp`,
+`opening_balance_date`, `movements_clp`, `balance_clp` e `is_negative`.
+`PUT /api/v1/cash-account/balance` recibe `{"amount_clp": 10000,
+"date": "2026-10-10"}`; el monto es entero, no negativo y en CLP.
+`DELETE /api/v1/cash-account/balance` quita monto y fecha. Las tres rutas
+devuelven el saldo calculado actualizado. El saldo inicial representa el
+comienzo de esa fecha: `balance_clp` suma solo movimientos de Efectivo desde
+ese día inclusive. Si no se configura, suma todos sus movimientos. Los
+anteriores siguen en el historial y en los reportes de ingresos/gastos;
+el saldo inicial no se registra como transacción.
+
+### Bienvenida inicial
+
+`GET /api/v1/me` incluye `onboarding_choice`: `null`, `bank` o `cash`.
+La cuenta Efectivo creada automáticamente deja el valor en `null`; así se
+muestra la bienvenida hasta que el usuario elija. `PUT /api/v1/me/onboarding`
+con `{"choice":"cash"}` guarda la ruta Efectivo en el perfil. La ruta
+bancaria se guarda como `bank` al crear la primera cuenta financiera. Si ya
+se eligió Efectivo, agregar una cuenta bancaria no reemplaza esa elección.
+
+### Vínculos entre cartola y Efectivo
+
+`POST /api/v1/transactions/{id}/cash-link` vincula un movimiento importado
+con Efectivo. El servidor crea una contraparte de igual monto y signo
+opuesto, con la misma fecha, y guarda un vínculo explícito. Rechaza un
+movimiento que ya pertenezca a otra transferencia. No identifica retiros o
+depósitos automáticamente: el usuario debe confirmar cada vínculo.
+
+`DELETE /api/v1/transactions/{id}/cash-link` acepta el ID bancario o el de
+su contraparte en Efectivo. Elimina la contraparte y el vínculo, conservando
+el movimiento importado. Ambos endpoints devuelven el movimiento bancario
+actualizado. Las respuestas de movimientos incluyen `cash_transfer_linked`
+e `is_internal_transfer` para distinguir el vínculo y excluir ambas partes
+de los ingresos y gastos consolidados.
+`GET /api/v1/reports/accounts` mantiene la variación y el número de
+movimientos de cada cuenta, pero excluye ambas partes de transferencias
+internas de sus columnas de ingresos y gastos. El saldo inicial tampoco
+se cuenta como ingreso.
+
+El impacto de `DELETE /api/v1/statements/{id}` añade
+`cash_counterpart_count`. Al deshacer una cartola, esas contrapartes se
+eliminan en la misma transacción; los movimientos manuales independientes
+de Efectivo permanecen.
 
 ## Dashboard
 

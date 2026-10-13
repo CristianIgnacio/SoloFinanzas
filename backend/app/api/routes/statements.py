@@ -6,7 +6,9 @@ from pydantic import ValidationError
 from sqlmodel import Session
 
 from app.core.database import get_session
+from app.domain.account_products import resolve_pdf_parser
 from app.domain.enums import StatementStatus
+from app.domain.parsers import ParserKey
 from app.models.account import AccountModel
 from app.schemas.statement import (
     PdfImportResponse,
@@ -36,14 +38,55 @@ router = APIRouter()
 SessionDep = Annotated[Session, Depends(get_session)]
 
 
+def _account_pdf_parser(session: Session, account_id: int) -> tuple[AccountModel, ParserKey]:
+    account = session.get(AccountModel, account_id)
+    if account is None:
+        raise HTTPException(status_code=404, detail={"code": "ACCOUNT_NOT_FOUND", "message": "La cuenta seleccionada no existe.", "action": "Selecciona otra cuenta."})
+    try:
+        parser_key = resolve_pdf_parser(
+            account.institution, account.account_type, account.product_code,
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail={
+            "code": "ACCOUNT_PRODUCT_UNAVAILABLE",
+            "message": str(error),
+            "action": "Revisa el producto de la cuenta antes de analizar el PDF.",
+        }) from error
+    return account, parser_key
+
+
 async def _read_pdf(file: UploadFile) -> tuple[str, bytes]:
     """Lee un UploadFile PDF y conserva un nombre seguro por defecto."""
     file_name = file.filename or "cartola.pdf"
     file_bytes = await file.read(MAX_PDF_SIZE_BYTES + 1)
     await file.close()
     if len(file_bytes) > MAX_PDF_SIZE_BYTES:
-        raise HTTPException(413, "El PDF supera el límite de 10 MB.")
+        raise HTTPException(413, {"code": "FILE_TOO_LARGE", "message": "El PDF supera el límite de 10 MB.", "action": "Selecciona un archivo más pequeño."})
     return file_name, file_bytes
+
+
+def _accept_pdf_issues(preview: PdfPreview, accepted_issues: str | None) -> None:
+    """Require an explicit acknowledgement of every detected import risk."""
+    try:
+        accepted = json.loads(accepted_issues) if accepted_issues else []
+    except json.JSONDecodeError as error:
+        raise HTTPException(422, {"code": "INVALID_ACKNOWLEDGEMENT", "message": "La aceptación de advertencias no es válida.", "action": "Analiza nuevamente el PDF."}) from error
+    if not isinstance(accepted, list) or any(not isinstance(code, str) for code in accepted):
+        raise HTTPException(422, {"code": "INVALID_ACKNOWLEDGEMENT", "message": "La aceptación de advertencias no es válida.", "action": "Analiza nuevamente el PDF."})
+    detected = {issue.code for issue in preview.issues}
+    if not detected.issubset(set(accepted)):
+        raise HTTPException(422, {
+            "code": "ISSUE_ACK_REQUIRED",
+            "message": "Debes aceptar las advertencias detectadas antes de importar.",
+            "action": "Revisa los movimientos y confirma las advertencias en la vista previa.",
+        })
+    if detected:
+        for candidate in preview.candidate_transactions:
+            candidate.raw_data = {
+                **(candidate.raw_data or {}),
+                "pdf_accepted_issue_codes": sorted(detected),
+                "pdf_detected_parser": preview.parser_key.value,
+            }
 
 
 @router.get("/statements", response_model=list[Statement])
@@ -122,15 +165,15 @@ async def preview_pdf_statement(
     password: Annotated[str | None, Form()] = None,
 ) -> PdfPreview:
     """Previsualiza un PDF sin persistir la cartola ni sus movimientos."""
-    account = session.get(AccountModel, account_id)
-    if account is None:
-        raise HTTPException(status_code=404, detail="La cuenta seleccionada no existe.")
+    account, parser_key = _account_pdf_parser(session, account_id)
     file_name, file_bytes = await _read_pdf(file)
     try:
         preview = await inspect_pdf_isolated(
             file_name=file_name,
             file_bytes=file_bytes,
             institution=account.institution,
+            parser_key=parser_key,
+            expected_last4=account.account_last4,
             password=password or None,
         )
         return preview.model_copy(
@@ -155,19 +198,21 @@ async def import_pdf_statement(
     account_id: Annotated[int, Form()],
     file: Annotated[UploadFile, File()],
     password: Annotated[str | None, Form()] = None,
+    accepted_issues: Annotated[str | None, Form()] = None,
 ) -> PdfImportResponse:
     """Importa una cartola PDF y persiste sus movimientos detectados."""
-    account = session.get(AccountModel, account_id)
-    if account is None:
-        raise HTTPException(status_code=404, detail="La cuenta seleccionada no existe.")
+    account, parser_key = _account_pdf_parser(session, account_id)
     file_name, file_bytes = await _read_pdf(file)
     try:
         preview = await inspect_pdf_isolated(
             file_name=file_name,
             file_bytes=file_bytes,
             institution=account.institution,
+            parser_key=parser_key,
+            expected_last4=account.account_last4,
             password=password or None,
         )
+        _accept_pdf_issues(preview, accepted_issues)
         raw_path = None
         return import_pdf_transactions(
             session,
@@ -179,7 +224,7 @@ async def import_pdf_statement(
             candidates=preview.candidate_transactions,
         )
     except DuplicateStatementError as error:
-        raise HTTPException(status_code=409, detail=str(error)) from error
+        raise HTTPException(status_code=409, detail={"code": "DUPLICATE_STATEMENT", "message": str(error), "action": "Revisa los movimientos ya importados en esta cuenta."}) from error
     except (PdfImportError, ValueError) as error:
         session.rollback()
         raise HTTPException(status_code=422, detail=str(error)) from error
@@ -196,11 +241,10 @@ async def import_reviewed_pdf_statement(
     file: Annotated[UploadFile, File()],
     reviewed_transactions: Annotated[str, Form()],
     password: Annotated[str | None, Form()] = None,
+    accepted_issues: Annotated[str | None, Form()] = None,
 ) -> PdfImportResponse:
     """Importa una cartola usando tipo/categoria revisados en la preview."""
-    account = session.get(AccountModel, account_id)
-    if account is None:
-        raise HTTPException(status_code=404, detail="La cuenta seleccionada no existe.")
+    account, parser_key = _account_pdf_parser(session, account_id)
     file_name, file_bytes = await _read_pdf(file)
     try:
         reviews = _parse_reviewed_transactions(reviewed_transactions)
@@ -208,8 +252,11 @@ async def import_reviewed_pdf_statement(
             file_name=file_name,
             file_bytes=file_bytes,
             institution=account.institution,
+            parser_key=parser_key,
+            expected_last4=account.account_last4,
             password=password or None,
         )
+        _accept_pdf_issues(preview, accepted_issues)
         reviewed_candidates, category_overrides = apply_transaction_reviews(
             session,
             preview.candidate_transactions,
@@ -227,7 +274,7 @@ async def import_reviewed_pdf_statement(
             category_overrides=category_overrides,
         )
     except DuplicateStatementError as error:
-        raise HTTPException(status_code=409, detail=str(error)) from error
+        raise HTTPException(status_code=409, detail={"code": "DUPLICATE_STATEMENT", "message": str(error), "action": "Revisa los movimientos ya importados en esta cuenta."}) from error
     except (PdfImportError, ValueError, ValidationError) as error:
         session.rollback()
         raise HTTPException(status_code=422, detail=str(error)) from error

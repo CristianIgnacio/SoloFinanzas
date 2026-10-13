@@ -8,6 +8,8 @@ import {
   faChartColumn,
   faChartLine,
   faChevronDown,
+  faChevronLeft,
+  faChevronRight,
   faCircleCheck,
   faCircleQuestion,
   faCircleUser,
@@ -27,6 +29,7 @@ import {
   faScaleBalanced,
   faTableCellsLarge,
   faTags,
+  faTriangleExclamation,
   faTrash,
   faUpload,
   faUtensils,
@@ -68,6 +71,10 @@ export function BankIcon(props: IconProps) {
 
 export function PdfIcon(props: IconProps) {
   return <FontAwesomeIcon icon={faFilePdf} {...iconProps(props)} />;
+}
+
+export function WarningIcon(props: IconProps) {
+  return <FontAwesomeIcon icon={faTriangleExclamation} {...iconProps(props)} />;
 }
 
 export function ReportIcon(props: IconProps) {
@@ -136,6 +143,14 @@ export function SaveIcon(props: IconProps) {
 
 export function ChevronDownIcon(props: IconProps) {
   return <FontAwesomeIcon icon={faChevronDown} {...iconProps(props)} />;
+}
+
+export function ChevronLeftIcon(props: IconProps) {
+  return <FontAwesomeIcon icon={faChevronLeft} {...iconProps(props)} />;
+}
+
+export function ChevronRightIcon(props: IconProps) {
+  return <FontAwesomeIcon icon={faChevronRight} {...iconProps(props)} />;
 }
 
 export function CheckCircleIcon(props: IconProps) {

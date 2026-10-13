@@ -14,6 +14,10 @@ class CategorySeed:
     sort_order: int = 0
 
 
+CASH_WITHDRAWAL_CATEGORY = "Retiro de efectivo"
+CASH_DEPOSIT_CATEGORY = "Depósito de efectivo"
+
+
 DEFAULT_CATEGORIES = [
     CategorySeed(name="Ingresos", type=CategoryType.INCOME, sort_order=10),
     CategorySeed(name="Sueldo", type=CategoryType.INCOME, parent_name="Ingresos", sort_order=10),
@@ -44,10 +48,24 @@ DEFAULT_CATEGORIES = [
         type=CategoryType.TRANSFER,
         sort_order=110,
     ),
+    CategorySeed(name=CASH_WITHDRAWAL_CATEGORY, type=CategoryType.TRANSFER,
+                 parent_name="Transferencias", sort_order=10),
+    CategorySeed(name=CASH_DEPOSIT_CATEGORY, type=CategoryType.TRANSFER,
+                 parent_name="Transferencias", sort_order=20),
 ]
 
 
 DEFAULT_CATEGORIZATION_RULES = [
+    *[
+        CategorizationRuleSeed(keyword=keyword, category_name=CASH_WITHDRAWAL_CATEGORY, priority=40)
+        for keyword in ("giro en cajero", "giro cajero", "giro atm", "retiro en cajero",
+                        "retiro de efectivo", "retiro efectivo")
+    ],
+    *[
+        CategorizationRuleSeed(keyword=keyword, category_name=CASH_DEPOSIT_CATEGORY, priority=40)
+        for keyword in ("depósito en efectivo", "deposito en efectivo", "depósito efectivo",
+                        "deposito efectivo", "depósito por caja", "deposito por caja")
+    ],
     CategorizationRuleSeed(
         keyword="traspaso a",
         category_name="Transferencias",

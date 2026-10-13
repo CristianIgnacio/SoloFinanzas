@@ -16,6 +16,7 @@ from app.core.auth import Identity, get_identity
 from app.core.tenancy import TenantSession
 from app.models.user import UserModel
 from app.core.seeding import seed_default_categories, seed_default_categorization_rules
+from app.services.accounts import ensure_cash_account
 
 BACKEND_DIR = Path(__file__).resolve().parents[2]
 # Compatibility only for offline legacy tooling. It is never opened at import/startup.
@@ -90,12 +91,16 @@ def get_session(request: Request, identity: Identity = Depends(get_identity)) ->
                 profile = UserModel(id=identity.id, email=identity.email, display_name=identity.name)
                 identities.add(profile)
                 identities.commit()
-            if profile.deletion_pending:
+            deletion_pending = profile.deletion_pending
+            if deletion_pending:
                 if request.method not in ("GET", "DELETE") or request.url.path != "/api/v1/me":
                     raise HTTPException(403, "La cuenta está en proceso de eliminación.")
             initialized = profile.initialized
+            if not deletion_pending:
+                ensure_cash_account(identities, identity.id)
+                identities.commit()
         with TenantSession(connection, user_id=identity.id) as session:
-            if not initialized and not profile.deletion_pending:
+            if not initialized and not deletion_pending:
                 seed_default_categories(session)
                 session.flush()
                 seed_default_categorization_rules(session)

@@ -1,7 +1,9 @@
-﻿import { useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { useEffect, useMemo, useState } from "react";
+import { Link, useNavigate } from "react-router-dom";
 
 import {
+  AccountFormModal,
+  AccountVisualCard,
   ArrowDownIcon,
   ArrowUpIcon,
   BalanceIcon,
@@ -13,10 +15,11 @@ import {
   EmptyState,
   ErrorState,
   HouseIcon,
-  InstitutionLogo,
   InvestmentIcon,
   LightningIcon,
   LoadingState,
+  LockIcon,
+  WalletIcon,
   MoneyIcon,
   PageIntro,
   Panel,
@@ -25,25 +28,28 @@ import {
   StatCard,
 } from "../components";
 import { useDashboard, useFormatCurrency } from "../hooks";
+import { accountProductName, useAccountProducts } from "../hooks/useAccountProducts";
 import {
   createCategoryMap,
   getCategoryPath,
   getRootCategory,
   parseLocalDate,
 } from "../lib";
-import { AccountService, CategoryService, TransactionService } from "../services";
+import { AccountService, CategoryService, ProfileService, TransactionService } from "../services";
 import {
   CurrencyCode,
   InstitutionCode,
-  InstitutionLabels,
-  InstitutionOptions,
 } from "../types";
-import type { Account, AccountCreate, Category, Transaction } from "../types";
+import type { Account, AccountCreate, CashAccount, CashBalance, Category, Transaction, UserProfile } from "../types";
+import type { AccountFormValues } from "../components/AccountFormModal";
 
 type DashboardSupportState = {
   transactions: Transaction[];
   periodTransactions: Transaction[];
   accounts: Account[];
+  cashAccount: CashAccount | null;
+  cashBalance: CashBalance | null;
+  profile: UserProfile | null;
   categories: Category[];
   loading: boolean;
   error: string | null;
@@ -54,17 +60,6 @@ type MovementFilter = "all" | "income" | "expense";
 const movementIcons = [HouseIcon, MoneyIcon, LightningIcon];
 const expenseChartColors = ["#344b2e", "#6e875f", "#a8b89a", "#d5b98f", "#d77b68"];
 const TRANSACTION_PAGE_SIZE = 1000;
-const accountTypeOptions = [
-  { value: "credito", label: "Tarjeta de credito" },
-  { value: "corriente", label: "Cuenta corriente" },
-  { value: "vista", label: "Cuenta vista" },
-  { value: "ahorro", label: "Cuenta de ahorro" },
-  { value: "prepago", label: "Tarjeta de prepago" },
-  { value: "billetera_digital", label: "Billetera digital" },
-];
-const accountTypeLabels = Object.fromEntries(
-  accountTypeOptions.map((option) => [option.value, option.label]),
-) as Record<string, string>;
 const periodFormatter = new Intl.DateTimeFormat("es-CL", {
   month: "long",
   year: "numeric",
@@ -178,214 +173,105 @@ async function loadPeriodTransactions(periodMonth: string) {
   }
 }
 
-type NewAccountForm = {
-  account_type: string;
-  account_last4: string;
-  currency: CurrencyCode;
-  institution: InstitutionCode;
-  name: string;
-};
-
-type CreateAccountModalProps = {
-  error: string | null;
-  form: NewAccountForm;
-  onChange: (field: keyof NewAccountForm, value: string) => void;
-  onClose: () => void;
-  onSubmit: () => void;
-  saving: boolean;
-};
-
-function CreateAccountModal({
-  error,
-  form,
-  onChange,
-  onClose,
-  onSubmit,
-  saving,
-}: CreateAccountModalProps) {
+function FirstAccountWelcome({ onCreateAccount, onStartCash, startingCash, cashError }: {
+  onCreateAccount: () => void;
+  onStartCash: () => void;
+  startingCash: boolean;
+  cashError: string | null;
+}) {
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink/30 px-4 py-8 backdrop-blur-sm">
-      <div className="surface-card w-full max-w-4xl p-6 md:p-8">
-        <div className="flex items-start justify-between gap-4">
-          <div className="space-y-2">
-            <p className="eyebrow m-0">Nueva Tarjeta</p>
-            <h2 className="text-4xl font-medium tracking-[-0.04em] text-ink">
-              Agregar cuenta o tarjeta
-            </h2>
-            <p className="max-w-2xl text-muted">
-              Completa los datos principales y revisa al lado como se vera esta tarjeta en el dashboard.
-            </p>
-          </div>
+    <Panel className="overflow-hidden p-0 md:p-0">
+      <div className="grid lg:grid-cols-[minmax(0,1.1fr)_minmax(300px,0.9fr)]">
+        <div className="relative isolate overflow-hidden bg-primary px-7 py-10 text-white sm:px-10 sm:py-12 lg:px-12 lg:py-14">
+          <div aria-hidden="true" className="pointer-events-none absolute -right-24 -top-32 -z-10 h-80 w-80 rounded-full border border-white/15 bg-white/5" />
+          <div aria-hidden="true" className="pointer-events-none absolute -bottom-40 right-6 -z-10 h-80 w-80 rounded-full border border-white/10" />
+          <span className="inline-flex items-center gap-2 rounded-full border border-white/25 bg-white/10 px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.12em]">
+            <BankIcon className="h-4 w-4" /> Primer paso
+          </span>
+          <h2 className="mt-8 max-w-xl text-4xl font-semibold leading-tight tracking-[-0.045em] sm:text-5xl">
+            Empieza a tu manera
+          </h2>
+          <p className="mt-4 max-w-lg text-base leading-7 text-white/80 sm:text-lg">
+            Agrega una cuenta bancaria para importar cartolas, o empieza registrando tus movimientos en Efectivo.
+          </p>
           <button
             type="button"
-            onClick={onClose}
-            className="rounded-full border border-outline bg-white px-3 py-2 text-sm text-muted transition hover:text-ink"
+            onClick={onCreateAccount}
+            className="mt-8 inline-flex min-h-12 items-center justify-center gap-2 rounded-full bg-white px-6 py-3 font-semibold text-primary shadow-sm transition hover:bg-primary-mist focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
           >
-            Cerrar
+            <PlusIcon className="h-4 w-4" /> Agregar cuenta bancaria
           </button>
+          <button type="button" disabled={startingCash} onClick={onStartCash}
+            className="mt-3 inline-flex min-h-12 items-center justify-center gap-2 rounded-full border border-white/40 bg-white/10 px-6 py-3 font-semibold text-white transition hover:bg-white/20 disabled:opacity-60 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white">
+            <WalletIcon className="h-4 w-4" /> {startingCash ? "Preparando Efectivo..." : "Empezar con efectivo"}
+          </button>
+          {cashError ? <p role="alert" className="mt-3 text-sm text-white">{cashError}</p> : null}
+          <p className="mt-6 flex max-w-lg items-start gap-2 text-sm leading-6 text-white/75">
+            <LockIcon className="mt-1 h-4 w-4 shrink-0" />
+            No conectamos tu banco ni pedimos claves. Solo usas las cartolas que decides importar.
+          </p>
         </div>
 
-        <div className="mt-8 grid gap-8 lg:grid-cols-[minmax(0,1fr)_minmax(360px,1.1fr)] lg:items-center">
-          <div className="grid gap-5 md:grid-cols-2">
-            <label className="space-y-2 md:col-span-2">
-              <span className="text-sm font-medium text-ink">Nombre visible</span>
-              <input
-                value={form.name}
-                onChange={(event) => onChange("name", event.target.value)}
-                placeholder="Ej: Visa Signature"
-                className="w-full rounded-2xl border border-outline bg-white px-4 py-3 outline-none transition focus:border-primary"
-              />
-            </label>
-
-            <label className="space-y-2">
-              <span className="text-sm font-medium text-ink">Institucion</span>
-              <select
-                value={form.institution}
-                onChange={(event) => onChange("institution", event.target.value)}
-                className="w-full rounded-2xl border border-outline bg-white px-4 py-3 outline-none transition focus:border-primary"
-              >
-                {InstitutionOptions.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-
-            <label className="space-y-2">
-              <span className="text-sm font-medium text-ink">Tipo</span>
-              <select
-                value={form.account_type}
-                onChange={(event) => onChange("account_type", event.target.value)}
-                className="w-full rounded-2xl border border-outline bg-white px-4 py-3 outline-none transition focus:border-primary"
-              >
-                {accountTypeOptions.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-
-            <label className="space-y-2">
-              <span className="text-sm font-medium text-ink">Ultimos 4 digitos</span>
-              <input
-                value={form.account_last4}
-                onChange={(event) => onChange("account_last4", event.target.value)}
-                placeholder="1234"
-                inputMode="numeric"
-                maxLength={4}
-                className="w-full rounded-2xl border border-outline bg-white px-4 py-3 outline-none transition focus:border-primary"
-              />
-            </label>
-
-            <label className="space-y-2 md:col-span-2">
-              <span className="text-sm font-medium text-ink">Moneda</span>
-              <input
-                value={form.currency}
-                disabled
-                className="w-full rounded-2xl border border-outline bg-paper-soft px-4 py-3 text-muted outline-none"
-              />
-            </label>
-          </div>
-
-          <div className="flex items-center lg:min-h-full">
-            <article className="relative w-full overflow-hidden rounded-[2rem] border border-[#d5d2c7] bg-[linear-gradient(135deg,#f8f5ec_0%,#efe6d5_42%,#d5c09f_100%)] p-6 shadow-[0_28px_70px_rgba(60,47,31,0.18)] md:p-7">
-              <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(255,255,255,0.42),transparent_32%),radial-gradient(circle_at_bottom_right,rgba(82,57,24,0.14),transparent_30%)]" />
-              <div className="absolute right-6 top-6 h-16 w-16 rounded-full border border-white/45 bg-white/20 blur-[1px]" />
-              <div className="absolute right-12 top-10 h-16 w-16 rounded-full border border-white/35 bg-white/10" />
-
-              <div className="relative flex min-h-[230px] flex-col justify-between md:min-h-[245px]">
-                <div className="flex items-start justify-between gap-4">
-                  <div className="space-y-4">
-                    <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-white/65 text-primary shadow-sm">
-                      <BankIcon className="h-6 w-6" />
-                    </div>
-                    <div>
-                      <p className="text-xs font-semibold uppercase tracking-[0.2em] text-ink/55">
-                        {InstitutionLabels[form.institution]}
-                      </p>
-                      <p className="mt-2 text-3xl font-semibold tracking-[-0.04em] text-ink md:text-[2rem]">
-                        {form.name.trim() || "Tu nueva tarjeta"}
-                      </p>
-                    </div>
-                  </div>
-
-                  <span className="rounded-full border border-white/60 bg-white/65 px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.14em] text-ink/70">
-                    {accountTypeLabels[form.account_type] ?? form.account_type}
-                  </span>
-                </div>
-
-                <div className="relative grid gap-5 md:grid-cols-[minmax(0,1fr)_auto] md:items-end">
-                  <div className="space-y-2">
-                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-ink/45">
-                      Identificador
-                    </p>
-                    <p className="text-2xl font-medium tracking-[0.22em] text-ink md:text-[1.75rem]">
-                      {form.account_last4
-                        ? `â€¢â€¢â€¢â€¢ ${form.account_last4}`
-                        : "â€¢â€¢â€¢â€¢ â€¢â€¢â€¢â€¢"}
-                    </p>
-                  </div>
-
-                  <div className="space-y-2 text-left md:text-right">
-                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-ink/45">
-                      Moneda
-                    </p>
-                    <p className="text-lg font-semibold tracking-[0.08em] text-primary">
-                      {form.currency}
-                    </p>
-                  </div>
-                </div>
+        <div className="flex flex-col justify-center bg-paper-soft/60 px-7 py-10 sm:px-10 lg:px-12">
+          <p className="eyebrow m-0">Elige un camino</p>
+          <div className="mt-7 space-y-6">
+            <div className="grid grid-cols-[auto_1fr] gap-4 border-b border-outline/80 pb-6">
+              <span className="grid h-11 w-11 place-items-center rounded-2xl bg-primary-mist text-primary"><BankIcon className="h-5 w-5" /></span>
+              <div>
+                <p className="text-xs font-bold uppercase tracking-[0.14em] text-primary">Cuenta bancaria</p>
+                <h3 className="mt-1 text-xl font-semibold text-ink">Importa una cartola</h3>
+                <p className="mt-2 text-sm leading-6 text-muted">Elige tu institución y producto. Al guardar, irás a importar tus movimientos.</p>
               </div>
-            </article>
+            </div>
+            <div className="grid grid-cols-[auto_1fr] gap-4">
+              <span className="grid h-11 w-11 place-items-center rounded-2xl bg-white text-primary"><WalletIcon className="h-5 w-5" /></span>
+              <div>
+                <p className="text-xs font-bold uppercase tracking-[0.14em] text-primary">Efectivo</p>
+                <h3 className="mt-1 text-xl font-semibold text-ink">Registra a mano</h3>
+                <p className="mt-2 text-sm leading-6 text-muted">Anota un ingreso o gasto, o configura tu saldo inicial.</p>
+              </div>
+            </div>
           </div>
-        </div>
-
-        {error ? (
-          <div className="mt-6 rounded-2xl border border-danger/25 bg-danger-soft/60 px-4 py-3 text-sm text-danger">
-            {error}
-          </div>
-        ) : null}
-
-        <div className="mt-8 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
-          <Button tone="secondary" onClick={onClose} disabled={saving}>
-            Cancelar
-          </Button>
-          <Button onClick={onSubmit} disabled={saving}>
-            <PlusIcon className="h-5 w-5" />
-            {saving ? "Guardando..." : "Agregar tarjeta"}
-          </Button>
         </div>
       </div>
-    </div>
+    </Panel>
   );
 }
 
 export function DashboardPage() {
+  const navigate = useNavigate();
   const [selectedPeriod, setSelectedPeriod] = useState<string>();
   const { data, loading, error } = useDashboard(selectedPeriod);
   const [isCreateAccountOpen, setIsCreateAccountOpen] = useState(false);
   const [movementFilter, setMovementFilter] = useState<MovementFilter>("all");
   const [createAccountError, setCreateAccountError] = useState<string | null>(null);
   const [isSavingAccount, setIsSavingAccount] = useState(false);
-  const [newAccountForm, setNewAccountForm] = useState<NewAccountForm>({
-    account_type: "credito",
+  const [startingCash, setStartingCash] = useState(false);
+  const [cashStartError, setCashStartError] = useState<string | null>(null);
+  const [newAccountForm, setNewAccountForm] = useState<AccountFormValues>({
+    account_type: "",
     account_last4: "",
     currency: CurrencyCode.CLP,
     institution: InstitutionCode.BANCO_DE_CHILE,
     name: "",
+    product_code: "",
   });
   const [support, setSupport] = useState<DashboardSupportState>({
     transactions: [],
     periodTransactions: [],
     accounts: [],
+    cashAccount: null,
+    cashBalance: null,
+    profile: null,
     categories: [],
     loading: true,
     error: null,
   });
   const formatCurrency = useFormatCurrency();
+  const { products } = useAccountProducts();
   const dashboardPeriod = formatPeriod(data?.period_month ?? getCurrentPeriodMonth());
+  const showFirstAccountWelcome =
+    !support.loading && !support.error && support.accounts.length === 0 && support.profile?.onboarding_choice == null;
 
   useEffect(() => {
     let isMounted = true;
@@ -399,10 +285,13 @@ export function DashboardPage() {
 
       try {
         const periodMonth = data?.period_month ?? getCurrentPeriodMonth();
-        const [periodTransactions, accounts, categories] = await Promise.all([
+        const [periodTransactions, accounts, categories, cashAccount, cashBalance, profile] = await Promise.all([
           loadPeriodTransactions(periodMonth),
           AccountService.getAccounts(),
           CategoryService.getCategories(),
+          AccountService.getCashAccount(),
+          AccountService.getCashBalance(),
+          ProfileService.getProfile(),
         ]);
 
         if (isMounted) {
@@ -410,6 +299,9 @@ export function DashboardPage() {
             transactions: periodTransactions,
             periodTransactions,
             accounts,
+            cashAccount,
+            cashBalance,
+            profile,
             categories,
             loading: false,
             error: null,
@@ -436,7 +328,7 @@ export function DashboardPage() {
     };
   }, [data?.period_month]);
 
-  const updateNewAccountField = (field: keyof NewAccountForm, value: string) => {
+  const updateNewAccountField = (field: keyof AccountFormValues, value: string) => {
     setNewAccountForm((current) => ({
       ...current,
       [field]:
@@ -450,11 +342,12 @@ export function DashboardPage() {
 
   const resetNewAccountForm = () => {
     setNewAccountForm({
-      account_type: "credito",
+      account_type: "",
       account_last4: "",
       currency: CurrencyCode.CLP,
       institution: InstitutionCode.BANCO_DE_CHILE,
       name: "",
+      product_code: "",
     });
     setCreateAccountError(null);
   };
@@ -475,7 +368,19 @@ export function DashboardPage() {
 
   const handleCreateAccount = async () => {
     if (!newAccountForm.name.trim()) {
-      setCreateAccountError("Completa al menos el nombre visible de la tarjeta.");
+      setCreateAccountError("Completa el nombre visible de la cuenta.");
+      return;
+    }
+
+    if (!newAccountForm.product_code) {
+      setCreateAccountError("Selecciona un producto para la cuenta.");
+      return;
+    }
+
+    const selectedProduct = products.find((item) => item.code === newAccountForm.product_code);
+    if (newAccountForm.account_type === "credito"
+      && (!selectedProduct || selectedProduct.pdf_support === "no_soportado")) {
+      setCreateAccountError("Este producto de crédito aún no admite importación de estados de cuenta.");
       return;
     }
 
@@ -492,6 +397,7 @@ export function DashboardPage() {
         name: newAccountForm.name.trim(),
         institution: newAccountForm.institution,
         account_type: newAccountForm.account_type,
+        product_code: newAccountForm.product_code,
         account_last4: newAccountForm.account_last4 || null,
         currency: newAccountForm.currency,
       };
@@ -504,12 +410,31 @@ export function DashboardPage() {
       }));
       setIsCreateAccountOpen(false);
       resetNewAccountForm();
+      navigate(`/app/import?account_id=${createdAccount.id}`);
     } catch (err) {
       setCreateAccountError(
         err instanceof Error ? err.message : "No fue posible crear la cuenta.",
       );
     } finally {
       setIsSavingAccount(false);
+    }
+  };
+
+  const handleStartCash = async () => {
+    if (!support.cashAccount) return;
+    setStartingCash(true);
+    setCashStartError(null);
+    try {
+      await ProfileService.startWithCash();
+      setSupport((current) => ({
+        ...current,
+        profile: current.profile ? { ...current.profile, onboarding_choice: "cash" } : null,
+      }));
+      navigate(`/app/accounts?account_id=${support.cashAccount.id}#cash-account`);
+    } catch (err) {
+      setCashStartError(err instanceof Error ? err.message : "No fue posible comenzar con Efectivo.");
+    } finally {
+      setStartingCash(false);
     }
   };
 
@@ -529,6 +454,8 @@ export function DashboardPage() {
       .filter(
         (transaction) =>
           transaction.transaction_type === "expense" &&
+          !transaction.is_internal_transfer &&
+          transaction.origin !== "cash_transfer" &&
           categoryTypeMap.get(transaction.category_id ?? -1) !== "transfer",
       )
       .forEach((transaction) => {
@@ -542,18 +469,22 @@ export function DashboardPage() {
       .slice(0, 5);
   }, [categoryMap, categoryTypeMap, support.periodTransactions]);
 
-  const investmentGains = useMemo(() => {
-    const investmentCategoryIds = new Set(
+  const cardGains = useMemo(() => {
+    const cardGainCategoryIds = new Set(
       support.categories
-        .filter((category) => category.name.trim().toLowerCase() === "inversiones")
+        .filter((category) =>
+          category.name.trim().localeCompare("Ganancias tarjetas", "es", { sensitivity: "base" }) === 0,
+        )
         .map((category) => category.id),
     );
 
     const transactions = support.periodTransactions.filter(
       (transaction) =>
         transaction.transaction_type === "income" &&
+        !transaction.is_internal_transfer &&
+        transaction.origin !== "cash_transfer" &&
         transaction.category_id !== null &&
-        investmentCategoryIds.has(transaction.category_id),
+        cardGainCategoryIds.has(transaction.category_id),
     );
 
     return {
@@ -570,6 +501,8 @@ export function DashboardPage() {
       .filter(
         (transaction) =>
           transaction.transaction_type === "expense" &&
+          !transaction.is_internal_transfer &&
+          transaction.origin !== "cash_transfer" &&
           categoryTypeMap.get(transaction.category_id ?? -1) !== "transfer",
       )
       .forEach((transaction) => {
@@ -605,7 +538,7 @@ export function DashboardPage() {
       support.transactions
         .filter(
           (transaction) =>
-            !transaction.is_internal_transfer &&
+            !transaction.is_internal_transfer && transaction.origin !== "cash_transfer" &&
             (movementFilter === "all" ||
               transaction.transaction_type === movementFilter),
         )
@@ -843,10 +776,11 @@ export function DashboardPage() {
   return (
     <div className="space-y-8">
       <PageIntro
-        eyebrow="Dashboard"
-        title="Dashboard"
+        eyebrow={showFirstAccountWelcome ? "Primeros pasos" : "Dashboard"}
+        title={showFirstAccountWelcome ? "Bienvenido a SoloFinanzas" : "Dashboard"}
+        description={showFirstAccountWelcome ? "Elige cómo quieres comenzar." : undefined}
         period={
-          data && data.available_periods.length > 0 ? (
+          !showFirstAccountWelcome && data && data.available_periods.length > 0 ? (
             <label className="relative inline-flex items-center">
               <span className="sr-only">Seleccionar periodo del dashboard</span>
               <select
@@ -865,9 +799,9 @@ export function DashboardPage() {
               </select>
               <ChevronDownIcon className="pointer-events-none absolute right-1 h-4 w-4 text-primary" />
             </label>
-          ) : (
+          ) : !showFirstAccountWelcome ? (
             dashboardPeriod
-          )
+          ) : undefined
         }
       />
 
@@ -875,7 +809,12 @@ export function DashboardPage() {
       {error ? <ErrorState message={error} /> : null}
       {support.error ? <ErrorState message={support.error} /> : null}
 
-      {data ? (
+      {showFirstAccountWelcome ? (
+        <FirstAccountWelcome onCreateAccount={openCreateAccountModal} onStartCash={() => void handleStartCash()}
+          startingCash={startingCash} cashError={cashStartError} />
+      ) : null}
+
+      {data && !support.loading && !showFirstAccountWelcome ? (
         <>
           <section className="grid items-stretch gap-4 lg:grid-cols-3">
             {data.cards.slice(0, 3).map((card, index) => (
@@ -967,15 +906,15 @@ export function DashboardPage() {
               </span>
               <div className="space-y-2">
                 <p className="text-sm font-semibold uppercase tracking-[0.16em] text-primary/80">
-                  Ganancias por inversion
+                  Ganancias tarjetas
                 </p>
                 <strong className="block text-5xl font-semibold tracking-[-0.05em] text-ink">
-                  {formatCurrency(investmentGains.total)}
+                  {formatCurrency(cardGains.total)}
                 </strong>
               </div>
               <div className="flex flex-wrap items-center justify-center gap-2">
                 <span className="rounded-full bg-primary-mist px-3 py-1.5 text-sm font-semibold text-primary">
-                  {investmentGains.count} movimientos
+                  {cardGains.count} movimientos
                 </span>
                 <span className="rounded-full bg-paper-soft px-3 py-1.5 text-sm font-semibold text-muted">
                   {dashboardPeriod}
@@ -1049,58 +988,55 @@ export function DashboardPage() {
 
           <section className="grid gap-6 lg:grid-cols-[minmax(360px,1.1fr)_minmax(0,0.9fr)]">
             <Panel className="space-y-6">
-              <div className="flex items-center justify-between gap-4">
+              <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                 <div className="space-y-2">
-                  <h2 className="text-4xl font-medium tracking-[-0.04em]">Cuentas Activas</h2>
-                  <p className="text-muted">
-                    Tus cuentas principales quedan al centro del dashboard para revisar saldo y contexto rapido.
-                  </p>
+                  <h2 className="text-3xl font-medium tracking-[-0.04em]">Tus cuentas</h2>
+                  <p className="text-sm text-muted">Las más recientes aparecen primero.</p>
                 </div>
-                <Button className="shrink-0" onClick={openCreateAccountModal}>
-                  <PlusIcon className="h-6 w-6" />
-                  Agregar tarjeta
-                </Button>
+                <div className="flex shrink-0 items-center gap-3">
+                  <Link to="/app/accounts" className="text-sm font-semibold text-primary transition hover:underline">Ver todas</Link>
+                  <Button className="px-4 py-2.5 text-sm" onClick={openCreateAccountModal}>
+                    <PlusIcon className="h-4 w-4" />Agregar cuenta
+                  </Button>
+                </div>
               </div>
 
-              {support.accounts.length > 0 ? (
-                <div className="grid gap-4 xl:grid-cols-2">
-                  {support.accounts.slice(0, 4).map((account) => (
+              {support.accounts.length > 0 || support.cashAccount ? (
+                <div className="grid gap-4 sm:grid-cols-2">
+                  {support.cashAccount ? (
+                    <Link to={`/app/accounts?account_id=${support.cashAccount.id}#cash-account`}
+                      aria-label="Ver detalle de Efectivo"
+                      className="block min-w-0 rounded-[1.6rem] transition hover:-translate-y-1 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-primary">
+                      <AccountVisualCard variant="cash" name={support.cashAccount.name} cashBalance={support.cashBalance?.balance_clp ?? null} compact />
+                    </Link>
+                  ) : null}
+                  {[...support.accounts]
+                    .sort((left, right) => right.created_at.localeCompare(left.created_at) || right.id - left.id)
+                    .slice(0, support.cashAccount ? 3 : 4)
+                    .map((account) => (
                     <Link
                       key={account.id}
                       to={`/app/accounts?account_id=${account.id}`}
                       aria-label={`Ver detalle de ${account.name}`}
-                      className="surface-card-soft flex min-h-[220px] flex-col justify-between p-6 transition hover:-translate-y-1 hover:border-primary/30 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-primary"
+                      className="block min-w-0 rounded-[1.6rem] transition hover:-translate-y-1 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-primary"
                     >
-                      <div className="flex items-center justify-between gap-3">
-                        <InstitutionLogo institution={account.institution} />
-                        <span className="rounded-full bg-primary-soft px-3 py-1 text-sm font-medium text-primary">
-                          {account.account_type}
-                        </span>
-                      </div>
-                      <div className="space-y-3">
-                        <p className="text-base font-medium uppercase tracking-[0.08em] text-muted">
-                          {InstitutionLabels[account.institution]}
-                        </p>
-                        <p className="text-3xl font-semibold tracking-[-0.04em]">
-                          {account.name}
-                        </p>
-                        <div className="flex items-center justify-between gap-4">
-                          <p className="text-sm text-muted">
-                            {account.account_last4
-                              ? `Terminada en ${account.account_last4}`
-                              : `Cuenta #${account.id}`}
-                          </p>
-                          <p className="text-sm font-medium text-primary">{account.currency}</p>
-                        </div>
-                      </div>
+                      <AccountVisualCard
+                        institution={account.institution}
+                        accountType={account.account_type}
+                        productCode={account.product_code}
+                        productName={accountProductName(account, products)}
+                        name={account.name}
+                        accountLast4={account.account_last4}
+                        currency={account.currency}
+                        compact
+                      />
                     </Link>
                   ))}
                 </div>
               ) : (
-                <EmptyState
-                  title="No hay cuentas activas"
-                  description="Agrega una cuenta para verla destacada aqui y usarla durante la importacion de cartolas."
-                />
+                <p className="rounded-2xl border border-dashed border-outline px-5 py-8 text-center text-sm text-muted">
+                  Aún no tienes cuentas. Agrega una para verla aquí.
+                </p>
               )}
             </Panel>
 
@@ -1119,7 +1055,7 @@ export function DashboardPage() {
                   {[
                     { value: "all", label: "Todos" },
                     { value: "income", label: "Ingresos" },
-                    { value: "expense", label: "Egresos" },
+                    { value: "expense", label: "Gastos" },
                   ].map((option) => (
                     <button
                       key={option.value}
@@ -1190,9 +1126,10 @@ export function DashboardPage() {
       ) : null}
 
       {isCreateAccountOpen ? (
-        <CreateAccountModal
+        <AccountFormModal
           error={createAccountError}
           form={newAccountForm}
+          mode="create"
           onChange={updateNewAccountField}
           onClose={closeCreateAccountModal}
           onSubmit={() => void handleCreateAccount()}

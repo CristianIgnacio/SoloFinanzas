@@ -19,6 +19,7 @@ from app.models.internal_transfer_match import InternalTransferMatchModel
 from app.models.statement import StatementModel
 from app.models.transaction import TransactionModel
 from app.domain.normalizer import normalize_description
+from app.services.catalogs import CASH_DEPOSIT_CATEGORY, CASH_WITHDRAWAL_CATEGORY
 from app.schemas.shared import ImportTransactionsResult
 from app.schemas.statement import (
     PdfImportResponse,
@@ -107,6 +108,7 @@ def get_statement_deletion_impact(
     ).all()
     transaction_ids = [transaction.id for transaction in transactions if transaction.id]
     matches = _get_transfer_matches_for_transactions(session, transaction_ids)
+    cash_counterparts = _cash_counterparts_for_matches(session, matches)
     raw_target = _resolve_managed_raw_path(statement.raw_path)
 
     return StatementDeletionImpact(
@@ -127,6 +129,7 @@ def get_statement_deletion_impact(
             {transaction.date.strftime("%Y-%m") for transaction in transactions}
         ),
         internal_transfer_match_count=len(matches),
+        cash_counterpart_count=len(cash_counterparts),
         raw_file_delete_eligible=(
             raw_target is not None
             and raw_target.is_file()
@@ -154,11 +157,16 @@ def delete_statement(
     ).all()
     transaction_ids = [transaction.id for transaction in transactions if transaction.id]
     matches = _get_transfer_matches_for_transactions(session, transaction_ids)
+    cash_counterparts = _cash_counterparts_for_matches(session, matches)
 
     try:
         # Este orden tambien funciona cuando SQLite aplica las claves foraneas.
         for match in matches:
             session.delete(match)
+        session.flush()
+
+        for counterpart in cash_counterparts:
+            session.delete(counterpart)
         session.flush()
 
         for transaction in transactions:
@@ -194,6 +202,22 @@ def _get_transfer_matches_for_transactions(
             )
         )
     ).all()
+
+
+def _cash_counterparts_for_matches(
+    session: Session, matches: list[InternalTransferMatchModel],
+) -> list[TransactionModel]:
+    ids = {
+        transaction_id
+        for match in matches if match.match_kind == "cash"
+        for transaction_id in (match.outgoing_transaction_id, match.incoming_transaction_id)
+    }
+    if not ids:
+        return []
+    return session.exec(select(TransactionModel).where(
+        TransactionModel.id.in_(ids),
+        TransactionModel.origin == "cash_transfer",
+    )).all()
 
 
 def _resolve_managed_raw_path(raw_path: str | None) -> Path | None:
@@ -349,7 +373,7 @@ def import_pdf_transactions(
                 category_source=category_source,
                 rule_id_applied=rule_id,
                 fingerprint=fingerprint,
-                raw_data=None,
+                raw_data=candidate.raw_data,
             )
         )
         inserted += 1
@@ -452,6 +476,7 @@ def apply_transaction_reviews(
                 normalized_description=candidate.normalized_description,
                 amount_clp=amount,
                 transaction_type=review.transaction_type,
+                raw_data=candidate.raw_data,
             )
         )
 
@@ -526,6 +551,8 @@ def _categorize(
                 category
                 and category.is_active
                 and category.type in {desired_type, CategoryType.TRANSFER}
+                and not (category.name == CASH_WITHDRAWAL_CATEGORY and desired_type != CategoryType.EXPENSE)
+                and not (category.name == CASH_DEPOSIT_CATEGORY and desired_type != CategoryType.INCOME)
             ):
                 return rule.category_id, CategorySource.RULE, rule.id
 

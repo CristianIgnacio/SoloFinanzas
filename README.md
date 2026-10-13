@@ -30,7 +30,13 @@ Aplicación web para centralizar finanzas personales en Chile. Permite registrar
 
 Los parsers admiten distintos formatos de cartola: montos con signo, indicadores de cargo/abono y tablas con columnas separadas. El parser de Santander también valida los totales detectados contra el resumen de la cartola.
 
-Para Falabella, crea una cuenta o tarjeta seleccionando **Banco Falabella** y luego usa **Importar PDF**. El formato compatible es la **Cartola de Movimientos de Cuenta Corriente**, con columnas fecha, descripción, cargo, abono y saldo. Los estados de cuenta de crédito CMR todavía no están soportados. Cuando el rango de consulta abarca varios meses, la cartola se registra en el mes del último movimiento y cada transacción conserva su fecha.
+Para Falabella, crea una cuenta o tarjeta seleccionando **Banco Falabella** y luego usa **Importar PDF**. La **Cartola de Movimientos de Cuenta Corriente** usa su propio parser, con columnas fecha, descripción, cargo, abono y saldo. Cuando el rango de consulta abarca varios meses, la cartola se registra en el mes del último movimiento y cada transacción conserva su fecha. La **CMR Mastercard** admite el estado de cuenta nacional de la muestra recibida; Premium y Elite reutilizan ese parser de forma provisional y quedan pendientes de verificación.
+
+En CMR se importan compras, cuotas y cargos facturados del período. El pago de la tarjeta, el saldo anterior y los vencimientos futuros no se registran como movimientos nuevos. El parser compara esos cargos más el saldo anterior con el monto total facturado; una diferencia se muestra para revisión antes de importar.
+
+Para la tarjeta **WorldMember Santander LATAM Pass**, se admite el estado de cuenta nacional en pesos. Se importan las operaciones y cargos facturados del mes, incluidas las cuotas que vencen en ese período. El pago anterior, el comprobante de pago y las cuotas futuras no se registran como gastos. El estado internacional aún no está soportado.
+
+Para tarjetas de crédito de **Banco de Chile**, se admite provisionalmente el estado de cuenta nacional en pesos. Se registran las compras, cuotas y comisiones facturadas; el pago anterior queda fuera. Todas las variantes del catálogo están pendientes de verificación individual, así que revisa el resultado antes de confirmar. El estado internacional aún no está soportado.
 
 ## Tecnologías
 
@@ -76,6 +82,24 @@ SoloFinanzas/
 Sigue la [guía de la beta](docs/despliegue-beta.md) para crear los tres proyectos, configurar Google y variables, ejecutar Alembic, publicar, migrar tu historial y programar respaldos cifrados.
 
 La home se puede ver sin configurar Supabase. Las pantallas de gestión están en `/app/*` y requieren Google; las rutas anteriores redirigen. No existe acceso local sin autenticación. La base anterior `backend/data/solo_finanzas.db` no se abre ni modifica al iniciar esta versión; desarrollo usa `cloud_dev.db`.
+
+### Desarrollo local en Windows
+
+Verifica que `backend/.env` apunte a `sqlite:///data/cloud_dev.db` antes de migrar. Desde `backend/`, instala las dependencias si faltan y actualiza esa base local; la API no ejecuta migraciones al arrancar:
+
+```powershell
+.\.venv\Scripts\python.exe -m alembic upgrade head
+.\.venv\Scripts\python.exe -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
+```
+
+En otra terminal, desde `frontend/`:
+
+```powershell
+npm ci
+npm run dev
+```
+
+Abre `http://127.0.0.1:5173`. Vite envía `/api` al backend local. `GET http://127.0.0.1:8000/api/v1/health` comprueba que la API responde; entrar a `/app/*` requiere la configuración de Supabase/Google de `frontend/.env` y `backend/.env`, además del callback local autorizado en Supabase. Si el puerto 5173 ya está ocupado por otra instancia de Vite, detén la anterior antes de volver a iniciar.
 
 ## Verificación
 
