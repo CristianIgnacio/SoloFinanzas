@@ -19,6 +19,7 @@ from app.models.internal_transfer_match import InternalTransferMatchModel
 from app.models.statement import StatementModel
 from app.models.transaction import TransactionModel
 from app.domain.normalizer import normalize_description
+from app.services.catalogs import CASH_DEPOSIT_CATEGORY, CASH_WITHDRAWAL_CATEGORY
 from app.schemas.shared import ImportTransactionsResult
 from app.schemas.statement import (
     PdfImportResponse,
@@ -550,6 +551,8 @@ def _categorize(
                 category
                 and category.is_active
                 and category.type in {desired_type, CategoryType.TRANSFER}
+                and not (category.name == CASH_WITHDRAWAL_CATEGORY and desired_type != CategoryType.EXPENSE)
+                and not (category.name == CASH_DEPOSIT_CATEGORY and desired_type != CategoryType.INCOME)
             ):
                 return rule.category_id, CategorySource.RULE, rule.id
 

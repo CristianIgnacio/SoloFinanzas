@@ -8,8 +8,9 @@ from sqlalchemy.pool import StaticPool
 from sqlmodel import Session, SQLModel, create_engine, select
 
 from app.core.tenancy import TenantSession
-from app.domain.enums import AccountKind, TransactionOrigin, TransactionType
+from app.domain.enums import AccountKind, CategoryType, TransactionOrigin, TransactionType
 from app.models.account import AccountModel
+from app.models.category import CategoryModel
 from app.models.internal_transfer_match import InternalTransferMatchModel
 from app.models.statement import StatementModel
 from app.models.transaction import TransactionModel
@@ -45,6 +46,15 @@ class CashLinkTests(unittest.TestCase):
                                 institution=None, account_type="efectivo")
             session.add_all([bank, cash])
             session.flush()
+            root = CategoryModel(name="Transferencias", type=CategoryType.TRANSFER)
+            session.add(root)
+            session.flush()
+            withdrawal_category = CategoryModel(name="Retiro de efectivo", type=CategoryType.TRANSFER,
+                                                parent_id=root.id)
+            deposit_category = CategoryModel(name="Depósito de efectivo", type=CategoryType.TRANSFER,
+                                             parent_id=root.id)
+            session.add_all([withdrawal_category, deposit_category])
+            session.flush()
             statement = StatementModel(account_id=bank.id, file_name="a.pdf", file_type="pdf")
             session.add(statement)
             session.flush()
@@ -52,11 +62,13 @@ class CashLinkTests(unittest.TestCase):
                 account_id=bank.id, statement_id=statement.id,
                 date=date(2026, 10, 10), description="Giro", normalized_description="giro",
                 amount_clp=-20_000, transaction_type=TransactionType.EXPENSE,
+                category_id=withdrawal_category.id,
             )
             deposit = TransactionModel(
                 account_id=bank.id, statement_id=statement.id,
                 date=date(2026, 10, 11), description="Depósito", normalized_description="depósito",
                 amount_clp=3_000, transaction_type=TransactionType.INCOME,
+                category_id=deposit_category.id,
             )
             manual = TransactionModel(
                 account_id=cash.id, statement_id=None, origin=TransactionOrigin.MANUAL,
@@ -67,6 +79,8 @@ class CashLinkTests(unittest.TestCase):
             session.commit()
             self.withdrawal_id, self.deposit_id = withdrawal.id, deposit.id
             self.manual_id, self.cash_id, self.statement_id = manual.id, cash.id, statement.id
+            self.withdrawal_category_id = withdrawal_category.id
+            self.deposit_category_id = deposit_category.id
 
     def tearDown(self) -> None:
         self.engine.dispose()
@@ -143,6 +157,22 @@ class CashLinkTests(unittest.TestCase):
             with self.assertRaises(HTTPException) as error:
                 unlink_cash_transaction(session, self.withdrawal_id)
             self.assertEqual(error.exception.status_code, 404)
+
+    def test_requires_matching_cash_category_and_direction(self) -> None:
+        with TenantSession(self.engine, user_id=OWNER) as session:
+            for category_id in (None, self.deposit_category_id):
+                update_transaction_category(session, self.withdrawal_id, category_id)
+                with self.assertRaises(HTTPException) as error:
+                    link_imported_transaction_to_cash(session, self.withdrawal_id)
+                self.assertEqual(error.exception.status_code, 409)
+            update_transaction_category(session, self.withdrawal_id, self.withdrawal_category_id)
+            category = session.get(CategoryModel, self.withdrawal_category_id)
+            category.is_active = False
+            session.add(category)
+            session.commit()
+            with self.assertRaises(HTTPException) as error:
+                link_imported_transaction_to_cash(session, self.withdrawal_id)
+            self.assertEqual(error.exception.status_code, 409)
 
 
 if __name__ == "__main__":

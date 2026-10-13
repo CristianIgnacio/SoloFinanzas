@@ -4,12 +4,14 @@ from fastapi import HTTPException
 from sqlalchemy import or_
 from sqlmodel import Session, select
 
-from app.domain.enums import AccountKind, TransactionOrigin, TransactionType
+from app.domain.enums import AccountKind, CategoryType, TransactionOrigin, TransactionType
 from app.models.account import AccountModel
+from app.models.category import CategoryModel
 from app.models.internal_transfer_match import InternalTransferMatchModel
 from app.models.transaction import TransactionModel
 from app.schemas.transaction import Transaction
 from app.services.cash_transactions import get_cash_account
+from app.services.catalogs import CASH_DEPOSIT_CATEGORY, CASH_WITHDRAWAL_CATEGORY
 from app.services.internal_transfers import refresh_internal_transfer_matches
 from app.services.transactions import get_transaction
 
@@ -31,6 +33,14 @@ def link_imported_transaction_to_cash(session: Session, bank_transaction_id: int
         raise HTTPException(409, "Solo se puede vincular un movimiento bancario importado.")
     if bank_transaction.amount_clp == 0:
         raise HTTPException(409, "Un movimiento sin monto no se puede vincular.")
+    category = session.get(CategoryModel, bank_transaction.category_id) if bank_transaction.category_id else None
+    parent = session.get(CategoryModel, category.parent_id) if category and category.parent_id else None
+    expected_name = (CASH_WITHDRAWAL_CATEGORY if bank_transaction.amount_clp < 0
+                     else CASH_DEPOSIT_CATEGORY)
+    if (category is None or not category.is_active or category.type != CategoryType.TRANSFER
+            or category.name != expected_name or parent is None or not parent.is_active
+            or parent.type != CategoryType.TRANSFER or parent.name != "Transferencias"):
+        raise HTTPException(409, "Clasifica el movimiento como retiro o depósito de efectivo antes de vincularlo.")
     if _match_for(session, bank_transaction_id) is not None:
         raise HTTPException(409, "Este movimiento ya pertenece a una transferencia.")
 

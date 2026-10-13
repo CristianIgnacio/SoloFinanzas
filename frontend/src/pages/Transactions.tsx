@@ -44,6 +44,16 @@ const UNCATEGORIZED_CATEGORY = "uncategorized";
 
 const VISIBLE_TRANSACTION_STEP = 50;
 
+function canLinkWithCash(transaction: Transaction, categories: Map<number, Category>) {
+  if (transaction.origin !== "pdf" || transaction.is_internal_transfer ||
+      transaction.amount_clp === 0 || !transaction.category_id) return false;
+  const category = categories.get(transaction.category_id);
+  const parent = category?.parent_id ? categories.get(category.parent_id) : undefined;
+  return Boolean(category?.is_active && category.type === CategoryType.TRANSFER &&
+    parent?.is_active && parent.type === CategoryType.TRANSFER && parent.name === "Transferencias" &&
+    category.name === (transaction.amount_clp < 0 ? "Retiro de efectivo" : "Depósito de efectivo"));
+}
+
 function getMonthKey(date: string) {
   return date.slice(0, 7);
 }
@@ -296,7 +306,13 @@ export function TransactionsPage() {
   }, [displayedTransactions]);
 
   const categoryGroupsFor = (transaction: Transaction) => {
-    return groupCategories(categories, {
+    const expectedCashCategory = transaction.amount_clp < 0 ? "Retiro de efectivo" : "Depósito de efectivo";
+    return groupCategories(categories.filter((category) => {
+      const parent = category.parent_id ? categoryMap.get(category.parent_id) : undefined;
+      return parent?.name !== "Transferencias" ||
+        !["Retiro de efectivo", "Depósito de efectivo"].includes(category.name) ||
+        category.name === expectedCashCategory;
+    }), {
       activeOnly: true,
       type:
         transaction.transaction_type === "income"
@@ -713,7 +729,7 @@ export function TransactionsPage() {
                           </Button>
                         ) : null}
                         {(transaction.cash_transfer_linked || transaction.origin === "cash_transfer" ||
-                          (transaction.origin === "pdf" && !transaction.is_internal_transfer)) ? (
+                          canLinkWithCash(transaction, categoryMap)) ? (
                           <Button tone="ghost" disabled={pendingChanges > 0} onClick={() => { setLinkError(null); setLinkingTransaction(transaction); }}>
                             {transaction.cash_transfer_linked || transaction.origin === "cash_transfer" ? "Deshacer vínculo" : "Vincular con Efectivo"}
                           </Button>

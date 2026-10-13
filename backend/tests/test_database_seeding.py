@@ -11,6 +11,7 @@ from app.core.database import (
 from app.models.category import CategoryModel
 from app.models.categorization_rule import CategorizationRuleModel
 from app.services.catalogs import DEFAULT_CATEGORIES, DEFAULT_CATEGORIZATION_RULES
+from app.services.statements import _categorize
 
 
 class DatabaseSeedingTests(unittest.TestCase):
@@ -63,6 +64,21 @@ class DatabaseSeedingTests(unittest.TestCase):
             )
 
         self.assertEqual(rule_count, len(DEFAULT_CATEGORIZATION_RULES))
+
+    def test_cash_rules_match_specific_phrases_without_claiming_generic_transfers(self) -> None:
+        self.seed_defaults()
+        with Session(self.engine) as session:
+            names = {category.id: category.name for category in session.exec(select(CategoryModel)).all()}
+            for description, transaction_type, expected in (
+                ("Giro en cajero automático", "expense", "Retiro de efectivo"),
+                ("Depósito en efectivo sucursal", "income", "Depósito de efectivo"),
+                ("Deposito por caja", "income", "Depósito de efectivo"),
+                ("Transferencia enviada", "expense", "Transferencias"),
+                ("Giro en cajero automático", "income", None),
+                ("Depósito en efectivo sucursal", "expense", None),
+            ):
+                category_id, _, _ = _categorize(session, description, transaction_type)
+                self.assertEqual(names.get(category_id), expected)
 
     def test_existing_rule_keeps_its_custom_priority(self) -> None:
         with Session(self.engine) as session:

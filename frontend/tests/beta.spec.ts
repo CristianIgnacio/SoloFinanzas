@@ -574,6 +574,13 @@ test("efectivo permite configurar, corregir y quitar el saldo inicial", async ({
 test("retiro importado se vincula con Efectivo y se puede deshacer", async ({ page }) => {
   await mockApi(page);
   let linked = false;
+  let bankCategory: number | null = null;
+  const transferCategories = [
+    { id: 40, name: "Transferencias", type: "transfer", parent_id: null, is_default: true, is_active: true, sort_order: 110, transaction_count: 0, rule_count: 0 },
+    { id: 41, name: "Retiro de efectivo", type: "transfer", parent_id: 40, is_default: true, is_active: true, sort_order: 10, transaction_count: 0, rule_count: 0 },
+    { id: 42, name: "Depósito de efectivo", type: "transfer", parent_id: 40, is_default: true, is_active: true, sort_order: 20, transaction_count: 0, rule_count: 0 },
+  ];
+  await page.route("**/api/v1/categories?*", (route) => route.fulfill({ json: transferCategories }));
   const bank = {
     id: 20, account_id: 1, statement_id: 5, origin: "pdf", source_row: 1,
     date: "2026-10-10", description: "Giro en cajero", normalized_description: "giro en cajero",
@@ -583,7 +590,7 @@ test("retiro importado se vincula con Efectivo y se puede deshacer", async ({ pa
     cash_transfer_linked: false,
   };
   await page.route("**/api/v1/transaction-pages**", (route) => {
-    const items: Record<string, unknown>[] = [{ ...bank, is_internal_transfer: linked, cash_transfer_linked: linked }];
+    const items: Record<string, unknown>[] = [{ ...bank, category_id: bankCategory, is_internal_transfer: linked, cash_transfer_linked: linked }];
     if (linked) items.push({
       ...bank, id: 21, account_id: 3, statement_id: null, origin: "cash_transfer",
       description: "Retiro desde Cuenta demo A", amount_clp: 20000, transaction_type: "income",
@@ -592,7 +599,11 @@ test("retiro importado se vincula con Efectivo y se puede deshacer", async ({ pa
   });
   await page.route("**/api/v1/transactions/20/cash-link", (route) => {
     linked = route.request().method() === "POST";
-    return route.fulfill({ json: { ...bank, is_internal_transfer: linked, cash_transfer_linked: linked } });
+    return route.fulfill({ json: { ...bank, category_id: bankCategory, is_internal_transfer: linked, cash_transfer_linked: linked } });
+  });
+  await page.route("**/api/v1/transactions/20/category", (route) => {
+    bankCategory = route.request().postDataJSON().category_id;
+    return route.fulfill({ json: { ...bank, category_id: bankCategory } });
   });
   await page.route("**/api/v1/transactions/21/cash-link", (route) => {
     linked = false;
@@ -603,6 +614,9 @@ test("retiro importado se vincula con Efectivo y se puede deshacer", async ({ pa
     session(ownerA),
   );
   await page.goto("/app/transactions");
+  await expect(page.getByRole("button", { name: "Vincular con Efectivo" })).toHaveCount(0);
+  await page.getByRole("combobox", { name: "Categoria de Giro en cajero" }).selectOption("41");
+  await page.getByRole("button", { name: /guardar cambios/i }).first().click();
   await page.getByRole("button", { name: "Vincular con Efectivo" }).click();
   const confirm = page.getByRole("dialog", { name: "Vincular con Efectivo" });
   await expect(confirm.getByText("Entrada a Efectivo")).toBeVisible();
