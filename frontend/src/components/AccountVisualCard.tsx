@@ -1,7 +1,11 @@
 import { InstitutionLogo } from "./InstitutionLogo";
+import { WalletIcon } from "./icons";
 import { InstitutionCode, InstitutionLabels } from "../types";
 
 type CardTheme = { background: string; ink: string; glow: string; accent: string };
+
+const cashTheme: CardTheme = { background: "linear-gradient(125deg, #274d40, #102e2a)", ink: "#fff", glow: "#91c8ad", accent: "#c8f0d6" };
+const pesos = new Intl.NumberFormat("es-CL", { style: "currency", currency: "CLP", maximumFractionDigits: 0 });
 
 const institutionThemes: Record<InstitutionCode, CardTheme> = {
   [InstitutionCode.BANCO_DE_CHILE]: { background: "linear-gradient(125deg, #173f64, #071b33)", ink: "#fff", glow: "#6bd5e2", accent: "#a8e7ee" },
@@ -99,38 +103,51 @@ const kindAliases: Record<string, string> = {
   tarjeta_de_credito: "credito",
 };
 
-type AccountVisualCardProps = {
-  institution: InstitutionCode;
-  accountType: string;
-  productCode?: string | null;
-  productName: string;
+type SharedCardProps = {
   name?: string;
-  accountLast4?: string | null;
-  currency?: string;
   compact?: boolean;
   preview?: boolean;
   className?: string;
 };
 
-export function AccountVisualCard({
-  institution, accountType, productCode, productName, name,
-  accountLast4, currency = "CLP", compact = false, preview = false, className = "",
-}: AccountVisualCardProps) {
+type FinancialCardProps = SharedCardProps & {
+  variant?: "financial";
+  institution: InstitutionCode;
+  accountType: string;
+  productCode?: string | null;
+  productName: string;
+  accountLast4?: string | null;
+  currency?: string;
+};
+
+type CashCardProps = SharedCardProps & {
+  variant: "cash";
+  cashBalance?: number | null;
+};
+
+type AccountVisualCardProps = FinancialCardProps | CashCardProps;
+
+export function AccountVisualCard(props: AccountVisualCardProps) {
+  const cash = props.variant === "cash";
+  const financial = cash ? null : props;
+  const { name, compact = false, preview = false, className = "" } = props;
+  const accountType = financial?.accountType ?? "cash";
+  const productName = financial?.productName ?? "Efectivo";
   const rawKind = accountType.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim().replace(/[\s_]+/g, "_");
   const kind = kindAliases[rawKind] ?? rawKind;
-  const productTheme = productThemes[productCode ?? ""];
-  const theme = productTheme ?? institutionThemes[institution];
+  const productTheme = productThemes[financial?.productCode ?? ""];
+  const theme = cash ? cashTheme : productTheme ?? institutionThemes[financial!.institution];
   const background = productTheme || !kindOverlays[kind]
     ? theme.background
     : `${kindOverlays[kind]}, ${theme.background}`;
-  const kindLabel = kindLabels[kind] ?? (accountType || "Cuenta");
+  const kindLabel = cash ? "Cuenta manual" : kindLabels[kind] ?? (accountType || "Cuenta");
   const displayName = name?.trim() || "Tu nombre para esta cuenta";
-  const isCopecPay = institution === InstitutionCode.COPECPAY;
+  const isCopecPay = financial?.institution === InstitutionCode.COPECPAY;
 
   return (
     <div
       role="img"
-      aria-label={`${preview ? "Vista previa de" : "Cuenta"} ${productName} de ${InstitutionLabels[institution]}${preview ? "" : `, ${displayName}`}`}
+      aria-label={cash ? `Cuenta Efectivo, ${displayName}` : `${preview ? "Vista previa de" : "Cuenta"} ${productName} de ${InstitutionLabels[financial!.institution]}${preview ? "" : `, ${displayName}`}`}
       className={`relative flex aspect-[1.55] min-h-[180px] w-full flex-col justify-between overflow-hidden rounded-[1.6rem] shadow-[0_20px_42px_rgba(21,35,51,0.22)] ${compact ? "p-5" : "p-6 sm:p-7"} ${className}`}
       style={{ background, color: theme.ink }}
     >
@@ -150,24 +167,27 @@ export function AccountVisualCard({
       {!isCopecPay && (kind === "billetera_prepago" || kind === "billetera_digital" || kind === "prepago") ? <div className="pointer-events-none absolute right-[10%] top-[30%] h-[28%] w-[28%] rotate-12 rounded-2xl border-2 opacity-40" style={{ borderColor: theme.glow }} /> : null}
       <div className="relative flex items-start justify-between gap-2">
         <div className="flex min-w-0 items-center gap-2">
-          <InstitutionLogo institution={institution} size="sm" className={isCopecPay ? "!h-9 !w-24 !rounded-lg" : "!h-9 !w-12 !rounded-lg"} />
-          {!isCopecPay ? <span className="truncate text-xs font-bold sm:text-sm">{InstitutionLabels[institution]}</span> : null}
+          {cash ? <span className="grid h-9 w-12 place-items-center rounded-lg border border-white/25 bg-white/10"><WalletIcon className="h-5 w-5" /></span>
+            : <InstitutionLogo institution={financial!.institution} size="sm" className={isCopecPay ? "!h-9 !w-24 !rounded-lg" : "!h-9 !w-12 !rounded-lg"} />}
+          {!isCopecPay ? <span className="truncate text-xs font-bold sm:text-sm">{cash ? "Efectivo" : InstitutionLabels[financial!.institution]}</span> : null}
         </div>
         <span className="max-w-[40%] shrink-0 truncate rounded-full border border-current/30 px-2 py-1 text-[0.6rem] font-bold uppercase tracking-[0.1em]">
-          <span className="sm:hidden">{shortKindLabels[kind] ?? kindLabel}</span>
+          <span className="sm:hidden">{cash ? "Manual" : shortKindLabels[kind] ?? kindLabel}</span>
           <span className="hidden sm:inline">{kindLabel}</span>
         </span>
       </div>
       <div className="relative min-w-0 max-w-[88%]">
-        <p className="text-[0.6rem] font-semibold uppercase tracking-[0.16em] opacity-70">Producto financiero</p>
-        <p className={`mt-1 line-clamp-2 font-semibold leading-tight tracking-[-0.04em] ${compact ? "text-xl" : "text-2xl sm:text-3xl"}`}>{productName}</p>
+        <p className="text-[0.6rem] font-semibold uppercase tracking-[0.16em] opacity-70">{cash ? "Saldo registrado" : "Producto financiero"}</p>
+        <p className={`mt-1 line-clamp-2 font-semibold leading-tight tracking-[-0.04em] ${compact ? "text-xl" : "text-2xl sm:text-3xl"}`}>
+          {cash ? props.cashBalance == null ? "Saldo no disponible" : pesos.format(props.cashBalance) : productName}
+        </p>
       </div>
       <div className="relative flex items-end justify-between gap-2">
         <div className="min-w-0">
           <p className="truncate text-sm font-medium">{displayName}</p>
-          {accountLast4 ? <p className="mt-1 text-xs font-semibold tracking-[0.1em] opacity-75">**** {accountLast4}</p> : null}
+          {financial?.accountLast4 ? <p className="mt-1 text-xs font-semibold tracking-[0.1em] opacity-75">**** {financial.accountLast4}</p> : null}
         </div>
-        <span className="text-sm font-bold tracking-[0.1em]" style={{ color: theme.accent }}>{currency}</span>
+        <span className="text-sm font-bold tracking-[0.1em]" style={{ color: theme.accent }}>{financial?.currency ?? "CLP"}</span>
       </div>
     </div>
   );

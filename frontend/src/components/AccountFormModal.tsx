@@ -69,7 +69,8 @@ export function AccountFormModal({
     && original.accountType && !accountKinds.some((kind) => kind.value === original.accountType);
   const availableProducts = institutionProducts.filter((product) => product.kind === selectedKind);
   const originalCredit = isEditing && ["credito", "tarjeta de credito", "tarjeta de crédito"].includes(original.accountType.toLowerCase());
-  const creditPreviewOnly = selectedKind === "credito" && !originalCredit;
+  const creditPreviewOnly = selectedKind === "credito" && !originalCredit
+    && (!selectedProduct || selectedProduct.pdf_support === "no_soportado");
   const selectorsDisabled = loadingCatalog || Boolean(catalogError);
 
   const changeInstitution = (institution: string) => {
@@ -182,7 +183,7 @@ export function AccountFormModal({
                 <input value={form.name} onChange={(event) => onChange("name", event.target.value)} placeholder="Ej: Mi cuenta para gastos" className="w-full rounded-2xl border border-outline bg-white px-4 py-3 outline-none transition focus:border-primary" />
               </label>
               <label className="block max-w-xs space-y-2">
-                <span className="text-sm font-semibold text-ink">Últimos 4 de la cuenta <span className="font-normal text-muted">(opcional)</span></span>
+                <span className="text-sm font-semibold text-ink">Últimos 4 {selectedKind === "credito" ? "de la tarjeta" : "de la cuenta"} <span className="font-normal text-muted">(opcional)</span></span>
                 <input value={form.account_last4} onChange={(event) => onChange("account_last4", event.target.value)} placeholder="1234" inputMode="numeric" maxLength={4} className="w-full rounded-2xl border border-outline bg-white px-4 py-3 outline-none transition focus:border-primary" />
               </label>
             </div>

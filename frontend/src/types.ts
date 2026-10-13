@@ -76,6 +76,17 @@ export type Account = {
   created_at: string;
 };
 
+export type CashAccount = { id: number; name: string };
+export type UserProfile = { id: string; email: string; display_name: string; onboarding_choice: "bank" | "cash" | null };
+export type CashBalance = {
+  opening_balance_clp: number | null;
+  opening_balance_date: string | null;
+  movements_clp: number;
+  balance_clp: number;
+  is_negative: boolean;
+};
+export type CashOpeningBalanceInput = { amount_clp: number; date: string };
+
 export type AccountCreate = Omit<Account, "id" | "created_at" | "product_code"> & {
   product_code?: string | null;
 };
@@ -174,6 +185,7 @@ export type StatementDeletionImpact = {
   net_total_clp: number;
   affected_periods: string[];
   internal_transfer_match_count: number;
+  cash_counterpart_count: number;
   raw_file_delete_eligible: boolean;
 };
 
@@ -216,6 +228,7 @@ export type PdfPreview = {
   period_month: string;
   candidate_transactions: TransactionPreviewCandidate[];
   parsing_errors: string[];
+  issues: { code: string; message: string; action: string }[];
 };
 
 export type PdfImportResponse = {
@@ -232,7 +245,8 @@ export type PdfImportResponse = {
 export type Transaction = {
   id: number;
   account_id: number;
-  statement_id: number;
+  statement_id: number | null;
+  origin: "pdf" | "manual" | "cash_transfer";
   source_row: number | null;
   date: string;
   description: string;
@@ -247,12 +261,21 @@ export type Transaction = {
   created_at: string;
   updated_at: string | null;
   is_internal_transfer: boolean;
+  cash_transfer_linked: boolean;
 };
 
 export type TransactionCreate = Omit<
   Transaction,
-  "id" | "created_at" | "updated_at" | "is_internal_transfer"
->;
+  "id" | "created_at" | "updated_at" | "is_internal_transfer" | "cash_transfer_linked" | "origin" | "statement_id"
+> & { statement_id: number };
+
+export type ManualTransactionInput = {
+  transaction_type: TransactionType;
+  amount_clp: number;
+  date: string;
+  description: string;
+  category_id: number | null;
+};
 
 // Categorization Rule types
 export type CategorizationRule = {

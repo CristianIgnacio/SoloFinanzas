@@ -29,6 +29,7 @@ import {
   faScaleBalanced,
   faTableCellsLarge,
   faTags,
+  faTriangleExclamation,
   faTrash,
   faUpload,
   faUtensils,
@@ -70,6 +71,10 @@ export function BankIcon(props: IconProps) {
 
 export function PdfIcon(props: IconProps) {
   return <FontAwesomeIcon icon={faFilePdf} {...iconProps(props)} />;
+}
+
+export function WarningIcon(props: IconProps) {
+  return <FontAwesomeIcon icon={faTriangleExclamation} {...iconProps(props)} />;
 }
 
 export function ReportIcon(props: IconProps) {

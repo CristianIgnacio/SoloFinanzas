@@ -34,7 +34,7 @@ import {
 } from "../lib";
 import { AccountService, CategoryService, TransactionService } from "../services";
 import { InstitutionLabels, TransactionType } from "../types";
-import type { Account, Category, Transaction } from "../types";
+import type { Account, CashAccount, Category, Transaction } from "../types";
 
 const TRANSACTION_PAGE_SIZE = 1000;
 const TRANSACTION_PAGE_SIZE_OPTIONS = [25, 50, 100] as const;
@@ -220,6 +220,7 @@ export function AnalyticsPage() {
   const [loadingPeriods, setLoadingPeriods] = useState(false);
   const formatCurrency = useFormatCurrency();
   const [accounts, setAccounts] = useState<Account[]>([]);
+  const [cashAccount, setCashAccount] = useState<CashAccount | null>(null);
   const [categories, setCategories] = useState<Category[]>([]);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [selectedPeriods, setSelectedPeriods] = useState<Set<string>>(new Set());
@@ -254,14 +255,16 @@ export function AnalyticsPage() {
 
     async function loadAnalyticsData() {
       try {
-        const [accountData, categoryData, periods] = await Promise.all([
+        const [accountData, cashData, categoryData, periods] = await Promise.all([
           AccountService.getAccounts(),
+          AccountService.getCashAccount(),
           CategoryService.getCategories(),
           ReportService.periods(),
         ]);
         if (cancelled) return;
 
         setAccounts(accountData);
+        setCashAccount(cashData);
         setCategories(categoryData);
         setAvailablePeriods(periods);
         setSelectedPeriods(new Set(periods.slice(0, 1)));
@@ -340,8 +343,11 @@ export function AnalyticsPage() {
   }, [selectedTransactionIds.size]);
 
   const accountMap = useMemo(
-    () => new Map(accounts.map((account) => [account.id, account])),
-    [accounts],
+    () => new Map<number, Account | CashAccount>([
+      ...accounts.map((account): [number, Account] => [account.id, account]),
+      ...(cashAccount ? [[cashAccount.id, cashAccount] as [number, CashAccount]] : []),
+    ]),
+    [accounts, cashAccount],
   );
   const categoryMap = useMemo(
     () => createCategoryMap(categories),
@@ -357,12 +363,12 @@ export function AnalyticsPage() {
   );
   const accountOptions = useMemo<FilterOption[]>(
     () =>
-      accounts.map((account) => ({
+      [...accounts.map((account) => ({
         value: String(account.id),
         label: account.name,
         helper: InstitutionLabels[account.institution],
-      })),
-    [accounts],
+      })), ...(cashAccount ? [{ value: String(cashAccount.id), label: cashAccount.name, helper: "Cuenta manual" }] : [])],
+    [accounts, cashAccount],
   );
   const categoryOptions = useMemo<FilterOption[]>(
     () => [
@@ -442,7 +448,7 @@ export function AnalyticsPage() {
         const categoryKey = transaction.category_id
           ? String(transaction.category_id)
           : UNCATEGORIZED_KEY;
-        const scope = transaction.is_internal_transfer ? "internal" : "regular";
+        const scope = transaction.is_internal_transfer || transaction.origin === "cash_transfer" ? "internal" : "regular";
         return (
           (selectedPeriods.size === 0 || selectedPeriods.has(period)) &&
           (selectedAccountIds.size === 0 ||
@@ -480,6 +486,10 @@ export function AnalyticsPage() {
       ),
     [excludedTransactionIds, filteredTransactions],
   );
+  const metricTransactions = useMemo(
+    () => analyzedTransactions.filter((transaction) => !transaction.is_internal_transfer && transaction.origin !== "cash_transfer"),
+    [analyzedTransactions],
+  );
   const excludedFilteredTransactions = useMemo(
     () =>
       filteredTransactions.filter((transaction) =>
@@ -489,30 +499,30 @@ export function AnalyticsPage() {
   );
 
   const summary = useMemo(() => {
-    const income = analyzedTransactions
+    const income = metricTransactions
       .filter((transaction) => transaction.transaction_type === TransactionType.INCOME)
       .reduce((total, transaction) => total + transaction.amount_clp, 0);
-    const expenses = analyzedTransactions
+    const expenses = metricTransactions
       .filter((transaction) => transaction.transaction_type === TransactionType.EXPENSE)
       .reduce((total, transaction) => total + Math.abs(transaction.amount_clp), 0);
     const activeMonths = new Set(
-      analyzedTransactions.map((transaction) => transaction.date.slice(0, 7)),
+      metricTransactions.map((transaction) => transaction.date.slice(0, 7)),
     ).size;
     return {
       income,
       expenses,
       balance: income - expenses,
       averageExpenses: activeMonths > 0 ? Math.round(expenses / activeMonths) : 0,
-      count: analyzedTransactions.length,
+      count: metricTransactions.length,
     };
-  }, [analyzedTransactions]);
+  }, [metricTransactions]);
 
   const evolutionData = useMemo(() => {
     const totals = new Map<string, { income: number; expenses: number }>();
     [...selectedPeriods].sort().forEach((period) => {
       totals.set(period, { income: 0, expenses: 0 });
     });
-    analyzedTransactions.forEach((transaction) => {
+    metricTransactions.forEach((transaction) => {
       const period = transaction.date.slice(0, 7);
       const current = totals.get(period) ?? { income: 0, expenses: 0 };
       if (transaction.transaction_type === TransactionType.INCOME) {
@@ -523,11 +533,11 @@ export function AnalyticsPage() {
       totals.set(period, current);
     });
     return [...totals.entries()].sort(([left], [right]) => left.localeCompare(right));
-  }, [analyzedTransactions, selectedPeriods]);
+  }, [metricTransactions, selectedPeriods]);
 
   const categoryBreakdown = useMemo(() => {
     const totals = new Map<string, number>();
-    analyzedTransactions.forEach((transaction) => {
+    metricTransactions.forEach((transaction) => {
       const category = categoryMap.get(transaction.category_id ?? -1);
       const categoryName = showSubcategoryDetail
         ? category
@@ -537,11 +547,11 @@ export function AnalyticsPage() {
       totals.set(categoryName, (totals.get(categoryName) ?? 0) + Math.abs(transaction.amount_clp));
     });
     return [...totals.entries()].sort((left, right) => right[1] - left[1]).slice(0, 10);
-  }, [analyzedTransactions, categoryMap, showSubcategoryDetail]);
+  }, [metricTransactions, categoryMap, showSubcategoryDetail]);
 
   const accountBreakdown = useMemo(() => {
     const totals = new Map<number, { income: number; expenses: number }>();
-    analyzedTransactions.forEach((transaction) => {
+    metricTransactions.forEach((transaction) => {
       const current = totals.get(transaction.account_id) ?? { income: 0, expenses: 0 };
       if (transaction.transaction_type === TransactionType.INCOME) {
         current.income += transaction.amount_clp;
@@ -556,16 +566,16 @@ export function AnalyticsPage() {
         ...totalsByAccount,
       }))
       .sort((left, right) => right.income + right.expenses - left.income - left.expenses);
-  }, [accountMap, analyzedTransactions]);
+  }, [accountMap, metricTransactions]);
 
   const descriptionBreakdown = useMemo(() => {
     const totals = new Map<string, number>();
-    analyzedTransactions.forEach((transaction) => {
+    metricTransactions.forEach((transaction) => {
       const label = transaction.description.trim() || "Sin descripcion";
       totals.set(label, (totals.get(label) ?? 0) + Math.abs(transaction.amount_clp));
     });
     return [...totals.entries()].sort((left, right) => right[1] - left[1]).slice(0, 8);
-  }, [analyzedTransactions]);
+  }, [metricTransactions]);
 
   const weekdayBreakdown = useMemo(() => {
     const weekdays = [
@@ -579,7 +589,7 @@ export function AnalyticsPage() {
     ];
     const totals = new Map(weekdays.map(({ day }) => [day, 0]));
 
-    analyzedTransactions.forEach((transaction) => {
+    metricTransactions.forEach((transaction) => {
       if (transaction.transaction_type !== TransactionType.EXPENSE) return;
 
       const weekday = parseLocalDate(transaction.date).getDay();
@@ -587,7 +597,7 @@ export function AnalyticsPage() {
     });
 
     return weekdays.map(({ day, label }) => ({ label, total: totals.get(day) ?? 0 }));
-  }, [analyzedTransactions]);
+  }, [metricTransactions]);
 
   const evolutionOption = useMemo<AppChartOption>(() => {
     const labels = evolutionData.map(([period]) => formatShortPeriod(period));
@@ -791,7 +801,7 @@ export function AnalyticsPage() {
         case "category":
           return getCategoryPath(transaction.category_id, categoryMap);
         case "type":
-          return transaction.is_internal_transfer
+          return transaction.is_internal_transfer || transaction.origin === "cash_transfer"
             ? "Transferencia interna"
             : transaction.transaction_type === TransactionType.INCOME
               ? "Ingreso"
@@ -1425,17 +1435,20 @@ export function AnalyticsPage() {
                             <td className="break-words px-2 py-4">
                               <span className={cn(
                                 "rounded-full px-3 py-1 text-xs font-semibold",
-                                transaction.is_internal_transfer
+                                transaction.is_internal_transfer || transaction.origin === "cash_transfer"
                                   ? "bg-paper-soft text-muted"
                                   : transaction.transaction_type === TransactionType.INCOME
                                     ? "bg-primary-mist text-primary"
                                     : "bg-danger-soft text-danger",
                               )}>
-                                {transaction.is_internal_transfer
+                                {transaction.is_internal_transfer || transaction.origin === "cash_transfer"
                                   ? "Transf interna"
                                   : transaction.transaction_type === TransactionType.INCOME
                                     ? "Ingreso"
                                     : "Gasto"}
+                              </span>
+                              <span className="ml-2 text-xs text-muted">
+                                {transaction.origin === "pdf" ? "PDF" : transaction.origin === "cash_transfer" ? "Traslado" : "Manual"}
                               </span>
                             </td>
                             <td className={cn(

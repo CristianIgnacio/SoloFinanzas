@@ -122,6 +122,9 @@ export function DeleteStatementModal({
                 label="Transferencias afectadas"
                 value={String(impact.internal_transfer_match_count)}
               />
+              {impact.cash_counterpart_count > 0 ? (
+                <ImpactValue label="Movimientos vinculados de Efectivo" value={String(impact.cash_counterpart_count)} />
+              ) : null}
               <ImpactValue
                 label="Meses afectados"
                 value={impact.affected_periods.length > 0 ? impact.affected_periods.join(", ") : "Ninguno"}
@@ -133,6 +136,11 @@ export function DeleteStatementModal({
                 ? "El PDF original tambien sera eliminado del almacenamiento."
                 : "El PDF original no sera eliminado automaticamente."}
             </StatusNotice>
+            {impact.cash_counterpart_count > 0 ? (
+              <StatusNotice tone="error">
+                También se eliminarán {impact.cash_counterpart_count} {impact.cash_counterpart_count === 1 ? "contraparte" : "contrapartes"} de Efectivo vinculadas a esta cartola. Los movimientos manuales independientes se conservarán.
+              </StatusNotice>
+            ) : null}
 
             <p className="rounded-2xl border border-danger/20 bg-danger-soft/50 px-4 py-3 text-sm leading-6 text-danger">
               Esta accion no se puede deshacer y las categorizaciones manuales de estos

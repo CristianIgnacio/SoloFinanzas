@@ -1,6 +1,10 @@
 export { Hero } from "./Hero";
 export { AccountFormModal } from "./AccountFormModal";
+export { CashMovementFormModal } from "./CashMovementFormModal";
+export { CashAccountPanel } from "./CashAccountPanel";
 export { AccountVisualCard } from "./AccountVisualCard";
+export { AccountActivitySummary } from "./AccountActivitySummary";
+export { AccountMovementsTable } from "./AccountMovementsTable";
 export { DeleteStatementModal } from "./DeleteStatementModal";
 export { InstitutionLogo } from "./InstitutionLogo";
 export { LoadingState } from "./LoadingState";

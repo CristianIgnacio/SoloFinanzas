@@ -58,10 +58,13 @@ export class StatementService {
     accountId: number,
     file: File,
     password?: string,
+    acceptedIssues: string[] = [],
   ): Promise<PdfImportResponse> {
+    const form = this.buildPdfForm(accountId, file, password);
+    form.append("accepted_issues", JSON.stringify(acceptedIssues));
     return apiClient.postForm<PdfImportResponse>(
       "/statement-imports/pdf",
-      this.buildPdfForm(accountId, file, password),
+      form,
     );
   }
 
@@ -70,9 +73,11 @@ export class StatementService {
     file: File,
     reviewedTransactions: TransactionCandidateReview[],
     password?: string,
+    acceptedIssues: string[] = [],
   ): Promise<PdfImportResponse> {
     const form = this.buildPdfForm(accountId, file, password);
     form.append("reviewed_transactions", JSON.stringify(reviewedTransactions));
+    form.append("accepted_issues", JSON.stringify(acceptedIssues));
     return apiClient.postForm<PdfImportResponse>(
       "/statement-imports/pdf/reviewed",
       form,

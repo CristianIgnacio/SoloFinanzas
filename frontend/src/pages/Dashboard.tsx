@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 
 import {
   AccountFormModal,
@@ -18,6 +18,8 @@ import {
   InvestmentIcon,
   LightningIcon,
   LoadingState,
+  LockIcon,
+  WalletIcon,
   MoneyIcon,
   PageIntro,
   Panel,
@@ -33,18 +35,21 @@ import {
   getRootCategory,
   parseLocalDate,
 } from "../lib";
-import { AccountService, CategoryService, TransactionService } from "../services";
+import { AccountService, CategoryService, ProfileService, TransactionService } from "../services";
 import {
   CurrencyCode,
   InstitutionCode,
 } from "../types";
-import type { Account, AccountCreate, Category, Transaction } from "../types";
+import type { Account, AccountCreate, CashAccount, CashBalance, Category, Transaction, UserProfile } from "../types";
 import type { AccountFormValues } from "../components/AccountFormModal";
 
 type DashboardSupportState = {
   transactions: Transaction[];
   periodTransactions: Transaction[];
   accounts: Account[];
+  cashAccount: CashAccount | null;
+  cashBalance: CashBalance | null;
+  profile: UserProfile | null;
   categories: Category[];
   loading: boolean;
   error: string | null;
@@ -168,13 +173,81 @@ async function loadPeriodTransactions(periodMonth: string) {
   }
 }
 
+function FirstAccountWelcome({ onCreateAccount, onStartCash, startingCash, cashError }: {
+  onCreateAccount: () => void;
+  onStartCash: () => void;
+  startingCash: boolean;
+  cashError: string | null;
+}) {
+  return (
+    <Panel className="overflow-hidden p-0 md:p-0">
+      <div className="grid lg:grid-cols-[minmax(0,1.1fr)_minmax(300px,0.9fr)]">
+        <div className="relative isolate overflow-hidden bg-primary px-7 py-10 text-white sm:px-10 sm:py-12 lg:px-12 lg:py-14">
+          <div aria-hidden="true" className="pointer-events-none absolute -right-24 -top-32 -z-10 h-80 w-80 rounded-full border border-white/15 bg-white/5" />
+          <div aria-hidden="true" className="pointer-events-none absolute -bottom-40 right-6 -z-10 h-80 w-80 rounded-full border border-white/10" />
+          <span className="inline-flex items-center gap-2 rounded-full border border-white/25 bg-white/10 px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.12em]">
+            <BankIcon className="h-4 w-4" /> Primer paso
+          </span>
+          <h2 className="mt-8 max-w-xl text-4xl font-semibold leading-tight tracking-[-0.045em] sm:text-5xl">
+            Empieza a tu manera
+          </h2>
+          <p className="mt-4 max-w-lg text-base leading-7 text-white/80 sm:text-lg">
+            Agrega una cuenta bancaria para importar cartolas, o empieza registrando tus movimientos en Efectivo.
+          </p>
+          <button
+            type="button"
+            onClick={onCreateAccount}
+            className="mt-8 inline-flex min-h-12 items-center justify-center gap-2 rounded-full bg-white px-6 py-3 font-semibold text-primary shadow-sm transition hover:bg-primary-mist focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
+          >
+            <PlusIcon className="h-4 w-4" /> Agregar cuenta bancaria
+          </button>
+          <button type="button" disabled={startingCash} onClick={onStartCash}
+            className="mt-3 inline-flex min-h-12 items-center justify-center gap-2 rounded-full border border-white/40 bg-white/10 px-6 py-3 font-semibold text-white transition hover:bg-white/20 disabled:opacity-60 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white">
+            <WalletIcon className="h-4 w-4" /> {startingCash ? "Preparando Efectivo..." : "Empezar con efectivo"}
+          </button>
+          {cashError ? <p role="alert" className="mt-3 text-sm text-white">{cashError}</p> : null}
+          <p className="mt-6 flex max-w-lg items-start gap-2 text-sm leading-6 text-white/75">
+            <LockIcon className="mt-1 h-4 w-4 shrink-0" />
+            No conectamos tu banco ni pedimos claves. Solo usas las cartolas que decides importar.
+          </p>
+        </div>
+
+        <div className="flex flex-col justify-center bg-paper-soft/60 px-7 py-10 sm:px-10 lg:px-12">
+          <p className="eyebrow m-0">Elige un camino</p>
+          <div className="mt-7 space-y-6">
+            <div className="grid grid-cols-[auto_1fr] gap-4 border-b border-outline/80 pb-6">
+              <span className="grid h-11 w-11 place-items-center rounded-2xl bg-primary-mist text-primary"><BankIcon className="h-5 w-5" /></span>
+              <div>
+                <p className="text-xs font-bold uppercase tracking-[0.14em] text-primary">Cuenta bancaria</p>
+                <h3 className="mt-1 text-xl font-semibold text-ink">Importa una cartola</h3>
+                <p className="mt-2 text-sm leading-6 text-muted">Elige tu institución y producto. Al guardar, irás a importar tus movimientos.</p>
+              </div>
+            </div>
+            <div className="grid grid-cols-[auto_1fr] gap-4">
+              <span className="grid h-11 w-11 place-items-center rounded-2xl bg-white text-primary"><WalletIcon className="h-5 w-5" /></span>
+              <div>
+                <p className="text-xs font-bold uppercase tracking-[0.14em] text-primary">Efectivo</p>
+                <h3 className="mt-1 text-xl font-semibold text-ink">Registra a mano</h3>
+                <p className="mt-2 text-sm leading-6 text-muted">Anota un ingreso o gasto, o configura tu saldo inicial.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </Panel>
+  );
+}
+
 export function DashboardPage() {
+  const navigate = useNavigate();
   const [selectedPeriod, setSelectedPeriod] = useState<string>();
   const { data, loading, error } = useDashboard(selectedPeriod);
   const [isCreateAccountOpen, setIsCreateAccountOpen] = useState(false);
   const [movementFilter, setMovementFilter] = useState<MovementFilter>("all");
   const [createAccountError, setCreateAccountError] = useState<string | null>(null);
   const [isSavingAccount, setIsSavingAccount] = useState(false);
+  const [startingCash, setStartingCash] = useState(false);
+  const [cashStartError, setCashStartError] = useState<string | null>(null);
   const [newAccountForm, setNewAccountForm] = useState<AccountFormValues>({
     account_type: "",
     account_last4: "",
@@ -187,6 +260,9 @@ export function DashboardPage() {
     transactions: [],
     periodTransactions: [],
     accounts: [],
+    cashAccount: null,
+    cashBalance: null,
+    profile: null,
     categories: [],
     loading: true,
     error: null,
@@ -194,6 +270,8 @@ export function DashboardPage() {
   const formatCurrency = useFormatCurrency();
   const { products } = useAccountProducts();
   const dashboardPeriod = formatPeriod(data?.period_month ?? getCurrentPeriodMonth());
+  const showFirstAccountWelcome =
+    !support.loading && !support.error && support.accounts.length === 0 && support.profile?.onboarding_choice == null;
 
   useEffect(() => {
     let isMounted = true;
@@ -207,10 +285,13 @@ export function DashboardPage() {
 
       try {
         const periodMonth = data?.period_month ?? getCurrentPeriodMonth();
-        const [periodTransactions, accounts, categories] = await Promise.all([
+        const [periodTransactions, accounts, categories, cashAccount, cashBalance, profile] = await Promise.all([
           loadPeriodTransactions(periodMonth),
           AccountService.getAccounts(),
           CategoryService.getCategories(),
+          AccountService.getCashAccount(),
+          AccountService.getCashBalance(),
+          ProfileService.getProfile(),
         ]);
 
         if (isMounted) {
@@ -218,6 +299,9 @@ export function DashboardPage() {
             transactions: periodTransactions,
             periodTransactions,
             accounts,
+            cashAccount,
+            cashBalance,
+            profile,
             categories,
             loading: false,
             error: null,
@@ -293,8 +377,10 @@ export function DashboardPage() {
       return;
     }
 
-    if (newAccountForm.account_type === "credito") {
-      setCreateAccountError("Las tarjetas de crédito aún no se pueden registrar.");
+    const selectedProduct = products.find((item) => item.code === newAccountForm.product_code);
+    if (newAccountForm.account_type === "credito"
+      && (!selectedProduct || selectedProduct.pdf_support === "no_soportado")) {
+      setCreateAccountError("Este producto de crédito aún no admite importación de estados de cuenta.");
       return;
     }
 
@@ -324,12 +410,31 @@ export function DashboardPage() {
       }));
       setIsCreateAccountOpen(false);
       resetNewAccountForm();
+      navigate(`/app/import?account_id=${createdAccount.id}`);
     } catch (err) {
       setCreateAccountError(
         err instanceof Error ? err.message : "No fue posible crear la cuenta.",
       );
     } finally {
       setIsSavingAccount(false);
+    }
+  };
+
+  const handleStartCash = async () => {
+    if (!support.cashAccount) return;
+    setStartingCash(true);
+    setCashStartError(null);
+    try {
+      await ProfileService.startWithCash();
+      setSupport((current) => ({
+        ...current,
+        profile: current.profile ? { ...current.profile, onboarding_choice: "cash" } : null,
+      }));
+      navigate(`/app/accounts?account_id=${support.cashAccount.id}#cash-account`);
+    } catch (err) {
+      setCashStartError(err instanceof Error ? err.message : "No fue posible comenzar con Efectivo.");
+    } finally {
+      setStartingCash(false);
     }
   };
 
@@ -349,6 +454,8 @@ export function DashboardPage() {
       .filter(
         (transaction) =>
           transaction.transaction_type === "expense" &&
+          !transaction.is_internal_transfer &&
+          transaction.origin !== "cash_transfer" &&
           categoryTypeMap.get(transaction.category_id ?? -1) !== "transfer",
       )
       .forEach((transaction) => {
@@ -374,6 +481,8 @@ export function DashboardPage() {
     const transactions = support.periodTransactions.filter(
       (transaction) =>
         transaction.transaction_type === "income" &&
+        !transaction.is_internal_transfer &&
+        transaction.origin !== "cash_transfer" &&
         transaction.category_id !== null &&
         cardGainCategoryIds.has(transaction.category_id),
     );
@@ -392,6 +501,8 @@ export function DashboardPage() {
       .filter(
         (transaction) =>
           transaction.transaction_type === "expense" &&
+          !transaction.is_internal_transfer &&
+          transaction.origin !== "cash_transfer" &&
           categoryTypeMap.get(transaction.category_id ?? -1) !== "transfer",
       )
       .forEach((transaction) => {
@@ -427,7 +538,7 @@ export function DashboardPage() {
       support.transactions
         .filter(
           (transaction) =>
-            !transaction.is_internal_transfer &&
+            !transaction.is_internal_transfer && transaction.origin !== "cash_transfer" &&
             (movementFilter === "all" ||
               transaction.transaction_type === movementFilter),
         )
@@ -665,10 +776,11 @@ export function DashboardPage() {
   return (
     <div className="space-y-8">
       <PageIntro
-        eyebrow="Dashboard"
-        title="Dashboard"
+        eyebrow={showFirstAccountWelcome ? "Primeros pasos" : "Dashboard"}
+        title={showFirstAccountWelcome ? "Bienvenido a SoloFinanzas" : "Dashboard"}
+        description={showFirstAccountWelcome ? "Elige cómo quieres comenzar." : undefined}
         period={
-          data && data.available_periods.length > 0 ? (
+          !showFirstAccountWelcome && data && data.available_periods.length > 0 ? (
             <label className="relative inline-flex items-center">
               <span className="sr-only">Seleccionar periodo del dashboard</span>
               <select
@@ -687,9 +799,9 @@ export function DashboardPage() {
               </select>
               <ChevronDownIcon className="pointer-events-none absolute right-1 h-4 w-4 text-primary" />
             </label>
-          ) : (
+          ) : !showFirstAccountWelcome ? (
             dashboardPeriod
-          )
+          ) : undefined
         }
       />
 
@@ -697,7 +809,12 @@ export function DashboardPage() {
       {error ? <ErrorState message={error} /> : null}
       {support.error ? <ErrorState message={support.error} /> : null}
 
-      {data ? (
+      {showFirstAccountWelcome ? (
+        <FirstAccountWelcome onCreateAccount={openCreateAccountModal} onStartCash={() => void handleStartCash()}
+          startingCash={startingCash} cashError={cashStartError} />
+      ) : null}
+
+      {data && !support.loading && !showFirstAccountWelcome ? (
         <>
           <section className="grid items-stretch gap-4 lg:grid-cols-3">
             {data.cards.slice(0, 3).map((card, index) => (
@@ -884,11 +1001,18 @@ export function DashboardPage() {
                 </div>
               </div>
 
-              {support.accounts.length > 0 ? (
+              {support.accounts.length > 0 || support.cashAccount ? (
                 <div className="grid gap-4 sm:grid-cols-2">
+                  {support.cashAccount ? (
+                    <Link to={`/app/accounts?account_id=${support.cashAccount.id}#cash-account`}
+                      aria-label="Ver detalle de Efectivo"
+                      className="block min-w-0 rounded-[1.6rem] transition hover:-translate-y-1 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-primary">
+                      <AccountVisualCard variant="cash" name={support.cashAccount.name} cashBalance={support.cashBalance?.balance_clp ?? null} compact />
+                    </Link>
+                  ) : null}
                   {[...support.accounts]
                     .sort((left, right) => right.created_at.localeCompare(left.created_at) || right.id - left.id)
-                    .slice(0, 4)
+                    .slice(0, support.cashAccount ? 3 : 4)
                     .map((account) => (
                     <Link
                       key={account.id}
@@ -931,7 +1055,7 @@ export function DashboardPage() {
                   {[
                     { value: "all", label: "Todos" },
                     { value: "income", label: "Ingresos" },
-                    { value: "expense", label: "Egresos" },
+                    { value: "expense", label: "Gastos" },
                   ].map((option) => (
                     <button
                       key={option.value}

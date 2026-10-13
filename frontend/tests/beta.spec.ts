@@ -47,17 +47,76 @@ async function mockApi(page: Page) {
     };
     let body: unknown = [];
     if (url.pathname.endsWith("/me"))
-      body = { id: owner, email: "demo@example.test", display_name: "Demo" };
+      body = { id: owner, email: "demo@example.test", display_name: "Demo", onboarding_choice: "bank" };
     if (
       url.pathname.endsWith("/accounts") &&
       !url.pathname.includes("/reports/")
     )
       body = [account];
+    if (url.pathname.endsWith("/cash-account"))
+      body = { id: owner === ownerA ? 3 : 4, name: "Efectivo" };
+    if (url.pathname.endsWith("/cash-account/balance"))
+      body = { opening_balance_clp: null, opening_balance_date: null, movements_clp: 0, balance_clp: 0, is_negative: false };
     if (url.pathname.endsWith("/transaction-pages"))
       body = { items: [], total: 0, offset: 0, limit: 50 };
     return route.fulfill({ json: body });
   });
 }
+
+test("bienvenida permite comenzar con Efectivo y persiste la elección", async ({ page }) => {
+  await mockApi(page);
+  let choice: "cash" | null = null;
+  await page.route("**/api/v1/accounts", (route) => route.fulfill({ json: [] }));
+  await page.route("**/api/v1/me", (route) => route.fulfill({ json: {
+    id: ownerA, email: "demo@example.test", display_name: "Demo", onboarding_choice: choice,
+  } }));
+  await page.route("**/api/v1/me/onboarding", (route) => {
+    expect(route.request().postDataJSON()).toEqual({ choice: "cash" });
+    choice = "cash";
+    return route.fulfill({ json: { onboarding_choice: choice } });
+  });
+  await page.route("**/api/v1/dashboard**", (route) => route.fulfill({ json: {
+    period_month: "2026-10", available_periods: [], cards: [], monthly_movements: [],
+  } }));
+  await page.addInitScript((value) => localStorage.setItem("sb-demo-auth-token", JSON.stringify(value)), session(ownerA));
+  await page.goto("/app");
+  await expect(page.getByRole("heading", { name: "Empieza a tu manera" })).toBeVisible();
+  await page.getByRole("button", { name: "Empezar con efectivo" }).click();
+  await expect(page).toHaveURL(/\/app\/accounts\?account_id=3#cash-account$/);
+  await expect(page.getByRole("button", { name: "Registrar movimiento" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Configurar saldo inicial" })).toBeVisible();
+  await page.goto("/app");
+  await expect(page.getByRole("heading", { name: "Empieza a tu manera" })).toHaveCount(0);
+  await expect(page.getByRole("link", { name: "Ver detalle de Efectivo" })).toBeVisible();
+});
+
+test("bienvenida bancaria abre el formulario y lleva a importar la cuenta creada", async ({ page }) => {
+  await mockApi(page);
+  await page.route("**/api/v1/me", (route) => route.fulfill({ json: {
+    id: ownerA, email: "demo@example.test", display_name: "Demo", onboarding_choice: null,
+  } }));
+  await page.route("**/api/v1/accounts", (route) => {
+    if (route.request().method() === "POST") return route.fulfill({ status: 201, json: {
+      id: 8, ...route.request().postDataJSON(), created_at: "2026-10-12T00:00:00Z",
+    } });
+    return route.fulfill({ json: [] });
+  });
+  await page.route("**/api/v1/account-products", (route) => route.fulfill({ json: [
+    { code: "banco_estado_cuenta_rut", institution: "banco_estado", name: "CuentaRUT", kind: "vista", pdf_support: "muestra_probada" },
+  ] }));
+  await page.route("**/api/v1/dashboard**", (route) => route.fulfill({ json: {
+    period_month: "2026-10", available_periods: [], cards: [], monthly_movements: [],
+  } }));
+  await page.addInitScript((value) => localStorage.setItem("sb-demo-auth-token", JSON.stringify(value)), session(ownerA));
+  await page.goto("/app");
+  await page.getByRole("button", { name: "Agregar cuenta bancaria" }).click();
+  await page.getByRole("textbox", { name: "Nombre visible" }).fill("Mi CuentaRUT");
+  await page.getByRole("combobox", { name: "Institución" }).selectOption("banco_estado");
+  await page.getByRole("combobox", { name: "Tipo de cuenta" }).selectOption("vista");
+  await page.getByRole("combobox", { name: "Producto" }).selectOption("banco_estado_cuenta_rut");
+  await page.getByRole("dialog", { name: "Elige tu producto financiero" }).getByRole("button", { name: "Agregar cuenta" }).click();
+  await expect(page).toHaveURL(/\/app\/import\?account_id=8$/);
+});
 
 test("home público, diseño adaptable y rutas privadas", async ({
   page,
@@ -170,7 +229,7 @@ test("alta de cuenta selecciona producto y deriva el tipo", async ({ page }, inf
     if (route.request().method() === "POST") {
       createdPayload = route.request().postDataJSON();
       return route.fulfill({ status: 201, json: {
-        id: 3, created_at: "2026-01-01T00:00:00Z", ...createdPayload,
+        id: 8, created_at: "2026-01-01T00:00:00Z", ...createdPayload,
       } });
     }
     return route.fulfill({ json: [] });
@@ -394,4 +453,164 @@ test("cuentas distingue variación registrada y cobertura de cartolas", async ({
   await page.reload();
   await expect(page.getByText("Cartolas al día", { exact: true })).toBeVisible();
   await expect(page.getByText("Cartolas por actualizar", { exact: true })).toHaveCount(0);
+});
+
+test("efectivo permite crear, editar y eliminar un movimiento manual", async ({ page }) => {
+  await mockApi(page);
+  let movement: Record<string, unknown> | null = null;
+  await page.route("**/api/v1/transaction-pages**", (route) => {
+    const accountId = new URL(route.request().url()).searchParams.get("account_id");
+    const items = movement && (!accountId || accountId === "3") ? [movement] : [];
+    return route.fulfill({ json: { items, total: items.length, offset: 0, limit: 50 } });
+  });
+  await page.route("**/api/v1/cash-transactions", (route) => {
+    const payload = route.request().postDataJSON();
+    movement = {
+      ...payload, id: 10, account_id: 3, statement_id: null, origin: "manual",
+      amount_clp: payload.transaction_type === "income" ? payload.amount_clp : -payload.amount_clp,
+      normalized_description: payload.description.toLowerCase(), source_row: null,
+      category_source: null, rule_id_applied: null, fingerprint: null, raw_data: null,
+      created_at: "2026-10-12T10:00:00Z", updated_at: null, is_internal_transfer: false,
+    };
+    return route.fulfill({ status: 201, json: movement });
+  });
+  await page.route("**/api/v1/cash-transactions/10", (route) => {
+    if (route.request().method() === "DELETE") {
+      movement = null;
+      return route.fulfill({ status: 204, body: "" });
+    }
+    const payload = route.request().postDataJSON();
+    movement = {
+      ...movement, ...payload,
+      amount_clp: payload.transaction_type === "income" ? payload.amount_clp : -payload.amount_clp,
+      updated_at: "2026-10-12T11:00:00Z",
+    };
+    return route.fulfill({ json: movement });
+  });
+  await page.addInitScript(
+    (value) => localStorage.setItem("sb-demo-auth-token", JSON.stringify(value)),
+    session(ownerA),
+  );
+
+  await page.goto("/app/accounts");
+  await expect(page.getByRole("button", { name: "Importar cartola" }).first()).toBeVisible();
+  await page.getByRole("button", { name: "Seleccionar Efectivo" }).click();
+  await expect(page.getByRole("button", { name: "Importar cartola" })).toHaveCount(0);
+  const cash = page.locator("#cash-account");
+  await expect(cash.getByRole("heading", { name: "Efectivo" })).toBeVisible();
+  await expect(cash.getByText("Información de la cuenta")).toBeVisible();
+  await expect(cash.getByRole("region", { name: "Resumen de movimientos de la cuenta" }).getByRole("article")).toHaveCount(4);
+  await expect(cash.getByText("Cartolas", { exact: true })).toHaveCount(0);
+  await cash.getByRole("button", { name: "Registrar movimiento" }).click();
+  const dialog = page.getByRole("dialog", { name: "Registrar movimiento" });
+  await dialog.getByLabel("Monto en pesos").fill("5000");
+  await dialog.getByLabel("Descripción").fill("Almuerzo");
+  await dialog.getByRole("button", { name: "Registrar", exact: true }).click();
+  await expect(cash.getByText("Almuerzo")).toBeVisible();
+  await expect(cash.getByRole("table")).toBeVisible();
+
+  await cash.getByRole("button", { name: "Acciones de Almuerzo" }).click();
+  await page.getByRole("menuitem", { name: "Editar" }).click();
+  const editDialog = page.getByRole("dialog", { name: "Editar movimiento" });
+  await editDialog.getByLabel("Tipo").selectOption("income");
+  await editDialog.getByLabel("Monto en pesos").fill("8000");
+  await editDialog.getByLabel("Descripción").fill("Reembolso");
+  await editDialog.getByRole("button", { name: "Guardar cambios" }).click();
+  await expect(cash.getByText("Reembolso")).toBeVisible();
+  await cash.getByRole("button", { name: "Acciones de Reembolso" }).click();
+  await page.getByRole("menuitem", { name: "Eliminar" }).click();
+  await expect(page.getByText("¿Eliminar este movimiento manual?")).toBeVisible();
+  await page.getByRole("button", { name: "Eliminar movimiento" }).click();
+  await expect(cash.getByText("Reembolso")).toHaveCount(0);
+});
+
+test("efectivo permite configurar, corregir y quitar el saldo inicial", async ({ page }) => {
+  await mockApi(page);
+  await page.route("**/api/v1/reports/accounts", (route) => route.fulfill({ json: [
+    { account_id: 3, count: 2, net: -500, income: 1000, expenses: 1500 },
+  ] }));
+  let opening: { amount_clp: number; date: string } | null = null;
+  await page.route("**/api/v1/cash-account/balance", (route) => {
+    const method = route.request().method();
+    if (method === "PUT") opening = route.request().postDataJSON();
+    if (method === "DELETE") opening = null;
+    const amount = opening?.amount_clp ?? 0;
+    return route.fulfill({ json: {
+      opening_balance_clp: opening?.amount_clp ?? null,
+      opening_balance_date: opening?.date ?? null,
+      movements_clp: -500,
+      balance_clp: amount - 500,
+      is_negative: amount < 500,
+    } });
+  });
+  await page.addInitScript(
+    (value) => localStorage.setItem("sb-demo-auth-token", JSON.stringify(value)),
+    session(ownerA),
+  );
+  await page.goto("/app/accounts");
+  await page.getByRole("button", { name: "Seleccionar Efectivo" }).click();
+  const cash = page.locator("#cash-account");
+  await expect(cash.getByText("Saldo según tus registros")).toBeVisible();
+  const summary = cash.getByRole("region", { name: "Resumen de movimientos de la cuenta" });
+  await expect(summary.getByRole("article").filter({ hasText: "Ingresos" })).toContainText("$1.000");
+  await expect(summary.getByRole("article").filter({ hasText: "Gastos" })).toContainText("$1.500");
+  await expect(cash.getByText(/saldo calculado es negativo/)).toBeVisible();
+  await cash.getByRole("button", { name: "Configurar saldo inicial" }).click();
+  await cash.getByLabel("Saldo inicial en pesos").fill("1000");
+  await cash.getByLabel("Fecha de inicio").fill("2026-10-10");
+  await cash.getByRole("button", { name: "Guardar saldo" }).click();
+  await expect(cash.getByText(/al comienzo del 10-10-2026/)).toBeVisible();
+  await expect(summary.getByRole("article").filter({ hasText: "Saldo registrado" })).toContainText("$500");
+  await expect(cash.getByText(/saldo calculado es negativo/)).toHaveCount(0);
+  await cash.getByRole("button", { name: "Corregir saldo inicial" }).click();
+  await cash.getByLabel("Saldo inicial en pesos").fill("0");
+  await cash.getByRole("button", { name: "Guardar saldo" }).click();
+  await expect(cash.getByText(/saldo calculado es negativo/)).toBeVisible();
+  await cash.getByRole("button", { name: "Corregir saldo inicial" }).click();
+  await cash.getByRole("button", { name: "Quitar saldo inicial" }).click();
+  await expect(cash.getByText("Calculado desde cero con todos los movimientos registrados.")).toBeVisible();
+});
+
+test("retiro importado se vincula con Efectivo y se puede deshacer", async ({ page }) => {
+  await mockApi(page);
+  let linked = false;
+  const bank = {
+    id: 20, account_id: 1, statement_id: 5, origin: "pdf", source_row: 1,
+    date: "2026-10-10", description: "Giro en cajero", normalized_description: "giro en cajero",
+    amount_clp: -20000, transaction_type: "expense", category_id: null,
+    category_source: null, rule_id_applied: null, fingerprint: "giro", raw_data: null,
+    created_at: "2026-10-10T12:00:00Z", updated_at: null, is_internal_transfer: false,
+    cash_transfer_linked: false,
+  };
+  await page.route("**/api/v1/transaction-pages**", (route) => {
+    const items: Record<string, unknown>[] = [{ ...bank, is_internal_transfer: linked, cash_transfer_linked: linked }];
+    if (linked) items.push({
+      ...bank, id: 21, account_id: 3, statement_id: null, origin: "cash_transfer",
+      description: "Retiro desde Cuenta demo A", amount_clp: 20000, transaction_type: "income",
+    });
+    return route.fulfill({ json: { items, total: items.length, offset: 0, limit: 50 } });
+  });
+  await page.route("**/api/v1/transactions/20/cash-link", (route) => {
+    linked = route.request().method() === "POST";
+    return route.fulfill({ json: { ...bank, is_internal_transfer: linked, cash_transfer_linked: linked } });
+  });
+  await page.route("**/api/v1/transactions/21/cash-link", (route) => {
+    linked = false;
+    return route.fulfill({ json: bank });
+  });
+  await page.addInitScript(
+    (value) => localStorage.setItem("sb-demo-auth-token", JSON.stringify(value)),
+    session(ownerA),
+  );
+  await page.goto("/app/transactions");
+  await page.getByRole("button", { name: "Vincular con Efectivo" }).click();
+  const confirm = page.getByRole("dialog", { name: "Vincular con Efectivo" });
+  await expect(confirm.getByText("Entrada a Efectivo")).toBeVisible();
+  await confirm.getByRole("button", { name: "Confirmar vínculo" }).click();
+  await expect(page.getByText("Retiro desde Cuenta demo A")).toBeVisible();
+  await expect(page.getByText("Transferencia interna")).toHaveCount(2);
+  await page.getByRole("button", { name: "Deshacer vínculo" }).last().click();
+  await page.getByRole("dialog", { name: "Deshacer vínculo" }).getByRole("button", { name: "Deshacer vínculo" }).click();
+  await expect(page.getByText("Retiro desde Cuenta demo A")).toHaveCount(0);
+  await expect(page.getByText("Giro en cajero")).toBeVisible();
 });

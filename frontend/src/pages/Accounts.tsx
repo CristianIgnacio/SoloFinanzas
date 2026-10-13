@@ -3,10 +3,11 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 
 import {
-  ArrowDownIcon,
-  ArrowUpIcon,
+  AccountActivitySummary,
+  AccountMovementsTable,
   AccountVisualCard,
   AccountFormModal,
+  CashAccountPanel,
   BankIcon,
   Button,
   ChevronLeftIcon,
@@ -21,15 +22,13 @@ import {
   PdfIcon,
   PlusIcon,
   PencilIcon,
-  ReceiptIcon,
-  StatCard,
   StatusNotice,
   TrashIcon,
   cn,
 } from "../components";
 import { useFormatCurrency } from "../hooks";
 import { accountProductName, useAccountProducts } from "../hooks/useAccountProducts";
-import { createCategoryMap, getCategoryPath, parseLocalDate } from "../lib";
+import { createCategoryMap, parseLocalDate } from "../lib";
 import {
   AccountService,
   CategoryService,
@@ -41,6 +40,8 @@ import type { AccountCreate, AccountUpdate } from "../types";
 import type { AccountFormValues } from "../components/AccountFormModal";
 import type {
   Account,
+  CashAccount,
+  CashBalance,
   Category,
   Statement,
   StatementDeletionImpact,
@@ -171,6 +172,8 @@ export function AccountsPage() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const [accounts, setAccounts] = useState<Account[]>([]);
+  const [cashAccount, setCashAccount] = useState<CashAccount | null>(null);
+  const [cashBalance, setCashBalance] = useState<CashBalance | null>(null);
   const [statements, setStatements] = useState<Statement[]>([]);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [pageOffset, setPageOffset] = useState(0);
@@ -216,16 +219,21 @@ export function AccountsPage() {
     let cancelled = false;
     async function loadInitialData() {
       try {
-        const [accountData, categoryData] = await Promise.all([
+        const [accountData, categoryData, cashData, balanceData] = await Promise.all([
           AccountService.getAccounts(),
           CategoryService.getCategories(),
+          AccountService.getCashAccount(),
+          AccountService.getCashBalance(),
         ]);
         if (cancelled) return;
         setAccounts(accountData);
         setCategories(categoryData);
+        setCashAccount(cashData);
+        setCashBalance(balanceData);
         const requestedId = Number(searchParams.get("account_id"));
         const initial =
-          accountData.find((account) => account.id === requestedId) ?? accountData[0];
+          accountData.find((account) => account.id === requestedId) ??
+          (cashData.id === requestedId ? cashData : null) ?? accountData[0] ?? cashData;
         setSelectedAccountId(initial?.id ?? null);
       } catch (err) {
         if (!cancelled) {
@@ -242,7 +250,18 @@ export function AccountsPage() {
   }, []);
 
   useEffect(() => {
+    if (loading || window.location.hash !== "#cash-account") return;
+    const target = document.getElementById("cash-account");
+    if (target) requestAnimationFrame(() => target.scrollIntoView({ behavior: "smooth", block: "start" }));
+  }, [loading]);
+
+  useEffect(() => {
     if (selectedAccountId === null) return;
+    if (selectedAccountId === cashAccount?.id) {
+      setLoadedDetailsAccountId(null);
+      setLoadingDetails(false);
+      return;
+    }
     let cancelled = false;
     async function loadDetail() {
       setLoadingDetails(true);
@@ -272,15 +291,16 @@ export function AccountsPage() {
     return () => {
       cancelled = true;
     };
-  }, [selectedAccountId, pageOffset]);
+  }, [selectedAccountId, pageOffset, cashAccount?.id]);
 
   const account = accounts.find((item) => item.id === selectedAccountId) ?? null;
-  const selectedIndex = accounts.findIndex((item) => item.id === selectedAccountId);
+  const selectableAccounts: (Account | CashAccount)[] = cashAccount ? [cashAccount, ...accounts] : accounts;
+  const selectedIndex = selectableAccounts.findIndex((item) => item.id === selectedAccountId);
   const categoryMap = useMemo(
     () => createCategoryMap(categories),
     [categories],
   );
-  const summary = totals.find(item => item.account_id === selectedAccountId) ?? {income: 0, expenses: 0, net: 0, count: 0};
+  const summary = totals.find(item => item.account_id === selectedAccountId) ?? {account_id: selectedAccountId ?? 0, income: 0, expenses: 0, net: 0, count: 0};
   const detailsReady = !loadingDetails && loadedDetailsAccountId === selectedAccountId;
   const statementCoverage = getStatementCoverage(statements);
 
@@ -309,9 +329,9 @@ export function AccountsPage() {
   };
 
   const moveSelection = (direction: -1 | 1) => {
-    if (accounts.length < 2 || selectedIndex < 0) return;
-    const nextIndex = (selectedIndex + direction + accounts.length) % accounts.length;
-    selectAccount(accounts[nextIndex].id);
+    if (selectableAccounts.length < 2 || selectedIndex < 0) return;
+    const nextIndex = (selectedIndex + direction + selectableAccounts.length) % selectableAccounts.length;
+    selectAccount(selectableAccounts[nextIndex].id);
   };
 
   const openCreateAccountModal = () => {
@@ -351,8 +371,10 @@ export function AccountsPage() {
       return;
     }
     const originalCredit = original && ["credito", "tarjeta de credito", "tarjeta de crédito"].includes(original.account_type.toLowerCase());
-    if (accountForm.account_type === "credito" && !originalCredit) {
-      setAccountFormError("Las tarjetas de crédito aún no se pueden registrar.");
+    const selectedProduct = products.find((item) => item.code === accountForm.product_code);
+    if (accountForm.account_type === "credito" && !originalCredit
+      && (!selectedProduct || selectedProduct.pdf_support === "no_soportado")) {
+      setAccountFormError("Este producto de crédito aún no admite importación de estados de cuenta.");
       return;
     }
     if (accountForm.account_last4 && accountForm.account_last4.length !== 4) {
@@ -400,7 +422,7 @@ export function AccountsPage() {
       setAccounts(remaining);
       setAccountPendingDelete(null);
       const nextSelectedId = target.id === selectedAccountId
-        ? remaining[0]?.id ?? null
+        ? remaining[0]?.id ?? cashAccount?.id ?? null
         : selectedAccountId;
       setPageOffset(0);
       setSelectedAccountId(nextSelectedId);
@@ -498,7 +520,7 @@ export function AccountsPage() {
       <PageIntro
         eyebrow="Cuentas"
         title="Mis cuentas"
-        description="Selecciona una cuenta para revisar sus cartolas, movimientos y resultados acumulados."
+        description="Revisa tu Efectivo o selecciona una cuenta financiera para ver sus cartolas y movimientos."
         actions={
           <div className="flex flex-wrap gap-3">
             <Button tone="secondary" onClick={openCreateAccountModal}>
@@ -519,29 +541,29 @@ export function AccountsPage() {
       {error ? <ErrorState message={error} /> : null}
       {feedback ? <StatusNotice tone="success">{feedback}</StatusNotice> : null}
 
-      {!loading && accounts.length === 0 ? (
+      {!loading && selectableAccounts.length === 0 ? (
         <EmptyState
-          title="Todavia no tienes cuentas"
-          description="Crea tu primera cuenta para comenzar a importar cartolas."
+          title="Todavía no tienes cuentas bancarias"
+          description="Puedes usar Efectivo o agregar una cuenta financiera para importar cartolas."
           action={<Button onClick={openCreateAccountModal}>Crear primera cuenta</Button>}
         />
       ) : null}
 
-      {account ? (
+      {!loading && selectedAccountId !== null ? (
         <>
           <section className="space-y-4" aria-label="Selector de cuentas">
             <div className="flex items-center justify-between gap-4">
               <div>
                 <p className="eyebrow m-0 text-primary">Selector de cuentas</p>
                 <p className="mt-1 text-sm text-muted">
-                  {selectedIndex + 1} de {accounts.length}
+                  {selectedIndex + 1} de {selectableAccounts.length}
                 </p>
               </div>
               <div className="flex gap-2">
                 <button
                   type="button"
                   onClick={() => moveSelection(-1)}
-                  disabled={accounts.length < 2}
+                  disabled={selectableAccounts.length < 2}
                   aria-label="Cuenta anterior"
                   className="flex h-11 w-11 items-center justify-center rounded-full border border-outline bg-white text-muted transition-colors hover:border-primary/40 hover:bg-primary-mist hover:text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary disabled:cursor-not-allowed disabled:opacity-40"
                 >
@@ -550,7 +572,7 @@ export function AccountsPage() {
                 <button
                   type="button"
                   onClick={() => moveSelection(1)}
-                  disabled={accounts.length < 2}
+                  disabled={selectableAccounts.length < 2}
                   aria-label="Cuenta siguiente"
                   className="flex h-11 w-11 items-center justify-center rounded-full border border-outline bg-white text-muted transition-colors hover:border-primary/40 hover:bg-primary-mist hover:text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary disabled:cursor-not-allowed disabled:opacity-40"
                 >
@@ -560,16 +582,17 @@ export function AccountsPage() {
             </div>
 
             <div ref={accountSelectorRef} className="flex snap-x gap-4 overflow-x-auto px-1 py-2 pb-4">
-              {accounts.map((item) => {
-                const active = item.id === account.id;
+              {selectableAccounts.map((item) => {
+                const active = item.id === selectedAccountId;
+                const financial = "institution" in item ? item : null;
                 return (
                   <button
-                    key={item.id}
+                    key={financial ? `financial-${item.id}` : `cash-${item.id}`}
                     type="button"
                     data-account-id={item.id}
                     onClick={() => selectAccount(item.id)}
                     aria-pressed={active}
-                    aria-label={`Seleccionar ${item.name} de ${InstitutionLabels[item.institution]}`}
+                    aria-label={financial ? `Seleccionar ${item.name} de ${InstitutionLabels[financial.institution]}` : `Seleccionar ${item.name}`}
                     className={cn(
                       "w-[280px] shrink-0 snap-start rounded-[1.6rem] text-left transition sm:w-[340px]",
                       active
@@ -577,16 +600,18 @@ export function AccountsPage() {
                         : "hover:-translate-y-1",
                     )}
                   >
-                    <AccountVisualCard
-                      institution={item.institution}
-                      accountType={item.account_type}
-                      productCode={item.product_code}
-                      productName={accountProductName(item, products)}
-                      name={item.name}
-                      accountLast4={item.account_last4}
-                      currency={item.currency}
-                      compact
-                    />
+                    {financial ? (
+                      <AccountVisualCard
+                        institution={financial.institution}
+                        accountType={financial.account_type}
+                        productCode={financial.product_code}
+                        productName={accountProductName(financial, products)}
+                        name={financial.name}
+                        accountLast4={financial.account_last4}
+                        currency={financial.currency}
+                        compact
+                      />
+                    ) : <AccountVisualCard variant="cash" name={item.name} cashBalance={cashBalance?.balance_clp ?? null} compact />}
                   </button>
                 );
               })}
@@ -606,6 +631,7 @@ export function AccountsPage() {
             </div>
           </section>
 
+          {account ? <>
           <Panel className="space-y-6">
             <div className="flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
               <div className="flex min-w-0 items-center gap-5">
@@ -717,15 +743,15 @@ export function AccountsPage() {
             </div>
           </Panel>
 
-          <div className="space-y-3">
-            <p className="text-sm text-muted">Resumen de todo el historial importado. La variación registrada no es el saldo disponible del banco.</p>
-            <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4" aria-label="Resumen de movimientos de la cuenta">
-              <StatCard label="Variación registrada" value={detailsReady ? formatCurrency(summary.net) : "—"} icon={<BankIcon className="h-5 w-5" />} />
-              <StatCard label="Ingresos" value={detailsReady ? formatCurrency(summary.income) : "—"} tone="income" icon={<ArrowUpIcon className="h-5 w-5" />} />
-              <StatCard label="Gastos" value={detailsReady ? formatCurrency(summary.expenses) : "—"} tone="expense" icon={<ArrowDownIcon className="h-5 w-5" />} />
-              <StatCard label="Movimientos" value={detailsReady ? String(summary.count) : "—"} icon={<ReceiptIcon className="h-5 w-5" />} />
-            </section>
-          </div>
+          <AccountActivitySummary
+            description="Resumen de todo el historial importado. Ingresos y gastos excluyen transferencias internas; la variación registrada incluye todos los movimientos y no es el saldo disponible del banco."
+            firstLabel="Variación registrada"
+            firstValue={detailsReady ? formatCurrency(summary.net) : "—"}
+            firstIcon={<BankIcon className="h-5 w-5" />}
+            summary={summary}
+            ready={detailsReady}
+            formatCurrency={formatCurrency}
+          />
 
           <Panel className="p-0 md:p-0">
             <div className="flex gap-2 overflow-x-auto border-b border-outline px-5 pt-5 md:px-8 md:pt-7">
@@ -825,39 +851,7 @@ export function AccountsPage() {
               ) : null}
 
               {detailsReady && activeTab === "transactions" && transactions.length > 0 ? (
-                <div className="overflow-x-auto">
-                  <table className="w-full min-w-[720px] border-collapse">
-                    <thead className="text-left text-sm text-muted">
-                      <tr className="border-b border-outline">
-                        <th className="px-4 py-3 font-medium">Fecha</th>
-                        <th className="px-4 py-3 font-medium">Descripcion</th>
-                        <th className="px-4 py-3 font-medium">Categoria</th>
-                        <th className="px-4 py-3 text-right font-medium">Monto</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {transactions.map((transaction) => (
-                        <tr key={transaction.id} className="border-b border-outline/60 last:border-0">
-                          <td className="whitespace-nowrap px-4 py-4 text-muted">{formatDate(transaction.date)}</td>
-                          <td className="px-4 py-4 font-medium">{transaction.description}</td>
-                          <td className="px-4 py-4">
-                            <span className="rounded-full bg-paper-soft px-3 py-1 text-sm text-muted">
-                              {getCategoryPath(transaction.category_id, categoryMap)}
-                            </span>
-                          </td>
-                          <td
-                            className={cn(
-                              "whitespace-nowrap px-4 py-4 text-right font-semibold",
-                              transaction.amount_clp >= 0 ? "text-primary" : "text-ink",
-                            )}
-                          >
-                            {formatCurrency(transaction.amount_clp)}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+                <AccountMovementsTable transactions={transactions} categoryMap={categoryMap} formatCurrency={formatCurrency} />
               ) : null}
 
               {activeTab === 'transactions' && detailsReady && <div className="flex justify-center gap-3 py-4">
@@ -885,6 +879,9 @@ export function AccountsPage() {
               ) : null}
             </div>
           </Panel>
+          </> : cashAccount && selectedAccountId === cashAccount.id ? (
+            <CashAccountPanel account={cashAccount} categories={categories} onBalanceChange={setCashBalance} />
+          ) : null}
         </>
       ) : null}
       {statementPendingDelete ? (

@@ -5,6 +5,7 @@ import { useRef } from "react";
 
 import {
   Button,
+  CashMovementFormModal,
   ChevronDownIcon,
   EmptyState,
   ErrorState,
@@ -12,6 +13,7 @@ import {
   InstitutionLogo,
   LoadingState,
   MoneyIcon,
+  WalletIcon,
   PageIntro,
   Panel,
   QuestionIcon,
@@ -29,8 +31,9 @@ import {
   parseLocalDate,
 } from "../lib";
 import { AccountService, CategoryService, TransactionService } from "../services";
+import { CashLinkModal } from "../components/CashLinkModal";
 import { CategoryType } from "../types";
-import type { Account, Category, Transaction } from "../types";
+import type { Account, CashAccount, Category, Transaction } from "../types";
 
 type FilterMode = "all" | "expense" | "income";
 
@@ -95,12 +98,19 @@ export function TransactionsPage() {
     : undefined;
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [accounts, setAccounts] = useState<Account[]>([]);
+  const [cashAccount, setCashAccount] = useState<CashAccount | null>(null);
+  const [cashFormOpen, setCashFormOpen] = useState(false);
+  const [editingCashTransaction, setEditingCashTransaction] = useState<Transaction | null>(null);
+  const [cashRefreshKey, setCashRefreshKey] = useState(0);
+  const [linkingTransaction, setLinkingTransaction] = useState<Transaction | null>(null);
+  const [linkSaving, setLinkSaving] = useState(false);
+  const [linkError, setLinkError] = useState<string | null>(null);
   const [categories, setCategories] = useState<Category[]>([]);
   const [draftCategories, setDraftCategories] = useState<Record<number, string>>({});
   const [filter, setFilter] = useState<FilterMode>("all");
   const [excludeInternalTransfers, setExcludeInternalTransfers] = useState(false);
   const [selectedMonth, setSelectedMonth] = useState(ALL_PERIODS);
-  const [selectedAccount, setSelectedAccount] = useState(ALL_ACCOUNTS);
+  const [selectedAccount, setSelectedAccount] = useState(searchParams.get("account_id") ?? ALL_ACCOUNTS);
   const [selectedCategory, setSelectedCategory] = useState(ALL_CATEGORIES);
   const [pageOffset, setPageOffset] = useState(0);
   const [total, setTotal] = useState(0);
@@ -148,11 +158,11 @@ export function TransactionsPage() {
   };
   useEffect(() => {
     let cancelled = false;
-    void Promise.all([AccountService.getAccounts(), CategoryService.getCategories(), ReportService.periods(statementId)])
-      .then(([a, c, p]) => { if (!cancelled) { setAccounts(a); setCategories(c); setMonths(p); } })
+    void Promise.all([AccountService.getAccounts(), AccountService.getCashAccount(), CategoryService.getCategories(), ReportService.periods(statementId)])
+      .then(([a, cash, c, p]) => { if (!cancelled) { setAccounts(a); setCashAccount(cash); setCategories(c); setMonths(p); } })
       .catch(err => { if (!cancelled) setError(err.message); });
     return () => { cancelled = true; };
-  }, [statementId]);
+  }, [statementId, cashRefreshKey]);
   useEffect(() => {
     let cancelled = false;
     setLoading(true); setError(null); setTransactions([]);
@@ -161,7 +171,7 @@ export function TransactionsPage() {
     }).catch(err => { if (!cancelled) setError(err.message); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [statementId, selectedMonth, selectedAccount, selectedCategory, filter, excludeInternalTransfers, pageOffset]);
+  }, [statementId, selectedMonth, selectedAccount, selectedCategory, filter, excludeInternalTransfers, pageOffset, cashRefreshKey]);
 
   const accountOptions = useMemo(() => {
     const accountIds = new Set(transactions.map((transaction) => transaction.account_id));
@@ -175,8 +185,9 @@ export function TransactionsPage() {
           : account.name,
       }))
       .sort((left, right) => left.label.localeCompare(right.label, "es-CL"));
+    if (cashAccount) knownAccounts.unshift({ id: cashAccount.id, label: cashAccount.name });
     const missingAccounts = [...accountIds]
-      .filter((accountId) => !accountsById.has(accountId))
+      .filter((accountId) => !accountsById.has(accountId) && accountId !== cashAccount?.id)
       .sort((left, right) => left - right)
       .map((accountId) => ({
         id: accountId,
@@ -184,11 +195,14 @@ export function TransactionsPage() {
       }));
 
     return [...knownAccounts, ...missingAccounts];
-  }, [accounts, transactions]);
+  }, [accounts, cashAccount, transactions]);
 
   const accountMap = useMemo(
-    () => new Map(accounts.map((account) => [account.id, account])),
-    [accounts],
+    () => new Map<number, Account | CashAccount>([
+      ...accounts.map((account): [number, Account | CashAccount] => [account.id, account]),
+      ...(cashAccount ? [[cashAccount.id, cashAccount] as [number, CashAccount]] : []),
+    ]),
+    [accounts, cashAccount],
   );
 
   const categoryFilterOptions = useMemo(() => {
@@ -259,7 +273,7 @@ export function TransactionsPage() {
           return false;
         }
 
-        return !excludeInternalTransfers || !transaction.is_internal_transfer;
+        return !excludeInternalTransfers || (!transaction.is_internal_transfer && transaction.origin !== "cash_transfer");
       });
   }, [categoryMap, excludeInternalTransfers, filter, selectedAccount, selectedCategory, selectedMonth, transactions]);
 
@@ -311,6 +325,27 @@ export function TransactionsPage() {
   };
 
   const pendingChanges = Object.keys(draftCategories).length;
+
+  const confirmCashLink = async () => {
+    if (!linkingTransaction) return;
+    setLinkSaving(true);
+    setLinkError(null);
+    try {
+      if (linkingTransaction.cash_transfer_linked || linkingTransaction.origin === "cash_transfer") {
+        await TransactionService.unlinkCash(linkingTransaction.id);
+      } else {
+        await TransactionService.linkCash(linkingTransaction.id);
+      }
+      setSuccessMessage(linkingTransaction.cash_transfer_linked || linkingTransaction.origin === "cash_transfer" ? "Vínculo con Efectivo deshecho." : "Movimiento vinculado con Efectivo.");
+      setLinkingTransaction(null);
+      setPageOffset(0);
+      setCashRefreshKey((value) => value + 1);
+    } catch (cause) {
+      setLinkError(cause instanceof Error ? cause.message : "No fue posible actualizar el vínculo.");
+    } finally {
+      setLinkSaving(false);
+    }
+  };
 
   const exportMarkdown = () => {
     const markdown = [
@@ -400,10 +435,15 @@ export function TransactionsPage() {
         description={
           statementId
             ? "Revisa y categoriza los movimientos de la cartola que acabas de importar."
-            : "Consulta, filtra y corrige las categorias de tus transacciones."
+            : "Consulta, filtra y categoriza tus movimientos, o registra uno en Efectivo."
         }
         actions={
           <>
+            {cashAccount && !statementId ? (
+              <Button tone="secondary" disabled={pendingChanges > 0} onClick={() => { setEditingCashTransaction(null); setCashFormOpen(true); }}>
+                Registrar en Efectivo
+              </Button>
+            ) : null}
             <Button
               tone="secondary"
               onClick={exportMarkdown}
@@ -500,7 +540,7 @@ export function TransactionsPage() {
               <Tag active={filter === "all"}>Todos</Tag>
             </button>
             <button type="button" onClick={() => setFilter("expense")}>
-              <Tag active={filter === "expense"}>Egreso</Tag>
+              <Tag active={filter === "expense"}>Gasto</Tag>
             </button>
             <button type="button" onClick={() => setFilter("income")}>
               <Tag active={filter === "income"}>Ingreso</Tag>
@@ -541,7 +581,7 @@ export function TransactionsPage() {
               onChange={(event) => setSelectedAccount(event.target.value)}
               className="w-full min-w-0 truncate appearance-none rounded-full border border-outline bg-white px-5 py-3 pr-12 text-base outline-none transition focus:border-primary"
             >
-              <option value={ALL_ACCOUNTS}>Todas las tarjetas</option>
+              <option value={ALL_ACCOUNTS}>Todas las cuentas</option>
               {accountOptions.map((account) => (
                 <option key={account.id} value={account.id}>
                   {account.label}
@@ -594,7 +634,7 @@ export function TransactionsPage() {
                             <p className="text-lg text-muted">
                               {transaction.transaction_type === "income"
                                 ? "Ingreso"
-                                : "Egreso"}
+                                : "Gasto"}
                             </p>
                             {account ? (
                               <Link
@@ -602,10 +642,9 @@ export function TransactionsPage() {
                                 aria-label={`Ver detalle de ${account.name}`}
                                 className="inline-flex items-center gap-2 rounded-full border border-outline bg-white px-2.5 py-1 text-xs font-semibold text-muted transition hover:border-primary/40 hover:text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
                               >
-                                <InstitutionLogo
-                                  institution={account.institution}
-                                  size="sm"
-                                />
+                                {"institution" in account ? (
+                                  <InstitutionLogo institution={account.institution} size="sm" />
+                                ) : <WalletIcon className="h-4 w-4 text-primary" />}
                                 {account.name}
                               </Link>
                             ) : (
@@ -613,11 +652,14 @@ export function TransactionsPage() {
                                 Tarjeta #{transaction.account_id}
                               </span>
                             )}
-                            {transaction.is_internal_transfer ? (
+                            {transaction.is_internal_transfer || transaction.origin === "cash_transfer" ? (
                               <span className="rounded-full border border-primary/20 bg-primary-mist px-2.5 py-1 text-xs font-semibold uppercase tracking-[0.08em] text-primary">
                                 Transferencia interna
                               </span>
                             ) : null}
+                            <span className="text-xs text-muted">
+                              {transaction.origin === "pdf" ? "Cartola PDF" : transaction.origin === "cash_transfer" ? "Traslado con Efectivo" : "Registro manual"}
+                            </span>
                           </div>
                         </div>
                       </div>
@@ -640,6 +682,7 @@ export function TransactionsPage() {
                         <div className="relative w-full min-w-0 md:w-64 md:flex-none">
                           <select
                             aria-label={`Categoria de ${transaction.description}`}
+                            disabled={transaction.origin === "cash_transfer"}
                             value={categoryValue}
                             onChange={(event) =>
                               updateDraftCategory(transaction, event.target.value)
@@ -664,6 +707,17 @@ export function TransactionsPage() {
                           </select>
                           <ChevronDownIcon className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" />
                         </div>
+                        {transaction.origin === "manual" ? (
+                          <Button tone="ghost" disabled={pendingChanges > 0} onClick={() => { setEditingCashTransaction(transaction); setCashFormOpen(true); }}>
+                            Editar
+                          </Button>
+                        ) : null}
+                        {(transaction.cash_transfer_linked || transaction.origin === "cash_transfer" ||
+                          (transaction.origin === "pdf" && !transaction.is_internal_transfer)) ? (
+                          <Button tone="ghost" disabled={pendingChanges > 0} onClick={() => { setLinkError(null); setLinkingTransaction(transaction); }}>
+                            {transaction.cash_transfer_linked || transaction.origin === "cash_transfer" ? "Deshacer vínculo" : "Vincular con Efectivo"}
+                          </Button>
+                        ) : null}
                       </div>
                     </Panel>
                   );
@@ -681,6 +735,30 @@ export function TransactionsPage() {
         <EmptyState
           title="No hay movimientos para este filtro"
           description="Prueba cambiando el periodo o el criterio de revision."
+        />
+      ) : null}
+      {cashFormOpen ? (
+        <CashMovementFormModal
+          key={editingCashTransaction?.id ?? "new"}
+          categories={categories}
+          transaction={editingCashTransaction}
+          onClose={() => setCashFormOpen(false)}
+          onChanged={() => {
+            setPageOffset(0);
+            setDraftCategories({});
+            setCashRefreshKey((value) => value + 1);
+            setSuccessMessage("Movimientos de Efectivo actualizados.");
+          }}
+        />
+      ) : null}
+      {linkingTransaction ? (
+        <CashLinkModal
+          transaction={linkingTransaction}
+          accountName={accountMap.get(linkingTransaction.account_id)?.name ?? "Cuenta"}
+          saving={linkSaving}
+          error={linkError}
+          onClose={() => setLinkingTransaction(null)}
+          onConfirm={() => void confirmCashLink()}
         />
       ) : null}
     </div>
