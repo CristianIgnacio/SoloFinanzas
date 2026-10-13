@@ -1,8 +1,12 @@
+from sqlalchemy import text
+from sqlalchemy.dialects.postgresql import insert as postgres_insert
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
+from app.models.user import UserModel
 
 from app.domain.account_products import get_financial_product, kind_for_account_type
-from app.domain.enums import InstitutionCode
+from app.domain.enums import AccountKind, CurrencyCode, InstitutionCode
 from app.models.account import AccountModel
 from app.schemas.account import Account, AccountCreate, AccountUpdate
 
@@ -13,6 +17,32 @@ class AccountDeleteConflictError(Exception):
 
 class AccountProductValidationError(ValueError):
     """Raised when a product code does not match the account."""
+
+
+def ensure_cash_account(session: Session, user_id) -> None:
+    """Provision cash once; the partial unique index resolves concurrent logins."""
+    existing = session.exec(select(AccountModel.id).where(
+        AccountModel.user_id == user_id,
+        AccountModel.account_kind == AccountKind.CASH,
+    )).first()
+    if existing is not None:
+        return
+    dialect = session.get_bind().dialect.name
+    insert = sqlite_insert if dialect == "sqlite" else postgres_insert
+    statement = insert(AccountModel).values(
+        user_id=user_id,
+        name="Efectivo",
+        account_kind=AccountKind.CASH,
+        institution=None,
+        account_type="efectivo",
+        product_code=None,
+        account_last4=None,
+        currency=CurrencyCode.CLP,
+    ).on_conflict_do_nothing(
+        index_elements=[AccountModel.user_id],
+        index_where=text("account_kind = 'cash'"),
+    )
+    session.execute(statement)
 
 
 def _validated_product_code(
@@ -47,13 +77,22 @@ def create_account(session: Session, payload: AccountCreate) -> Account:
     session.add(account)
     session.commit()
     session.refresh(account)
+    owner_id = session.info.get("user_id")
+    if owner_id is not None:
+        with Session(session.get_bind()) as identities:
+            user = identities.get(UserModel, owner_id)
+            if user is not None and user.onboarding_choice is None:
+                user.onboarding_choice = "bank"
+                identities.add(user)
+                identities.commit()
     return Account.model_validate(account)
 
 
 def list_accounts(session: Session) -> list[Account]:
-    """Lista cuentas en orden de creacion estable."""
+    """List financial accounts until the cash interface is introduced."""
     accounts = session.exec(
-        select(AccountModel).order_by(AccountModel.created_at.asc(), AccountModel.id.asc())
+        select(AccountModel).where(AccountModel.account_kind == AccountKind.FINANCIAL)
+        .order_by(AccountModel.created_at.asc(), AccountModel.id.asc())
     ).all()
     return [Account.model_validate(account) for account in accounts]
 
@@ -63,6 +102,8 @@ def update_account(session: Session, account_id: int, payload: AccountUpdate) ->
     account = session.exec(select(AccountModel).where(AccountModel.id == account_id)).first()
     if not account:
         return None
+    if account.account_kind == AccountKind.CASH:
+        raise AccountProductValidationError("La cuenta Efectivo no se puede editar.")
 
     normalized_last4 = payload.account_last4.strip() if payload.account_last4 else None
     explicit_product = "product_code" in payload.model_fields_set
@@ -94,6 +135,8 @@ def delete_account(session: Session, account_id: int) -> bool:
     account = session.exec(select(AccountModel).where(AccountModel.id == account_id)).first()
     if not account:
         return False
+    if account.account_kind == AccountKind.CASH:
+        raise AccountDeleteConflictError("La cuenta Efectivo no se puede eliminar.")
 
     try:
         session.delete(account)

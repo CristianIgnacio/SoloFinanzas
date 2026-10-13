@@ -6,19 +6,33 @@ from datetime import date as date_type
 from datetime import datetime, timezone
 from typing import Any
 
-from sqlalchemy import Column
+from sqlalchemy import CheckConstraint, Column
 from sqlmodel import Field, JSON, SQLModel
 
 from app.models._sql import enum_sql_type
-from app.domain.enums import CategorySource, TransactionType
+from app.domain.enums import CategorySource, TransactionOrigin, TransactionType
 
 
 class TransactionModel(OwnedModel, table=True):
     __tablename__ = "transactions"  # type: ignore
+    __table_args__ = (
+        CheckConstraint(
+            "(origin = 'pdf' AND statement_id IS NOT NULL) OR "
+            "(origin IN ('manual', 'cash_transfer') AND statement_id IS NULL)",
+            name="ck_transactions_origin_statement",
+        ),
+    )
 
     id: int | None = Field(default=None, primary_key=True)
     account_id: int = Field(foreign_key="accounts.id", index=True)
-    statement_id: int = Field(foreign_key="statements.id")
+    statement_id: int | None = Field(default=None, foreign_key="statements.id")
+    origin: TransactionOrigin = Field(
+        default=TransactionOrigin.PDF,
+        sa_column=Column(
+            enum_sql_type(TransactionOrigin), nullable=False,
+            server_default=TransactionOrigin.PDF.value,
+        ),
+    )
     source_row: int | None = None
     date: date_type = Field(index=True)
     description: str

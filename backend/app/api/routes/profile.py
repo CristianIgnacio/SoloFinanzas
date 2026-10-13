@@ -2,6 +2,7 @@ import time
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Response
+from pydantic import BaseModel
 from fastapi.encoders import jsonable_encoder
 from sqlmodel import Session, select
 
@@ -17,7 +18,27 @@ router = APIRouter()
 
 @router.get("/me")
 def me(identity: Identity = Depends(get_identity), session: TenantSession = Depends(get_session)):
-    return {"id": str(identity.id), "email": identity.email, "display_name": identity.name}
+    with Session(session.get_bind()) as identities:
+        choice = identities.get(UserModel, identity.id).onboarding_choice
+    return {"id": str(identity.id), "email": identity.email, "display_name": identity.name,
+            "onboarding_choice": choice}
+
+
+class OnboardingChoice(BaseModel):
+    choice: str
+
+
+@router.put("/me/onboarding")
+def choose_onboarding(payload: OnboardingChoice, identity: Identity = Depends(get_identity),
+                      session: TenantSession = Depends(get_session)):
+    if payload.choice != "cash":
+        raise HTTPException(422, "La opción de cuenta bancaria se guarda al crearla.")
+    with Session(session.get_bind()) as identities:
+        user = identities.get(UserModel, identity.id)
+        user.onboarding_choice = "cash"
+        identities.add(user)
+        identities.commit()
+    return {"onboarding_choice": "cash"}
 
 
 @router.get("/me/export")

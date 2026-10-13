@@ -14,6 +14,11 @@ from app.services.accounts import (
     list_accounts,
     update_account,
 )
+from app.services.cash_transactions import get_cash_account
+from app.services.cash_balance import (
+    CashBalanceRead, CashOpeningBalanceInput, clear_cash_opening_balance,
+    get_cash_balance, set_cash_opening_balance,
+)
 
 router = APIRouter()
 SessionDep = Annotated[Session, Depends(get_session)]
@@ -38,6 +43,28 @@ def get_account_products(_session: SessionDep) -> list[FinancialProductRead]:
 def get_accounts(session: SessionDep) -> list[Account]:
     """Devuelve todas las cuentas registradas."""
     return list_accounts(session)
+
+
+@router.get("/cash-account")
+def get_cash_account_detail(session: SessionDep) -> dict[str, int | str]:
+    """Return the current user's system cash account."""
+    account = get_cash_account(session)
+    return {"id": account.id, "name": account.name}
+
+
+@router.get("/cash-account/balance", response_model=CashBalanceRead)
+def get_cash_account_balance(session: SessionDep) -> CashBalanceRead:
+    return get_cash_balance(session)
+
+
+@router.put("/cash-account/balance", response_model=CashBalanceRead)
+def put_cash_account_balance(payload: CashOpeningBalanceInput, session: SessionDep) -> CashBalanceRead:
+    return set_cash_opening_balance(session, payload)
+
+
+@router.delete("/cash-account/balance", response_model=CashBalanceRead)
+def delete_cash_account_balance(session: SessionDep) -> CashBalanceRead:
+    return clear_cash_opening_balance(session)
 
 
 @router.post("/accounts", response_model=Account, status_code=status.HTTP_201_CREATED)

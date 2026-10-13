@@ -3,9 +3,9 @@ from __future__ import annotations
 from datetime import date, datetime
 from typing import Any
 
-from sqlmodel import SQLModel
+from sqlmodel import Field, SQLModel
 
-from app.domain.enums import CategorySource, TransactionType
+from app.domain.enums import CategorySource, TransactionOrigin, TransactionType
 
 
 class TransactionCandidate(SQLModel):
@@ -16,6 +16,7 @@ class TransactionCandidate(SQLModel):
     normalized_description: str
     amount_clp: int
     transaction_type: TransactionType
+    raw_data: dict[str, Any] | None = None
 
 
 class TransactionPreviewCandidate(TransactionCandidate):
@@ -33,7 +34,7 @@ class TransactionCandidateReview(SQLModel):
 
 class TransactionBase(SQLModel):
     account_id: int
-    statement_id: int
+    statement_id: int | None = None
     source_row: int | None = None
     date: date
     description: str
@@ -48,7 +49,15 @@ class TransactionBase(SQLModel):
 
 
 class TransactionCreate(TransactionBase):
-    pass
+    statement_id: int
+
+
+class ManualTransactionInput(SQLModel):
+    transaction_type: TransactionType
+    amount_clp: int = Field(gt=0, le=2_147_483_647)
+    date: date
+    description: str = Field(min_length=1, max_length=240)
+    category_id: int | None = None
 
 
 class TransactionCategoryUpdate(SQLModel):
@@ -58,6 +67,8 @@ class TransactionCategoryUpdate(SQLModel):
 
 class Transaction(TransactionBase):
     id: int
+    origin: TransactionOrigin
     created_at: datetime
     updated_at: datetime | None = None
     is_internal_transfer: bool = False
+    cash_transfer_linked: bool = False

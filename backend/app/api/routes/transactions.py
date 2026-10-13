@@ -6,10 +6,15 @@ from sqlmodel import Session
 
 from app.core.database import get_session
 from app.schemas.transaction import (
+    ManualTransactionInput,
     Transaction,
     TransactionCategoryUpdate,
     TransactionCreate,
 )
+from app.services.cash_transactions import (
+    create_manual_transaction, update_manual_transaction, delete_manual_transaction,
+)
+from app.services.cash_links import link_imported_transaction_to_cash, unlink_cash_transaction
 from app.services.transactions import (
     create_transaction,
     create_bulk_transactions,
@@ -20,6 +25,33 @@ from app.services.transactions import (
 
 router = APIRouter()
 SessionDep = Annotated[Session, Depends(get_session)]
+
+
+@router.post("/cash-transactions", response_model=Transaction, status_code=status.HTTP_201_CREATED)
+def post_cash_transaction(payload: ManualTransactionInput, session: SessionDep) -> Transaction:
+    return create_manual_transaction(session, payload)
+
+
+@router.put("/cash-transactions/{transaction_id}", response_model=Transaction)
+def put_cash_transaction(
+    transaction_id: int, payload: ManualTransactionInput, session: SessionDep,
+) -> Transaction:
+    return update_manual_transaction(session, transaction_id, payload)
+
+
+@router.delete("/cash-transactions/{transaction_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_cash_transaction(transaction_id: int, session: SessionDep) -> None:
+    delete_manual_transaction(session, transaction_id)
+
+
+@router.post("/transactions/{transaction_id}/cash-link", response_model=Transaction)
+def post_cash_link(transaction_id: int, session: SessionDep) -> Transaction:
+    return link_imported_transaction_to_cash(session, transaction_id)
+
+
+@router.delete("/transactions/{transaction_id}/cash-link", response_model=Transaction)
+def delete_cash_link(transaction_id: int, session: SessionDep) -> Transaction:
+    return unlink_cash_transaction(session, transaction_id)
 
 
 @router.get("/transactions", response_model=list[Transaction])

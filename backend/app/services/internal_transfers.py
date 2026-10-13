@@ -5,7 +5,7 @@ from datetime import timedelta
 
 from sqlmodel import Session, select
 
-from app.domain.enums import CategoryType, TransactionType
+from app.domain.enums import CategoryType, TransactionOrigin, TransactionType
 from app.models.category import CategoryModel
 from app.models.internal_transfer_match import InternalTransferMatchModel
 from app.models.transaction import TransactionModel
@@ -21,8 +21,12 @@ def refresh_internal_transfer_matches(
     """Reconstruye los pares persistidos de transferencias internas."""
     session.flush()
 
+    explicit_ids: set[int] = set()
     for match in session.exec(select(InternalTransferMatchModel)).all():
-        session.delete(match)
+        if match.match_kind == "cash":
+            explicit_ids.update((match.outgoing_transaction_id, match.incoming_transaction_id))
+        else:
+            session.delete(match)
     session.flush()
 
     transfer_category_ids = set(
@@ -37,7 +41,7 @@ def refresh_internal_transfer_matches(
         )
     ).all()
 
-    matches = _find_internal_transfer_matches(transactions, transfer_category_ids)
+    matches = _find_internal_transfer_matches(transactions, transfer_category_ids, explicit_ids)
     session.add_all(matches)
     session.flush()
     return matches
@@ -46,13 +50,18 @@ def refresh_internal_transfer_matches(
 def _find_internal_transfer_matches(
     transactions: list[TransactionModel],
     transfer_category_ids: set[int],
+    explicit_ids: set[int] | None = None,
 ) -> list[InternalTransferMatchModel]:
     """Detecta pares uno-a-uno entre egresos y abonos de cuentas distintas."""
     incomes_by_amount: dict[int, list[TransactionModel]] = defaultdict(list)
     expenses_by_amount: dict[int, list[TransactionModel]] = defaultdict(list)
 
+    protected_ids = explicit_ids or set()
     for transaction in transactions:
-        if transaction.id is None:
+        # Cash movements are only linked to bank movements through the explicit
+        # user action introduced with cash transfers, never by amount matching.
+        if (transaction.id is None or transaction.origin != TransactionOrigin.PDF
+                or transaction.id in protected_ids):
             continue
 
         amount = abs(transaction.amount_clp)
