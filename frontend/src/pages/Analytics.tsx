@@ -1641,7 +1641,7 @@ function CompactMetric({ label, value, tone = "neutral" }: CompactMetricProps) {
 
   return (
     <div className={cn("min-w-0 rounded-2xl border px-3 py-3", toneClass)}>
-      <p className="min-h-8 text-[0.7rem] font-semibold uppercase leading-4 tracking-[0.08em] opacity-75">
+      <p className="min-h-10 text-sm font-medium leading-5 opacity-90">
         {label}
       </p>
       <strong className="mt-1 block truncate text-lg font-semibold tracking-[-0.03em]" title={value}>
@@ -1748,7 +1748,7 @@ function CheckboxFilterGroup({
       >
         <span className="min-w-0">
           <span className="block font-semibold text-ink">{title}</span>
-          <span className="mt-0.5 block text-xs text-muted">
+          <span className="mt-0.5 block text-sm text-muted">
             {allOptionsSelected
               ? "Todos seleccionados"
               : selected.size === 0
@@ -1812,7 +1812,7 @@ function CheckboxRow({ checked, label, helper, onChange }: CheckboxRowProps) {
         <span className="block text-sm font-medium text-ink">
           {label}
         </span>
-        {helper ? <span className="block truncate text-xs text-muted">{helper}</span> : null}
+        {helper ? <span className="block truncate text-sm text-muted">{helper}</span> : null}
       </span>
     </label>
   );

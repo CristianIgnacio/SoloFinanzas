@@ -58,7 +58,7 @@ type DashboardSupportState = {
 type MovementFilter = "all" | "income" | "expense";
 
 const movementIcons = [HouseIcon, MoneyIcon, LightningIcon];
-const expenseChartColors = ["#344b2e", "#6e875f", "#a8b89a", "#d5b98f", "#d77b68"];
+const expenseChartColors = ["#344b2e", "#6e875f", "#a8b89a", "#d5b98f", "#d77b68", "#8a9387"];
 const TRANSACTION_PAGE_SIZE = 1000;
 const periodFormatter = new Intl.DateTimeFormat("es-CL", {
   month: "long",
@@ -95,6 +95,15 @@ function formatChartMonth(periodMonth: string) {
   })
     .format(new Date(Date.UTC(year, month - 1, 1)))
     .replace(".", "");
+}
+
+const compactAxisFormatter = new Intl.NumberFormat("es-CL", { maximumFractionDigits: 1 });
+
+function formatCompactAxisCurrency(value: number) {
+  const absolute = Math.abs(value);
+  if (absolute >= 1_000_000) return `$${compactAxisFormatter.format(value / 1_000_000)}M`;
+  if (absolute >= 1_000) return `$${compactAxisFormatter.format(value / 1_000)}k`;
+  return `$${compactAxisFormatter.format(value)}`;
 }
 
 function getPeriodDateRange(periodMonth: string) {
@@ -182,13 +191,13 @@ function FirstAccountWelcome({ onCreateAccount, onStartCash, startingCash, cashE
   return (
     <Panel className="overflow-hidden p-0 md:p-0">
       <div className="grid lg:grid-cols-[minmax(0,1.1fr)_minmax(300px,0.9fr)]">
-        <div className="relative isolate overflow-hidden bg-primary px-7 py-10 text-white sm:px-10 sm:py-12 lg:px-12 lg:py-14">
+        <div className="relative isolate overflow-hidden bg-primary px-5 py-7 text-white sm:px-10 sm:py-12 lg:px-12 lg:py-14">
           <div aria-hidden="true" className="pointer-events-none absolute -right-24 -top-32 -z-10 h-80 w-80 rounded-full border border-white/15 bg-white/5" />
           <div aria-hidden="true" className="pointer-events-none absolute -bottom-40 right-6 -z-10 h-80 w-80 rounded-full border border-white/10" />
           <span className="inline-flex items-center gap-2 rounded-full border border-white/25 bg-white/10 px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.12em]">
             <BankIcon className="h-4 w-4" /> Primer paso
           </span>
-          <h2 className="mt-8 max-w-xl text-4xl font-semibold leading-tight tracking-[-0.045em] sm:text-5xl">
+          <h2 className="mt-6 max-w-xl text-3xl font-semibold leading-tight tracking-[-0.045em] sm:mt-8 sm:text-5xl">
             Empieza a tu manera
           </h2>
           <p className="mt-4 max-w-lg text-base leading-7 text-white/80 sm:text-lg">
@@ -212,7 +221,7 @@ function FirstAccountWelcome({ onCreateAccount, onStartCash, startingCash, cashE
           </p>
         </div>
 
-        <div className="flex flex-col justify-center bg-paper-soft/60 px-7 py-10 sm:px-10 lg:px-12">
+        <div className="flex flex-col justify-center bg-paper-soft/60 px-5 py-7 sm:px-10 sm:py-10 lg:px-12">
           <p className="eyebrow m-0">Elige un camino</p>
           <div className="mt-7 space-y-6">
             <div className="grid grid-cols-[auto_1fr] gap-4 border-b border-outline/80 pb-6">
@@ -241,9 +250,11 @@ function FirstAccountWelcome({ onCreateAccount, onStartCash, startingCash, cashE
 export function DashboardPage() {
   const navigate = useNavigate();
   const [selectedPeriod, setSelectedPeriod] = useState<string>();
+  const [uncategorizedSummary, setUncategorizedSummary] = useState<{ period: string; total: number } | null>(null);
   const { data, loading, error } = useDashboard(selectedPeriod);
   const [isCreateAccountOpen, setIsCreateAccountOpen] = useState(false);
   const [movementFilter, setMovementFilter] = useState<MovementFilter>("all");
+  const [selectedExpenseCategory, setSelectedExpenseCategory] = useState<string | null>(null);
   const [createAccountError, setCreateAccountError] = useState<string | null>(null);
   const [isSavingAccount, setIsSavingAccount] = useState(false);
   const [startingCash, setStartingCash] = useState(false);
@@ -272,6 +283,16 @@ export function DashboardPage() {
   const dashboardPeriod = formatPeriod(data?.period_month ?? getCurrentPeriodMonth());
   const showFirstAccountWelcome =
     !support.loading && !support.error && support.accounts.length === 0 && support.profile?.onboarding_choice == null;
+
+  useEffect(() => {
+    const period = data?.period_month;
+    if (!period) return;
+    let cancelled = false;
+    void TransactionService.getPage({ ...getPeriodDateRange(period), uncategorized: true, limit: 1, offset: 0 })
+      .then(page => { if (!cancelled) setUncategorizedSummary({ period, total: page.total }); })
+      .catch(() => { if (!cancelled) setUncategorizedSummary(null); });
+    return () => { cancelled = true; };
+  }, [data?.period_month]);
 
   useEffect(() => {
     let isMounted = true;
@@ -448,7 +469,7 @@ export function DashboardPage() {
   );
 
   const expenseBreakdown = useMemo(() => {
-    const totals = new Map<string, number>();
+    const totals = new Map<string, { id: string; label: string; value: number }>();
 
     support.periodTransactions
       .filter(
@@ -460,14 +481,25 @@ export function DashboardPage() {
       )
       .forEach((transaction) => {
         const category = categoryMap.get(transaction.category_id ?? -1);
-        const key = getRootCategory(category, categoryMap)?.name ?? "Sin categoria";
-        totals.set(key, (totals.get(key) ?? 0) + Math.abs(transaction.amount_clp));
+        const root = getRootCategory(category, categoryMap);
+        const id = root ? `category-${root.id}` : "uncategorized";
+        const previous = totals.get(id);
+        totals.set(id, {
+          id,
+          label: root?.name ?? "Sin categoria",
+          value: (previous?.value ?? 0) + Math.abs(transaction.amount_clp),
+        });
       });
 
-    return [...totals.entries()]
-      .sort((left, right) => right[1] - left[1])
-      .slice(0, 5);
+    const sorted = [...totals.values()].sort((left, right) => right.value - left.value);
+    const top = sorted.slice(0, 5);
+    const remaining = sorted.slice(5);
+    return remaining.length > 0
+      ? [...top, { id: "other", label: "Otras categorías", value: remaining.reduce((sum, item) => sum + item.value, 0) }]
+      : top;
   }, [categoryMap, categoryTypeMap, support.periodTransactions]);
+  const selectedExpense = expenseBreakdown.find((item) => item.id === selectedExpenseCategory);
+  const expenseTotal = expenseBreakdown.reduce((sum, item) => sum + item.value, 0);
 
   const cardGains = useMemo(() => {
     const cardGainCategoryIds = new Set(
@@ -557,7 +589,7 @@ export function DashboardPage() {
     const expenses =
       data?.monthly_movements.map((item) => Math.abs(item.expenses)) ?? [];
 
-    return {
+    const baseOption = {
       animationDuration: 700,
       color: ["#4f7a45", "#d66c5c"],
       grid: {
@@ -678,13 +710,31 @@ export function DashboardPage() {
         },
       ],
     };
+
+    return {
+      baseOption,
+      media: [{
+        query: { maxWidth: 520 },
+        option: {
+          grid: { left: 4, right: 8 },
+          yAxis: {
+            splitNumber: 4,
+            axisLabel: {
+              fontSize: 12,
+              margin: 6,
+              formatter: formatCompactAxisCurrency,
+            },
+          },
+        },
+      }],
+    };
   }, [data, formatCurrency]);
 
   const expenseBreakdownOption = useMemo(() => {
-    const total = expenseBreakdown.reduce((sum, [, value]) => sum + value, 0);
-    const chartData = expenseBreakdown.map(([name, value], index) => ({
-      name,
-      value,
+    const chartData = expenseBreakdown.map((item, index) => ({
+      name: item.label,
+      value: item.value,
+      selected: item.id === selectedExpenseCategory,
       itemStyle: {
         color: expenseChartColors[index % expenseChartColors.length],
       },
@@ -693,29 +743,14 @@ export function DashboardPage() {
     return {
       animationDuration: 650,
       tooltip: {
-        trigger: "item" as const,
-        backgroundColor: "#fffdf9",
-        borderColor: "#d9d6cc",
-        borderWidth: 1,
-        textStyle: {
-          color: "#1b1c17",
-          fontFamily: "Geist, Aptos, Segoe UI, sans-serif",
-        },
-        formatter: (params: unknown) => {
-          const item = params as {
-            name?: string;
-            value?: number;
-            percent?: number;
-          };
-          return `<strong>${item.name ?? ""}</strong><br/>${formatCurrency(
-            Number(item.value ?? 0),
-          )} · ${Number(item.percent ?? 0).toFixed(1)}%`;
-        },
+        show: false,
       },
       series: [
         {
           name: "Gastos",
           type: "pie" as const,
+          selectedMode: "single" as const,
+          selectedOffset: 5,
           radius: ["56%", "78%"],
           center: ["50%", "48%"],
           avoidLabelOverlap: true,
@@ -730,51 +765,16 @@ export function DashboardPage() {
           },
           emphasis: {
             scaleSize: 6,
-            label: {
-              show: true,
-              position: "center" as const,
-              fontSize: 14,
-              fontWeight: "bold" as const,
-              color: "#1b1c17",
-              formatter: (params: { name?: string; percent?: number }) =>
-                `${params.name ?? ""}\n${Number(params.percent ?? 0).toFixed(0)}%`,
-            },
+            label: { show: false },
           },
           data: chartData,
         },
       ],
-      graphic: [
-        {
-          type: "text",
-          left: "center",
-          top: "42%",
-          style: {
-            text: "Total",
-            fill: "#5f645b",
-            fontSize: 13,
-            fontFamily: "Geist, Aptos, Segoe UI, sans-serif",
-            textAlign: "center",
-          },
-        },
-        {
-          type: "text",
-          left: "center",
-          top: "51%",
-          style: {
-            text: formatCurrency(total),
-            fill: "#1b1c17",
-            fontSize: 18,
-            fontWeight: 600,
-            fontFamily: "Geist, Aptos, Segoe UI, sans-serif",
-            textAlign: "center",
-          },
-        },
-      ],
     };
-  }, [expenseBreakdown, formatCurrency]);
+  }, [expenseBreakdown, selectedExpenseCategory]);
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-5 sm:space-y-8">
       <PageIntro
         eyebrow={showFirstAccountWelcome ? "Primeros pasos" : "Dashboard"}
         title={showFirstAccountWelcome ? "Bienvenido a SoloFinanzas" : "Dashboard"}
@@ -787,9 +787,10 @@ export function DashboardPage() {
                 value={selectedPeriod ?? data.period_month}
                 onChange={(event) => {
                   setMovementFilter("all");
+                  setSelectedExpenseCategory(null);
                   setSelectedPeriod(event.target.value);
                 }}
-                className="appearance-none bg-transparent pl-1 pr-8 text-lg font-medium text-primary outline-none md:text-[1.75rem]"
+                className="appearance-none bg-transparent pl-1 pr-8 text-base font-medium text-primary outline-none sm:text-lg"
               >
                 {data.available_periods.map((period) => (
                   <option key={period} value={period}>
@@ -816,9 +817,10 @@ export function DashboardPage() {
 
       {data && !support.loading && !showFirstAccountWelcome ? (
         <>
-          <section className="grid items-stretch gap-4 lg:grid-cols-3">
+          <section className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,17rem),1fr))] items-stretch gap-4">
             {data.cards.slice(0, 3).map((card, index) => (
               <StatCard
+                compactOnMobile
                 key={card.label}
                 label={card.label}
                 value={card.value}
@@ -845,34 +847,78 @@ export function DashboardPage() {
             ))}
           </section>
 
-          <section className="grid gap-6 lg:grid-cols-[minmax(0,1.65fr)_340px]">
-            <Panel>
+          {uncategorizedSummary?.period === data?.period_month && uncategorizedSummary && uncategorizedSummary.total > 0 ? (
+            <Link to={`/app/transactions?month=${uncategorizedSummary.period}&category=uncategorized`}
+              className="flex min-h-14 items-center justify-between gap-3 rounded-xl border border-primary/15 bg-primary-mist/40 px-4 py-3 text-primary transition hover:bg-primary-mist focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary">
+              <span className="min-w-0">
+                <span className="block text-sm font-semibold">{uncategorizedSummary.total} {uncategorizedSummary.total === 1 ? "movimiento por categorizar" : "movimientos por categorizar"}</span>
+                <span className="block text-xs text-muted">De {dashboardPeriod}</span>
+              </span>
+              <span className="shrink-0 text-sm font-semibold"><span className="hidden sm:inline">Revisar </span><span aria-hidden="true">→</span></span>
+            </Link>
+          ) : null}
+
+          <section className="grid min-w-0 gap-4 sm:gap-6 xl:grid-cols-[minmax(0,1.65fr)_340px]">
+            <Panel compactOnMobile className="min-w-0">
               <div className="space-y-2">
-                <h2 className="text-5xl font-medium tracking-[-0.05em]">
+                <h2 className="section-title">
                   Evolucion Mensual
                 </h2>
                 <p className="text-muted">
-                  Comparacion neta de ingresos y gastos sin transferencias internas.
+                  Comparacion neta de ingresos y gastos
+                  {/* sin transferencias internas. */}
                 </p>
               </div>
-              <EChart className="mt-8 h-[360px] w-full" option={monthlyEvolutionOption} />
+              <EChart className="mt-5 h-[260px] w-full sm:mt-8 sm:h-[360px]" option={monthlyEvolutionOption} />
             </Panel>
 
-            <Panel className="space-y-6">
+            <Panel compactOnMobile className="min-w-0 space-y-4 sm:space-y-6">
               <div className="space-y-2">
-                <h2 className="text-4xl font-medium tracking-[-0.04em]">
+                <h2 className="section-title">
                   Gastos por Categoria
                 </h2>
                 <p className="text-sm text-muted">
-                  {dashboardPeriod} · sin transferencias internas
+                  {/* {dashboardPeriod}
+                  · sin transferencias internas */}
                 </p>
               </div>
               {expenseBreakdown.length > 0 ? (
                 <div className="space-y-5">
-                  <EChart className="h-[230px] w-full" option={expenseBreakdownOption} />
+                  <div className="relative min-w-0">
+                    <EChart
+                      className="h-[220px] w-full sm:h-[230px]"
+                      option={expenseBreakdownOption}
+                      onItemClick={(index) => {
+                        const id = expenseBreakdown[index]?.id;
+                        if (id) setSelectedExpenseCategory((current) => current === id ? null : id);
+                      }}
+                    />
+                    <div className="pointer-events-none absolute left-1/2 top-[48%] w-28 -translate-x-1/2 -translate-y-1/2 text-center leading-tight">
+                      <span className="line-clamp-2 text-xs font-medium text-muted [overflow-wrap:anywhere]" title={selectedExpense?.label}>
+                        {selectedExpense?.label ?? "Total"}
+                      </span>
+                      <strong className="mt-1 block text-sm font-semibold text-ink [overflow-wrap:anywhere] sm:text-base">
+                        {formatCurrency(selectedExpense?.value ?? expenseTotal)}
+                      </strong>
+                      {selectedExpense ? (
+                        <span className="block text-xs font-medium text-primary">
+                          {expenseTotal > 0 ? (selectedExpense.value / expenseTotal * 100).toFixed(1) : "0.0"}%
+                        </span>
+                      ) : null}
+                    </div>
+                  </div>
+                  <span className="sr-only" role="status" aria-live="polite">
+                    {selectedExpense ? `${selectedExpense.label}: ${formatCurrency(selectedExpense.value)}, ${expenseTotal > 0 ? (selectedExpense.value / expenseTotal * 100).toFixed(1) : "0.0"}% del total` : `Total: ${formatCurrency(expenseTotal)}`}
+                  </span>
                   <div className="space-y-3">
-                    {expenseBreakdown.map(([label, value], index) => (
-                      <div key={label} className="flex items-center justify-between gap-3">
+                    {expenseBreakdown.map((item, index) => (
+                      <button
+                        key={item.id}
+                        type="button"
+                        aria-pressed={selectedExpenseCategory === item.id}
+                        onClick={() => setSelectedExpenseCategory((current) => current === item.id ? null : item.id)}
+                        className="flex w-full items-center justify-between gap-3 rounded-lg text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+                      >
                         <span className="flex min-w-0 items-center gap-3">
                           <span
                             className="h-2.5 w-2.5 shrink-0 rounded-full"
@@ -881,12 +927,12 @@ export function DashboardPage() {
                                 expenseChartColors[index % expenseChartColors.length],
                             }}
                           />
-                          <span className="truncate text-sm text-muted">{label}</span>
+                          <span className="truncate text-sm text-muted">{item.label}</span>
                         </span>
                         <span className="text-sm font-medium text-ink">
-                          {formatCurrency(value)}
+                          {formatCurrency(item.value)}
                         </span>
-                      </div>
+                      </button>
                     ))}
                   </div>
                 </div>
@@ -899,16 +945,16 @@ export function DashboardPage() {
             </Panel>
           </section>
 
-          <section className="grid gap-6 lg:grid-cols-[360px_minmax(0,1fr)]">
-            <Panel className="flex min-h-[240px] flex-col items-center justify-center gap-4 text-center">
-              <span className="flex h-20 w-20 items-center justify-center rounded-2xl border border-primary/20 bg-primary-mist text-primary shadow-sm">
-                <InvestmentIcon className="h-9 w-9" />
+          <section className="grid min-w-0 gap-4 sm:gap-6 xl:grid-cols-[320px_minmax(0,1fr)]">
+            <Panel compactOnMobile className="metric-container flex aspect-[1.25] w-full max-w-[22rem] min-w-0 flex-col items-center justify-center gap-3 justify-self-center text-center sm:aspect-auto sm:min-h-[240px] sm:max-w-none sm:gap-4">
+              <span className="flex h-14 w-14 items-center justify-center rounded-2xl border border-primary/20 bg-primary-mist text-primary shadow-sm sm:h-20 sm:w-20">
+                <InvestmentIcon className="h-7 w-7 sm:h-9 sm:w-9" />
               </span>
               <div className="space-y-2">
                 <p className="text-sm font-semibold uppercase tracking-[0.16em] text-primary/80">
                   Ganancias tarjetas
                 </p>
-                <strong className="block text-5xl font-semibold tracking-[-0.05em] text-ink">
+                <strong className="metric-value text-ink">
                   {formatCurrency(cardGains.total)}
                 </strong>
               </div>
@@ -922,14 +968,14 @@ export function DashboardPage() {
               </div>
             </Panel>
 
-            <Panel className="space-y-5">
-              <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+            <Panel compactOnMobile className="min-w-0 space-y-4 sm:space-y-5">
+              <div className="flex flex-wrap items-end justify-between gap-3">
                 <div className="flex items-start gap-3">
                   <span className="mt-1 flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-danger-soft text-danger">
                     <CalendarIcon className="h-5 w-5" />
                   </span>
                   <div className="space-y-1">
-                    <h2 className="text-4xl font-medium tracking-[-0.04em]">
+                    <h2 className="section-title">
                       Gasto diario
                     </h2>
                     <p className="text-sm text-muted">
@@ -960,7 +1006,7 @@ export function DashboardPage() {
                       <div
                         key={cell.date}
                         title={`${cell.date}: ${formatCurrency(cell.value)}`}
-                        className="group relative flex aspect-square min-h-8 items-center justify-center rounded-lg border border-white/80 text-xs font-semibold shadow-sm transition hover:z-10 hover:scale-[1.06] hover:border-ink/20"
+                        className="group relative flex aspect-square min-h-0 items-center justify-center rounded-lg border border-white/80 text-xs font-semibold shadow-sm transition hover:z-10 hover:scale-[1.06] hover:border-ink/20 sm:min-h-8"
                         style={{
                           backgroundColor: getHeatmapColor(
                             cell.value,
@@ -986,11 +1032,11 @@ export function DashboardPage() {
             </Panel>
           </section>
 
-          <section className="grid gap-6 lg:grid-cols-[minmax(360px,1.1fr)_minmax(0,0.9fr)]">
-            <Panel className="space-y-6">
-              <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <section className="grid min-w-0 gap-4 sm:gap-6 xl:grid-cols-[minmax(360px,1.1fr)_minmax(0,0.9fr)]">
+            <Panel compactOnMobile className="min-w-0 space-y-4 sm:space-y-6">
+              <div className="flex flex-wrap items-center justify-between gap-4">
                 <div className="space-y-2">
-                  <h2 className="text-3xl font-medium tracking-[-0.04em]">Tus cuentas</h2>
+                  <h2 className="section-title">Tus cuentas</h2>
                   <p className="text-sm text-muted">Las más recientes aparecen primero.</p>
                 </div>
                 <div className="flex shrink-0 items-center gap-3">
@@ -1040,10 +1086,10 @@ export function DashboardPage() {
               )}
             </Panel>
 
-            <Panel className="flex h-full flex-col gap-6">
-              <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+            <Panel compactOnMobile className="flex h-full min-w-0 flex-col gap-4 sm:gap-6">
+              <div className="flex flex-wrap items-start justify-between gap-4">
                 <div className="space-y-1">
-                  <h2 className="text-4xl font-medium tracking-[-0.04em]">
+                  <h2 className="section-title">
                     Top 5 Movimientos
                   </h2>
                   <p className="text-sm text-muted">Mayores montos del periodo visible</p>
@@ -1083,13 +1129,13 @@ export function DashboardPage() {
                     return (
                       <article
                         key={transaction.id}
-                        className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-4 rounded-2xl border border-transparent px-3 py-4 transition hover:border-outline hover:bg-paper-soft/60"
+                        className="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-x-3 gap-y-1 rounded-2xl border border-transparent px-2 py-3 transition hover:border-outline hover:bg-paper-soft/60 sm:grid-cols-[auto_minmax(0,1fr)_auto] sm:gap-4 sm:px-3 sm:py-4"
                       >
-                        <span className="flex h-12 w-12 items-center justify-center rounded-full bg-paper-soft text-muted">
+                        <span className="flex h-10 w-10 items-center justify-center rounded-full bg-paper-soft text-muted sm:h-12 sm:w-12">
                           <Icon className="h-5 w-5" />
                         </span>
                         <div className="min-w-0">
-                          <p className="truncate text-xl font-medium tracking-[-0.02em]">
+                          <p className="truncate text-base font-medium tracking-[-0.02em] sm:text-xl">
                             {transaction.description}
                           </p>
                           <p className="truncate text-sm font-medium text-muted">
@@ -1104,8 +1150,8 @@ export function DashboardPage() {
                         <p
                           className={
                             transaction.amount_clp >= 0
-                              ? "shrink-0 text-right text-xl font-semibold text-primary"
-                              : "shrink-0 text-right text-xl font-semibold text-ink"
+                              ? "col-start-2 max-w-full text-left text-base font-semibold text-primary [overflow-wrap:anywhere] sm:col-start-auto sm:shrink-0 sm:text-right sm:text-xl"
+                              : "col-start-2 max-w-full text-left text-base font-semibold text-ink [overflow-wrap:anywhere] sm:col-start-auto sm:shrink-0 sm:text-right sm:text-xl"
                           }
                         >
                           {formatCurrency(transaction.amount_clp)}

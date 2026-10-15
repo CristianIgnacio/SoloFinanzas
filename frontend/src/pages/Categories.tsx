@@ -113,7 +113,7 @@ function CategoryFormModal({
             </p>
             <h2
               id="category-form-title"
-              className="text-4xl font-medium tracking-[-0.04em] text-ink"
+              className="dialog-title"
             >
               {form.id ? "Actualizar organizacion" : "Agregar al catalogo"}
             </h2>
@@ -526,7 +526,7 @@ export function CategoriesPage() {
       ) : null}
 
       <div className="flex items-center justify-between gap-4">
-        <h2 className="text-3xl font-medium tracking-[-0.03em]">Catalogo</h2>
+        <h2 className="section-title">Catalogo</h2>
         <div className="flex items-center gap-4">
           {reorderingSubcategories ? (
             <span role="status" className="text-sm font-medium text-primary">
@@ -724,12 +724,12 @@ export function CategoriesPage() {
                             <div className="flex flex-wrap items-center gap-2">
                               <p className="truncate font-medium">{child.name}</p>
                               {selectedCategoryId === child.id ? (
-                                <span className="rounded-full bg-primary px-2.5 py-1 text-[0.7rem] font-semibold text-white">
+                                <span className="rounded-full bg-primary px-2.5 py-1 text-xs font-semibold text-white">
                                   Seleccionada
                                 </span>
                               ) : null}
                             </div>
-                            <p className="mt-1 text-xs text-muted">
+                            <p className="mt-1 text-sm text-muted">
                               {child.transaction_count} movimientos · {child.rule_count} reglas
                             </p>
                           </button>
@@ -747,7 +747,7 @@ export function CategoriesPage() {
                             type="button"
                             title={child.is_active ? "Archivar" : "Reactivar"}
                             onClick={() => void toggleArchive(child)}
-                            className="rounded-full border border-outline bg-white px-3 py-2 text-xs text-muted hover:text-primary"
+                            className="rounded-full border border-outline bg-white px-3 py-2 text-sm text-muted hover:text-primary"
                           >
                             {child.is_active ? "Archivar" : "Reactivar"}
                           </button>
@@ -795,7 +795,7 @@ export function CategoriesPage() {
                         {typeLabels[selectedCategory.type]}
                       </span>
                     </div>
-                    <p className="mt-2 text-xs text-muted">
+                    <p className="mt-2 text-sm text-muted">
                       Las nuevas reglas se asignaran a esta categoria.
                     </p>
                   </div>
@@ -829,7 +829,7 @@ export function CategoriesPage() {
                       <div key={rule.id} className="flex items-center justify-between gap-3 rounded-xl bg-paper-soft px-3 py-2">
                         <div>
                           <p className="font-medium">{rule.keyword}</p>
-                          <p className="text-xs text-muted">Prioridad {rule.priority}</p>
+                          <p className="text-sm text-muted">Prioridad {rule.priority}</p>
                         </div>
                         <button
                           type="button"
@@ -885,7 +885,7 @@ export function CategoriesPage() {
                   Fusionar
                 </Button>
                 {selectedCategory.is_default ? (
-                  <p className="mt-2 text-xs text-muted">
+                  <p className="mt-2 text-sm text-muted">
                     Las categorias predeterminadas pueden archivarse, pero no fusionarse.
                   </p>
                 ) : null}

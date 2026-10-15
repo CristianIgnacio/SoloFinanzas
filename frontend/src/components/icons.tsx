@@ -16,6 +16,7 @@ import {
   faDownload,
   faEye,
   faEyeSlash,
+  faEllipsis,
   faFilePdf,
   faFloppyDisk,
   faGear,
@@ -26,6 +27,7 @@ import {
   faPiggyBank,
   faPlus,
   faReceipt,
+  faRightFromBracket,
   faScaleBalanced,
   faTableCellsLarge,
   faTags,
@@ -183,6 +185,14 @@ export function TrashIcon(props: IconProps) {
 
 export function QuestionIcon(props: IconProps) {
   return <FontAwesomeIcon icon={faCircleQuestion} {...iconProps(props)} />;
+}
+
+export function MoreIcon(props: IconProps) {
+  return <FontAwesomeIcon icon={faEllipsis} {...iconProps(props)} />;
+}
+
+export function SignOutIcon(props: IconProps) {
+  return <FontAwesomeIcon icon={faRightFromBracket} {...iconProps(props)} />;
 }
 
 export function UtensilsIcon(props: IconProps) {

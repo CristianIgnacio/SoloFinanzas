@@ -57,7 +57,7 @@ export class TransactionService {
   static async updateCategory(
     transactionId: number,
     categoryId: number | null,
-    categorySource?: string
+    categorySource?: string | null
   ): Promise<Transaction> {
     return apiClient.patch<Transaction>(
       `/transactions/${transactionId}/category`,

@@ -1,14 +1,17 @@
 import { useAuth } from "../auth/AuthProvider";
 import { supabase } from "../lib/supabase";
 import { NavLink, Link, Outlet, useLocation } from "react-router-dom";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import {
   BankIcon,
   CategoriesIcon,
   DashboardIcon,
   LogoMark,
+  MoreIcon,
   PdfIcon,
   ReportIcon,
+  SignOutIcon,
   TrendLineIcon,
   UserCircleIcon,
   cn,
@@ -31,7 +34,19 @@ const OrganizationIcon = organizationItem.icon;
 export function RootLayout() {
   const location = useLocation();
   const { session } = useAuth();
+  const [moreOpen, setMoreOpen] = useState(false);
+  const moreButtonRef = useRef<HTMLButtonElement>(null);
+  const moreDialogRef = useRef<HTMLDivElement>(null);
   const name = session?.user.user_metadata.full_name || session?.user.email || "Mi espacio";
+  const moreIsActive = ["/app/categories", "/app/import", "/app/profile"].some((path) =>
+    location.pathname.startsWith(path),
+  );
+
+  useLayoutEffect(() => {
+    if (location.hash) return;
+    window.scrollTo(0, 0);
+  }, [location.pathname]);
+
   const currentSection =
     location.pathname.startsWith("/app/import")
       ? "Importar cartola"
@@ -58,6 +73,47 @@ export function RootLayout() {
           ? "border-outline bg-white text-ink"
           : "text-ink/75 hover:border-outline/70 hover:bg-white hover:text-ink",
     );
+
+  useEffect(() => {
+    setMoreOpen(false);
+  }, [location.pathname]);
+
+  useEffect(() => {
+    if (!moreOpen) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const dialog = moreDialogRef.current;
+    const focusable = () => Array.from(
+      dialog?.querySelectorAll<HTMLElement>('a[href], button:not([disabled])') ?? [],
+    );
+    focusable()[0]?.focus();
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        setMoreOpen(false);
+        return;
+      }
+      if (event.key !== "Tab") return;
+      const items = focusable();
+      if (items.length === 0) return;
+      const first = items[0];
+      const last = items[items.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      document.removeEventListener("keydown", handleKeyDown);
+      moreButtonRef.current?.focus();
+    };
+  }, [moreOpen]);
 
   return (
     <div className="min-h-screen bg-paper text-ink lg:grid lg:grid-cols-[17.5rem_minmax(0,1fr)]">
@@ -114,7 +170,7 @@ export function RootLayout() {
         </div>
       </aside>
 
-      <div className="flex min-h-screen flex-col">
+      <div className="flex min-h-screen min-w-0 flex-col">
         <header className="subtle-divider sticky top-0 z-20 bg-paper/90 backdrop-blur-sm">
           <div className="mx-auto flex max-w-[1280px] items-center justify-between gap-4 px-4 py-4 sm:px-6 lg:px-10 xl:px-12">
             <div className="flex items-center gap-4">
@@ -125,33 +181,20 @@ export function RootLayout() {
               </div>
             </div>
             <div className="flex items-center gap-3 text-ink">
-              <button onClick={() => void supabase?.auth.signOut({ scope: "local" })} className="rounded-full px-3 py-2 text-sm">Salir</button>
+              <button onClick={() => void supabase?.auth.signOut({ scope: "local" })} className="hidden rounded-full px-3 py-2 text-sm lg:inline-flex">Salir</button>
               <Link
                 aria-label="Mi perfil"
                 to="/app/profile"
-                className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-primary/20 bg-white text-primary transition hover:border-primary/40 hover:bg-primary-mist focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+                className="hidden h-10 w-10 shrink-0 items-center justify-center rounded-full border border-primary/20 bg-white text-primary transition hover:border-primary/40 hover:bg-primary-mist focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary lg:inline-flex"
               >
                 <UserCircleIcon className="h-6 w-6" />
               </Link>
             </div>
           </div>
 
-          <nav aria-label="Navegación móvil" className="mx-auto flex max-w-[1280px] gap-2 overflow-x-auto px-4 pb-4 sm:px-6 lg:hidden lg:px-10 xl:px-12">
-            {navItems.map(({ to, label, icon: Icon }) => (
-              <NavLink key={to} to={to} end={to === "/app"} className={({ isActive }) => navLinkClass(isActive, true)}>
-                <Icon className="h-4 w-4" />{label}
-              </NavLink>
-            ))}
-            <NavLink to={organizationItem.to} className={({ isActive }) => navLinkClass(isActive, true)}>
-              <OrganizationIcon className="h-4 w-4" />{organizationItem.label}
-            </NavLink>
-            <NavLink to="/app/import" className={({ isActive }) => navLinkClass(isActive, true)}>
-              <PdfIcon className="h-4 w-4" />Importar cartola
-            </NavLink>
-          </nav>
         </header>
 
-        <main className="flex-1 px-4 py-6 sm:px-6 lg:px-10 lg:py-10 xl:px-12">
+        <main className="min-w-0 flex-1 px-4 py-6 pb-28 sm:px-6 lg:px-10 lg:py-10 xl:px-12">
           <div className="mx-auto max-w-[1280px]"><Outlet /></div>
         </main>
 
@@ -162,6 +205,110 @@ export function RootLayout() {
           </div>
         </footer>
       </div>
+
+      <nav aria-label="Navegación móvil" className="fixed inset-x-0 bottom-0 z-40 border-t border-outline/80 bg-white/95 pb-[env(safe-area-inset-bottom)] shadow-[0_-8px_24px_rgba(21,35,33,0.08)] backdrop-blur lg:hidden">
+        <div className="mx-auto grid min-h-16 max-w-[1280px] grid-cols-5 items-stretch px-1">
+          {navItems.map(({ to, label, icon: Icon }) => (
+            <NavLink
+              key={to}
+              to={to}
+              end={to === "/app"}
+              aria-label={label}
+              className={({ isActive }) => cn(
+                "flex min-h-16 w-full min-w-0 flex-col items-center justify-center gap-1 px-0 text-xs font-medium transition-colors focus-visible:z-10",
+                isActive ? "text-primary" : "text-muted hover:text-ink",
+              )}
+            >
+              {({ isActive }) => <>
+                <Icon className={cn("h-5 w-5", isActive && "text-primary")} />
+                <span className="max-w-full truncate">{label === "Movimientos" ? "Movs." : label}</span>
+              </>}
+            </NavLink>
+          ))}
+          <button
+            ref={moreButtonRef}
+            type="button"
+            aria-expanded={moreOpen}
+            aria-haspopup="dialog"
+            onClick={() => setMoreOpen(true)}
+            className={cn(
+              "flex min-h-16 w-full min-w-0 flex-col items-center justify-center gap-1 px-0 text-xs font-medium transition-colors focus-visible:z-10",
+              moreIsActive || moreOpen ? "text-primary" : "text-muted hover:text-ink",
+            )}
+          >
+            <MoreIcon className="h-5 w-5" />
+            <span>Más</span>
+          </button>
+        </div>
+      </nav>
+
+      {moreOpen ? (
+        <div
+          className="fixed inset-0 z-50 flex items-end bg-ink/40 backdrop-blur-[2px] lg:hidden"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) setMoreOpen(false);
+          }}
+        >
+          <div
+            ref={moreDialogRef}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="mobile-more-title"
+            className="surface-card w-full rounded-b-none rounded-t-[1.75rem] p-5 pb-[calc(1.25rem+env(safe-area-inset-bottom))]"
+          >
+            <div className="mx-auto mb-4 h-1 w-10 rounded-full bg-outline" />
+            <div className="mb-4 flex items-center justify-between">
+              <h2 id="mobile-more-title" className="text-xl font-semibold">Más opciones</h2>
+              <button
+                type="button"
+                onClick={() => setMoreOpen(false)}
+                className="rounded-full px-3 py-2 text-sm font-medium text-muted hover:bg-paper-soft hover:text-ink"
+              >
+                Cerrar
+              </button>
+            </div>
+            <div className="space-y-1">
+              <NavLink
+                to={organizationItem.to}
+                onClick={() => setMoreOpen(false)}
+                className={({ isActive }) => cn(
+                  "flex min-h-12 items-center gap-3 rounded-xl px-3 font-medium",
+                  isActive ? "bg-primary-mist text-primary" : "text-ink hover:bg-paper-soft",
+                )}
+              >
+                <OrganizationIcon className="h-5 w-5" /> Categorías
+              </NavLink>
+              <NavLink
+                to="/app/import"
+                onClick={() => setMoreOpen(false)}
+                className={({ isActive }) => cn(
+                  "flex min-h-12 items-center gap-3 rounded-xl px-3 font-medium",
+                  isActive ? "bg-primary-mist text-primary" : "text-ink hover:bg-paper-soft",
+                )}
+              >
+                <PdfIcon className="h-5 w-5" /> Importar cartola
+              </NavLink>
+              <NavLink
+                to="/app/profile"
+                onClick={() => setMoreOpen(false)}
+                className={({ isActive }) => cn(
+                  "flex min-h-12 items-center gap-3 rounded-xl px-3 font-medium",
+                  isActive ? "bg-primary-mist text-primary" : "text-ink hover:bg-paper-soft",
+                )}
+              >
+                <UserCircleIcon className="h-5 w-5" /> Perfil
+              </NavLink>
+              <button
+                type="button"
+                onClick={() => void supabase?.auth.signOut({ scope: "local" })}
+                className="flex min-h-12 w-full items-center gap-3 rounded-xl px-3 font-medium text-ink hover:bg-paper-soft"
+              >
+                <SignOutIcon className="h-5 w-5" /> Salir
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

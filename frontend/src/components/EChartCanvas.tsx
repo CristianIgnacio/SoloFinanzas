@@ -12,6 +12,7 @@ import {
   GridComponent,
   GraphicComponent,
   LegendComponent,
+  TimelineComponent,
   TooltipComponent,
   type GraphicComponentOption,
   type GridComponentOption,
@@ -28,6 +29,7 @@ echarts.use([
   GridComponent,
   GraphicComponent,
   LegendComponent,
+  TimelineComponent,
   TooltipComponent,
   CanvasRenderer,
 ]);
@@ -42,14 +44,17 @@ export type AppChartOption = ComposeOption<
   | TooltipComponentOption
 >;
 
-type EChartProps = {
+export type EChartProps = {
   className?: string;
   option: AppChartOption;
+  onItemClick?: (index: number) => void;
 };
 
-export function EChart({ className, option }: EChartProps) {
+export function EChart({ className, option, onItemClick }: EChartProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const chartRef = useRef<EChartsType | null>(null);
+  const onItemClickRef = useRef(onItemClick);
+  onItemClickRef.current = onItemClick;
 
   useEffect(() => {
     const container = containerRef.current;
@@ -60,6 +65,11 @@ export function EChart({ className, option }: EChartProps) {
     const chart = echarts.init(container);
     chartRef.current = chart;
     chart.setOption(option);
+    chart.on("click", (event) => {
+      if (event.componentType === "series" && typeof event.dataIndex === "number") {
+        onItemClickRef.current?.(event.dataIndex);
+      }
+    });
 
     const observer = new ResizeObserver(() => {
       chart.resize();

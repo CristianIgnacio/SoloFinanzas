@@ -106,6 +106,7 @@ const kindAliases: Record<string, string> = {
 type SharedCardProps = {
   name?: string;
   compact?: boolean;
+  compactOnDesktop?: boolean;
   preview?: boolean;
   className?: string;
 };
@@ -130,7 +131,7 @@ type AccountVisualCardProps = FinancialCardProps | CashCardProps;
 export function AccountVisualCard(props: AccountVisualCardProps) {
   const cash = props.variant === "cash";
   const financial = cash ? null : props;
-  const { name, compact = false, preview = false, className = "" } = props;
+  const { name, compact = false, compactOnDesktop = false, preview = false, className = "" } = props;
   const accountType = financial?.accountType ?? "cash";
   const productName = financial?.productName ?? "Efectivo";
   const rawKind = accountType.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim().replace(/[\s_]+/g, "_");
@@ -172,8 +173,8 @@ export function AccountVisualCard(props: AccountVisualCardProps) {
           {!isCopecPay ? <span className="truncate text-xs font-bold sm:text-sm">{cash ? "Efectivo" : InstitutionLabels[financial!.institution]}</span> : null}
         </div>
         <span className="max-w-[40%] shrink-0 truncate rounded-full border border-current/30 px-2 py-1 text-[0.6rem] font-bold uppercase tracking-[0.1em]">
-          <span className="sm:hidden">{cash ? "Manual" : shortKindLabels[kind] ?? kindLabel}</span>
-          <span className="hidden sm:inline">{kindLabel}</span>
+          <span className={compactOnDesktop ? "sm:hidden lg:inline" : "sm:hidden"}>{cash ? "Manual" : shortKindLabels[kind] ?? kindLabel}</span>
+          <span className={compactOnDesktop ? "hidden sm:inline lg:hidden" : "hidden sm:inline"}>{kindLabel}</span>
         </span>
       </div>
       <div className="relative min-w-0 max-w-[88%]">

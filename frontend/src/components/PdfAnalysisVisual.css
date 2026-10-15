@@ -1,0 +1,43 @@
+.pdf-analysis-scene {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  max-width: 290px;
+  height: 152px;
+  margin: 0 auto 8px;
+}
+
+.pdf-analysis-sheet {
+  position: relative;
+  z-index: 1;
+  width: 96px;
+  height: 128px;
+  flex-shrink: 0;
+  overflow: hidden;
+  padding: 16px 12px;
+  border: 1px solid #d9dfd3;
+  border-radius: 8px 18px 8px 8px;
+  background: #fff;
+  box-shadow: 0 8px 20px #344b2e12;
+  transform: rotate(-5deg);
+}
+
+.pdf-analysis-line { height: 3px; margin-bottom: 7px; border-radius: 4px; background: #d6dfcf; }
+.pdf-analysis-connection { position: absolute; left: 30%; right: 20%; height: 1px; border-top: 1px dashed #a8b89a; }
+.pdf-analysis-data { position: relative; z-index: 1; display: grid; gap: 8px; width: 126px; margin-left: 12px; }
+.pdf-analysis-row { display: flex; align-items: center; gap: 7px; padding: 9px 8px; border: 1px solid #d9dfd3; border-radius: 9px; background: #fff; color: #344b2e; font-size: 10px; font-weight: 600; }
+.pdf-analysis-scan { position: absolute; inset: 12px 0 auto; height: 24px; border-bottom: 2px solid #6e875f; background: linear-gradient(transparent, #a8b89a50); animation: pdf-scan 2.6s ease-in-out infinite; }
+.pdf-analysis-fragment { position: absolute; left: 25%; top: 48%; width: 24px; height: 5px; border-radius: 4px; background: #6e875f; opacity: 0; animation: pdf-extract 2.2s ease-in-out infinite; }
+.pdf-analysis-active .pdf-analysis-row { animation: pdf-group 2.2s ease-in-out infinite; }
+
+@keyframes pdf-scan { 0%, 100% { transform: translateY(0); opacity: 0.4; } 50% { transform: translateY(84px); opacity: 1; } }
+@keyframes pdf-extract { 0%, 15% { transform: translateX(0); opacity: 0; } 35% { opacity: 0.8; } 80%, 100% { transform: translateX(95px); opacity: 0; } }
+@keyframes pdf-group { 0%, 100% { border-color: #d9dfd3; } 55% { border-color: #6e875f; background: #edf3e9; } }
+
+@media (prefers-reduced-motion: reduce) {
+  .pdf-analysis-scan, .pdf-analysis-fragment, .pdf-analysis-active .pdf-analysis-row { animation: none; }
+  .pdf-analysis-scan { transform: translateY(42px); }
+  .pdf-analysis-fragment { display: none; }
+}

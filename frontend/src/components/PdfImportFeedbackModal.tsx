@@ -51,8 +51,9 @@ export function PdfImportFeedbackModal({
   useEffect(() => {
     const previousOverflow = document.body.style.overflow;
     const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    window.scrollTo({ top: window.scrollY, behavior: "instant" });
     document.body.style.overflow = "hidden";
-    closeButtonRef.current?.focus();
+    closeButtonRef.current?.focus({ preventScroll: true });
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         onCloseRef.current();
@@ -83,7 +84,7 @@ export function PdfImportFeedbackModal({
 
   return createPortal(
     <div
-      className="fixed inset-0 z-[100] flex items-center justify-center bg-ink/70 px-3 py-5 backdrop-blur-md sm:px-6"
+      className="fixed inset-x-0 top-0 z-[100] flex h-dvh items-center justify-center bg-ink/70 p-2 backdrop-blur-md sm:p-4"
       onMouseDown={(event) => {
         if (event.target === event.currentTarget) onClose();
       }}
@@ -94,40 +95,40 @@ export function PdfImportFeedbackModal({
         aria-modal="true"
         aria-labelledby="pdf-feedback-title"
         aria-describedby="pdf-feedback-description"
-        className="flex max-h-[min(92vh,900px)] w-full max-w-3xl flex-col overflow-hidden rounded-[2rem] border border-white/70 bg-white shadow-[0_28px_90px_rgba(23,32,20,0.35)]"
+        className="flex max-h-full w-full min-w-0 max-w-3xl flex-col overflow-hidden rounded-3xl border border-white/70 bg-white shadow-[0_28px_90px_rgba(23,32,20,0.35)] sm:max-h-[min(100%,900px)]"
       >
-        <div className="relative overflow-hidden bg-[linear-gradient(125deg,#fff1e9_0%,#fce0d5_56%,#fff8ee_100%)] px-6 py-7 sm:px-9 sm:py-9">
+        <div className="relative shrink-0 overflow-hidden bg-[linear-gradient(125deg,#fff1e9_0%,#fce0d5_56%,#fff8ee_100%)] p-4 sm:px-6 sm:py-5">
           <div aria-hidden="true" className="pointer-events-none absolute -right-16 -top-24 h-64 w-64 rounded-full border border-danger/15 bg-white/20" />
-          <div className="relative flex items-start gap-4 pr-8 sm:gap-5">
-            <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-[1.1rem] bg-danger text-white shadow-[0_10px_24px_rgba(150,59,49,0.24)] sm:h-16 sm:w-16 sm:rounded-[1.35rem]">
-              <WarningIcon className="h-6 w-6 sm:h-7 sm:w-7" />
+          <div className="relative flex items-start gap-3 pr-12 sm:gap-4">
+            <span className="hidden h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-danger text-white shadow-[0_10px_24px_rgba(150,59,49,0.24)] sm:flex">
+              <WarningIcon className="h-6 w-6" />
             </span>
             <div className="min-w-0 flex-1">
-              <p className="m-0 text-xs font-bold uppercase tracking-[0.17em] text-danger">
+              <p className="m-0 text-xs font-bold uppercase tracking-[0.12em] text-danger">
                 {hasIssues ? "Revisión necesaria" : "No pudimos continuar"}
               </p>
-              <h2 id="pdf-feedback-title" className="mt-2 text-2xl font-semibold leading-tight tracking-[-0.04em] text-ink sm:text-4xl">
+              <h2 id="pdf-feedback-title" className="dialog-title mt-1">
                 {hasIssues ? "Hay diferencias en tu documento" : errorTitle ?? "No pudimos analizar el PDF"}
               </h2>
-              <p id="pdf-feedback-description" className="mt-3 max-w-xl text-sm leading-6 text-ink/75 sm:text-base">
-                {hasIssues
-                  ? "Analizamos el PDF, pero hay datos que debes revisar antes de guardarlos. Tú decides si esta cuenta es la correcta."
-                  : "Revisa el detalle y corrige el archivo o la configuración para volver a intentarlo."}
-              </p>
             </div>
             <button
               ref={closeButtonRef}
               type="button"
               onClick={onClose}
               aria-label="Cerrar ventana"
-              className="absolute right-0 top-0 grid h-10 w-10 shrink-0 place-items-center rounded-full border border-danger/20 bg-white/70 text-xl leading-none text-ink transition hover:bg-white"
+              className="absolute right-0 top-0 grid h-11 w-11 shrink-0 place-items-center rounded-full border border-danger/20 bg-white/70 text-xl leading-none text-ink transition hover:bg-white"
             >
               ×
             </button>
           </div>
         </div>
 
-        <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-6 py-6 sm:px-9">
+        <div className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain p-4 sm:p-6">
+          <p id="pdf-feedback-description" className="text-sm leading-6 text-muted">
+            {hasIssues
+              ? "Analizamos el PDF, pero hay datos que debes revisar antes de guardarlos. Tú decides si esta cuenta es la correcta."
+              : "Revisa el detalle y corrige el archivo o la configuración para volver a intentarlo."}
+          </p>
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="flex min-w-0 items-center gap-3 rounded-2xl border border-outline bg-paper-soft/70 p-4">
               <PdfIcon className="h-5 w-5 shrink-0 text-primary" />
@@ -141,14 +142,14 @@ export function PdfImportFeedbackModal({
               <div className="min-w-0">
                 <p className="text-xs font-bold uppercase tracking-[0.12em] text-muted">Cuenta de destino</p>
                 <p className="truncate font-semibold text-ink" title={accountName ?? undefined}>{accountName ?? "Sin cuenta"}</p>
-                {institutionName ? <p className="text-xs text-muted">{institutionName}</p> : null}
+                {institutionName ? <p className="text-sm text-muted">{institutionName}</p> : null}
               </div>
             </div>
           </div>
 
           {hasIssues ? (
             <>
-              <div className="flex items-center justify-between gap-3">
+              <div className="flex flex-wrap items-center justify-between gap-3">
                 <p className="text-sm font-semibold text-ink">{issues.length} {issues.length === 1 ? "diferencia detectada" : "diferencias detectadas"}</p>
                 <span className="rounded-full bg-primary-mist px-3 py-1 text-xs font-semibold text-primary">
                   {transactionCount ?? 0} movimientos detectados
@@ -186,29 +187,27 @@ export function PdfImportFeedbackModal({
           ) : null}
         </div>
 
-        <div className="flex flex-col-reverse gap-3 border-t border-outline bg-white px-6 py-5 sm:flex-row sm:items-center sm:justify-between sm:px-9">
+        <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-t border-outline bg-white p-3 sm:px-6 sm:py-4">
           {hasIssues && canChangeAccount ? (
             <Button tone="ghost" onClick={() => {
               restoreFocusRef.current = false;
               onChangeAccount?.();
-            }} className="sm:mr-auto">Cambiar cuenta</Button>
+            }} compactOnMobile className="!px-3 !text-sm">Cambiar cuenta</Button>
           ) : <span />}
-          <div className="flex flex-col-reverse gap-3 sm:flex-row">
-            <Button tone="secondary" onClick={hasIssues ? () => {
+            <Button compactOnMobile className="!px-3 !text-sm" aria-label={hasIssues ? "Revisar movimientos" : "Cerrar"} tone="secondary" onClick={hasIssues ? () => {
               restoreFocusRef.current = false;
               onReviewMovements?.();
             } : onClose}>
-              {hasIssues ? "Revisar movimientos" : "Cerrar"}
+              {hasIssues ? <><span className="sm:hidden">Revisar</span><span className="hidden sm:inline">Revisar movimientos</span></> : "Cerrar"}
             </Button>
             {hasIssues ? (
-              <Button onClick={() => {
+              <Button compactOnMobile onClick={() => {
                 restoreFocusRef.current = false;
                 onAccept?.();
-              }} disabled={!acknowledgementChecked} className="border-danger bg-danger text-white hover:bg-[#9d4337]">
+              }} disabled={!acknowledgementChecked} className="w-full !border-danger !bg-danger !text-sm text-white hover:!bg-[#9d4337] sm:w-auto">
                 Continuar con esta cuenta
               </Button>
             ) : null}
-          </div>
         </div>
       </div>
     </div>,

@@ -2,6 +2,296 @@ import { expect, test, type Page } from "@playwright/test";
 
 const ownerA = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const ownerB = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+
+test("inicio abre pendientes del periodo y permite categorizar y deshacer", async ({ page }) => {
+  await mockApi(page);
+  let categoryId: number | null = null;
+  const movement = { id: 22, account_id: 1, date: "2026-09-15", description: "Compra pendiente",
+    amount_clp: -1000, transaction_type: "expense", origin: "pdf", category_id: null, category_source: null };
+  await page.route("**/api/v1/dashboard**", route => route.fulfill({ json: {
+    period_month: "2026-09", available_periods: ["2026-09"], cards: [], monthly_movements: [],
+  } }));
+  await page.route("**/api/v1/categories**", route => route.fulfill({ json: [
+    { id: 1, name: "Compras", type: "expense", parent_id: null, is_active: true, sort_order: 1 },
+  ] }));
+  await page.route("**/api/v1/transaction-pages**", route => {
+    const params = new URL(route.request().url()).searchParams;
+    expect(params.get("uncategorized")).toBe("true");
+    expect(params.get("date_from")).toBe("2026-09-01");
+    expect(params.get("date_to")).toBe("2026-09-30");
+    return route.fulfill({ json: { items: categoryId === null ? [movement] : [],
+      total: categoryId === null ? (params.get("limit") === "1" ? 12 : 1) : 0, offset: 0, limit: 50 } });
+  });
+  await page.route("**/api/v1/transactions/22/category", route => {
+    categoryId = route.request().postDataJSON().category_id;
+    return route.fulfill({ json: { ...movement, category_id: categoryId } });
+  });
+  await page.addInitScript(value => localStorage.setItem("sb-demo-auth-token", JSON.stringify(value)), session(ownerA));
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/app");
+  await page.getByRole("link", { name: /12 movimientos por categorizar/ }).click();
+  await expect(page).toHaveURL(/month=2026-09&category=uncategorized/);
+  await expect(page.getByRole("button", { name: "Quitar filtro: Sin categoría" })).toBeVisible();
+  await expect(page.getByRole("button", { name: /Quitar filtro: septiembre/i })).toBeVisible();
+  await page.getByRole("button", { name: "Mostrar detalles de Compra pendiente" }).click();
+  await page.getByRole("button", { name: "Categoria de Compra pendiente" }).click();
+  await page.getByRole("dialog").getByRole("button", { name: "Compras", exact: true }).click();
+  await expect(page.getByText("Todo categorizado para este periodo")).toBeVisible();
+  await page.getByRole("button", { name: "Deshacer cambio de categoría" }).click();
+  await expect(page.getByText("Compra pendiente", { exact: true })).toBeVisible();
+  expect(categoryId).toBeNull();
+  categoryId = 1;
+  await page.goto("/app");
+  await expect(page.getByRole("heading", { name: "Evolucion Mensual" })).toBeVisible();
+  await expect(page.getByRole("link", { name: /movimientos? por categorizar/ })).toHaveCount(0);
+});
+
+test("movimientos no desborda el ancho móvil con descripciones largas", async ({ page }, info) => {
+  await mockApi(page);
+  await page.route("**/api/v1/categories**", route => route.fulfill({ json: [
+    { id: 1, name: "Compras", type: "expense", parent_id: null, is_active: true, sort_order: 1 },
+  ] }));
+  const description = "Transferencia_".repeat(12);
+  await page.route("**/api/v1/transaction-pages**", route => route.fulfill({ json: {
+    items: [
+      { id: 2, account_id: 1, date: "2026-09-30", description: "Transf a CLEO CHILE",
+        amount_clp: -23600, transaction_type: "expense", origin: "pdf", category_id: null, is_internal_transfer: true },
+      { id: 1, account_id: 1, date: "2026-09-30", description,
+        amount_clp: -123456789, transaction_type: "expense", origin: "pdf", category_id: null },
+      { id: 3, account_id: 3, date: "2026-09-29", description: "Ingreso en efectivo",
+        amount_clp: 48000, transaction_type: "income", origin: "manual", category_id: null },
+    ],
+    total: 3, offset: 0, limit: 50,
+  } }));
+  const categoryUpdates: Array<number | null> = [];
+  await page.route("**/api/v1/transactions/2/category", route => {
+    const categoryId = route.request().postDataJSON().category_id as number | null;
+    categoryUpdates.push(categoryId);
+    return route.fulfill({ json: { id: 2, category_id: categoryId } });
+  });
+  await page.addInitScript(value => localStorage.setItem("sb-demo-auth-token", JSON.stringify(value)), session(ownerA));
+  await page.goto("/app/transactions");
+  await expect(page.getByText(description, { exact: true })).toBeVisible();
+  for (const width of [320, 375, 390, 430, 768, 1024, 1440]) {
+    await page.setViewportSize({ width, height: 844 });
+    const bounds = await page.evaluate(() => ({
+      page: document.documentElement.scrollWidth, viewport: window.innerWidth,
+      titleLeft: document.querySelector("h1")!.getBoundingClientRect().left,
+    }));
+    expect(bounds.page, `ancho ${width}`).toBeLessThanOrEqual(bounds.viewport);
+    expect(bounds.titleLeft).toBeGreaterThanOrEqual(0);
+  }
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.screenshot({ path: info.outputPath("movimientos-top-desktop.png") });
+  await page.getByRole("button", { name: "Filtros", exact: true }).click();
+  await page.screenshot({ path: info.outputPath("movimientos-filtros-desktop.png") });
+  await page.getByRole("button", { name: "Filtros", exact: true }).click();
+  await page.getByText("Transf a CLEO CHILE").locator("xpath=ancestor::section[1]").screenshot({ path: info.outputPath("movimiento-card-desktop.png") });
+  await page.getByRole("button", { name: "Categoria de Transf a CLEO CHILE", exact: true }).click();
+  const desktopPicker = page.getByRole("dialog", { name: "Seleccionar categoría" });
+  await expect(desktopPicker).toBeVisible();
+  const desktopPickerBounds = await desktopPicker.boundingBox();
+  expect(desktopPickerBounds!.width).toBeLessThanOrEqual(384);
+  expect(desktopPickerBounds!.height).toBeLessThanOrEqual(480);
+  await desktopPicker.screenshot({ path: info.outputPath("categorias-desktop.png") });
+  await desktopPicker.getByRole("button", { name: "Cerrar", exact: true }).click();
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.getByRole("button", { name: "Filtros", exact: true }).click();
+  let resumeFilter!: () => void;
+  await page.route("**/api/v1/transaction-pages**", async route => {
+    await new Promise<void>(resolve => { resumeFilter = resolve; });
+    await route.fallback();
+  }, { times: 1 });
+  await page.getByRole("button", { name: "Filtrar por categoría", exact: true }).click();
+  await page.getByRole("dialog", { name: "Seleccionar categoría" }).getByRole("button", { name: "Compras", exact: true }).click();
+  await expect(page.getByRole("status").first()).toContainText("Actualizando…");
+  await expect(page.getByText("Transf a CLEO CHILE", { exact: true })).toBeVisible();
+  await expect.poll(() => typeof resumeFilter).toBe("function");
+  resumeFilter();
+  await expect(page.getByRole("status").first()).not.toContainText("Actualizando…");
+  await expect(page.getByRole("button", { name: "Quitar filtro: Compras" })).toBeVisible();
+  await page.getByRole("button", { name: "Limpiar filtros", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Quitar filtro: Compras" })).toHaveCount(0);
+  await page.getByRole("button", { name: "Filtros", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Filtrar por categoría", exact: true })).toBeHidden();
+  await expect(page.getByRole("button", { name: "Guardar cambios", exact: true })).toHaveCount(0);
+  await page.screenshot({ path: info.outputPath("movimientos-top-mobile.png") });
+  const movementCard = page.getByText("Transf a CLEO CHILE").locator("xpath=ancestor::section[1]");
+  const regularCard = page.getByText(description, { exact: true }).locator("xpath=ancestor::section[1]");
+  await expect(movementCard.getByRole("img", { name: "Transferencia interna" })).toBeVisible();
+  expect((await movementCard.boundingBox())!.height).toBe((await regularCard.boundingBox())!.height);
+  await movementCard.evaluate(element => window.scrollTo(0, window.scrollY + element.getBoundingClientRect().top - 160));
+  await expect(movementCard.getByText("Cartola PDF")).toBeHidden();
+  await expect(movementCard.getByRole("combobox")).toBeHidden();
+  await movementCard.screenshot({ path: info.outputPath("movimiento-card-mobile.png") });
+  await movementCard.getByText("Transf a CLEO CHILE").click();
+  await expect(movementCard.getByText("Cartola PDF").last()).toBeVisible();
+  await expect(movementCard.locator("#transaction-details-2").getByText("Sí", { exact: true })).toBeVisible();
+  await expect(movementCard.getByText(/30 de septiembre de 2026/i)).toBeVisible();
+  await movementCard.screenshot({ path: info.outputPath("movimiento-detalles-mobile.png") });
+  await movementCard.getByText("Transf a CLEO CHILE").click();
+  await expect(movementCard.getByText("Cartola PDF")).toBeHidden();
+  await expect(movementCard.getByText("Ver detalles")).toHaveCount(0);
+  const manualCard = page.getByText("Ingreso en efectivo").locator("xpath=ancestor::section[1]");
+  await manualCard.getByText("Ingreso en efectivo").click();
+  await expect(manualCard.getByText("Registro manual").last()).toBeVisible();
+  await expect(manualCard.locator("#transaction-details-3").getByText("No", { exact: true })).toBeVisible();
+  await expect(manualCard.getByRole("button", { name: "Editar" })).toBeVisible();
+  await movementCard.getByText("Transf a CLEO CHILE").click();
+  await page.getByRole("button", { name: "Categoria de Transf a CLEO CHILE", exact: true }).click();
+  const categoryDialog = page.getByRole("dialog", { name: "Seleccionar categoría" });
+  await expect(categoryDialog).toBeVisible();
+  const dialogBounds = await categoryDialog.boundingBox();
+  expect(dialogBounds!.width).toBeLessThanOrEqual(390 - 32);
+  expect(dialogBounds!.height).toBeLessThanOrEqual(844 * 0.65 + 2);
+  await page.keyboard.press("Escape");
+  await expect(categoryDialog).toHaveCount(0);
+  await page.getByRole("button", { name: "Categoria de Transf a CLEO CHILE", exact: true }).click();
+  await categoryDialog.getByRole("button", { name: "Compras", exact: true }).click();
+  await expect(categoryDialog).toHaveCount(0);
+  await movementCard.getByText("Transf a CLEO CHILE").click();
+  await expect(movementCard.getByText("Cartola PDF")).toBeHidden();
+  await expect(movementCard.locator("span.line-clamp-1")).toHaveText("Compras");
+  await expect(page.getByText("Categoría cambiada a Compras.")).toBeVisible();
+  expect(categoryUpdates).toEqual([1]);
+  await expect(page.getByRole("button", { name: "Guardar cambios", exact: true })).toHaveCount(0);
+  await page.getByRole("button", { name: "Deshacer cambio de categoría" }).click();
+  await expect(page.getByText("Cambio deshecho.")).toBeVisible();
+  await expect(movementCard.locator("span.line-clamp-1")).toHaveText("Sin categoría");
+  expect(categoryUpdates).toEqual([1, null]);
+  await page.setViewportSize({ width: 320, height: 844 });
+  await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(320);
+  await page.screenshot({ path: info.outputPath("movimientos-mobile.png"), fullPage: true });
+});
+
+test("movimientos restaura la categoría si falla el guardado inmediato", async ({ page }) => {
+  await mockApi(page);
+  await page.route("**/api/v1/categories**", route => route.fulfill({ json: [
+    { id: 1, name: "Compras", type: "expense", parent_id: null, is_active: true, sort_order: 1 },
+  ] }));
+  await page.route("**/api/v1/transaction-pages**", route => route.fulfill({ json: {
+    items: [{ id: 2, account_id: 1, date: "2026-09-30", description: "Compra de prueba",
+      amount_clp: -1000, transaction_type: "expense", origin: "pdf", category_id: null }],
+    total: 1, offset: 0, limit: 50,
+  } }));
+  let rejectSave!: () => void;
+  await page.route("**/api/v1/transactions/2/category", async route => {
+    await new Promise<void>(resolve => { rejectSave = resolve; });
+    await route.fulfill({ status: 500, json: { detail: "Error de prueba" } });
+  });
+  await page.addInitScript(value => localStorage.setItem("sb-demo-auth-token", JSON.stringify(value)), session(ownerA));
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/app/transactions");
+  const card = page.getByText("Compra de prueba").locator("xpath=ancestor::section[1]");
+  await card.getByText("Compra de prueba").click();
+  await card.getByRole("button", { name: "Categoria de Compra de prueba" }).click();
+  await page.getByRole("dialog", { name: "Seleccionar categoría" }).getByRole("button", { name: "Compras", exact: true }).click();
+  await expect(card.locator("span.line-clamp-1")).toHaveText("Compras");
+  await expect(page.getByText("Guardando categoría…")).toBeVisible();
+  await expect.poll(() => typeof rejectSave).toBe("function");
+  rejectSave();
+  await expect(page.getByRole("alert")).toContainText("No se pudo guardar");
+  await expect(card.locator("span.line-clamp-1")).toHaveText("Sin categoría");
+  await expect(page.getByRole("button", { name: "Guardar cambios", exact: true })).toHaveCount(0);
+});
+
+test("movimientos carga más al bajar y reinicia la lista al filtrar", async ({ page }) => {
+  await mockApi(page);
+  const items = Array.from({ length: 75 }, (_, index) => ({
+    id: 75 - index, account_id: 1, date: index < 50 ? "2026-09-30" : "2026-09-29",
+    description: `Movimiento ${index + 1}`, amount_clp: -1000, transaction_type: "expense",
+    origin: "pdf", category_id: null,
+  }));
+  const requestedOffsets: number[] = [];
+  await page.route("**/api/v1/transaction-pages**", route => {
+    const params = new URL(route.request().url()).searchParams;
+    const offset = Number(params.get("offset") ?? 0);
+    requestedOffsets.push(offset);
+    const filtered = params.get("transaction_type") === "income" ? [] : items;
+    return route.fulfill({ json: { items: filtered.slice(offset, offset + 50), total: filtered.length, offset, limit: 50 } });
+  });
+  await page.addInitScript(value => localStorage.setItem("sb-demo-auth-token", JSON.stringify(value)), session(ownerA));
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/app/transactions");
+  await expect(page.getByText("Movimiento 50", { exact: true })).toBeVisible();
+  await expect(page.getByText("Movimiento 51", { exact: true })).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: /30 de septiembre de 2026/i })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Siguiente" })).toHaveCount(0);
+  await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+  await expect(page.getByText("Movimiento 75", { exact: true })).toBeVisible();
+  await expect(page.getByText("Movimiento 1", { exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: /29 de septiembre de 2026/i })).toBeVisible();
+  expect(requestedOffsets.filter(offset => offset === 50)).toEqual([50]);
+  await page.getByRole("button", { name: "Ingresos" }).click();
+  await expect(page.getByText("Movimiento 1", { exact: true })).toHaveCount(0);
+  await expect(page.getByText("No hay movimientos para este filtro")).toBeVisible();
+  expect(requestedOffsets.at(-1)).toBe(0);
+  await page.getByRole("button", { name: "Filtros", exact: true }).click();
+  await expect(page.getByRole("combobox", { name: "Periodo", exact: true })).toBeVisible();
+});
+
+test("inicio conserva sus indicadores y gráficos en móvil y escritorio", async ({ page }, info) => {
+  await mockApi(page);
+  const names = ["Comida y restaurantes", "Servicios con un nombre largo para el gráfico móvil", "Transporte", "Salud", "Compras", "Educación", "Viajes"];
+  const amounts = [50000, 20000, 10000, 8000, 5000, 4000, 3000];
+  await page.route("**/api/v1/categories**", route => route.fulfill({ json: names.map((name, index) => ({
+    id: index + 1, name, type: "expense", parent_id: null,
+  })) }));
+  await page.route("**/api/v1/transactions**", route => route.fulfill({ json: amounts.map((amount, index) => ({
+    id: index + 10, account_id: 1, date: "2026-09-12", description: names[index], amount_clp: -amount,
+    transaction_type: "expense", origin: "pdf", category_id: index + 1, is_internal_transfer: false,
+  })) }));
+  await page.route("**/api/v1/dashboard**", route => route.fulfill({ json: {
+    period_month: "2026-09", available_periods: ["2026-09"],
+    cards: [
+      { label: "Balance", value: "-$123.456.789", trend: "Subio 5%" },
+      { label: "Ingresos", value: "$8.765.432", trend: "Subio 3%" },
+      { label: "Gastos", value: "$4.321.123", trend: "Bajo 2%" },
+    ],
+    monthly_movements: [{ month: "2026-09", income: 8765432, expenses: 4321123 }],
+  } }));
+  await page.addInitScript(value => localStorage.setItem("sb-demo-auth-token", JSON.stringify(value)), session(ownerA));
+  await page.goto("/app");
+  await expect(page.getByRole("heading", { name: "Evolucion Mensual" })).toBeVisible();
+  for (const width of [320, 375, 390, 430, 768, 1024, 1280, 1440]) {
+    await page.setViewportSize({ width, height: 844 });
+    await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth), { message: `ancho ${width}` }).toBeLessThanOrEqual(width);
+    for (const value of ["-$123.456.789", "$8.765.432", "$4.321.123"]) {
+      const amount = page.getByText(value, { exact: true }).first();
+      expect(await amount.evaluate(el => {
+        const range = document.createRange();
+        range.selectNodeContents(el);
+        const lines = [...range.getClientRects()];
+        const bounds = el.getBoundingClientRect();
+        return lines.length === 1 && lines[0].left >= bounds.left && lines[0].right <= bounds.right;
+      }), `${value} completo en una línea a ${width}px`).toBe(true);
+    }
+  }
+  await page.setViewportSize({ width: 390, height: 844 });
+  const gainsCard = page.getByText("Ganancias tarjetas").locator("xpath=ancestor::section[1]");
+  const gainsSize = await gainsCard.boundingBox();
+  expect(gainsSize).not.toBeNull();
+  expect(gainsSize!.width / gainsSize!.height).toBeLessThan(1.35);
+  const categoryPanel = page.getByRole("heading", { name: "Gastos por Categoria" }).locator("xpath=ancestor::section[1]");
+  await expect(categoryPanel.getByRole("button", { name: /Otras categorías/ })).toContainText("$7.000");
+  await expect(categoryPanel.getByRole("status")).toContainText("Total: $100.000");
+  const chart = categoryPanel.locator("canvas").first();
+  await expect(chart).toBeVisible();
+  const chartBox = await chart.boundingBox();
+  expect(chartBox).not.toBeNull();
+  await chart.click({ position: { x: chartBox!.width / 2 + 74, y: chartBox!.height * .48 } });
+  await expect(categoryPanel.getByRole("status")).toContainText("Comida y restaurantes");
+  await expect(categoryPanel.getByRole("status")).toContainText("50.0% del total");
+  await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
+  await page.screenshot({ path: info.outputPath("categoria-tocada-mobile.png") });
+  await categoryPanel.getByRole("button", { name: /Servicios con un nombre largo/ }).click();
+  await expect(categoryPanel.getByRole("status")).toContainText("20.0% del total");
+  await categoryPanel.getByRole("button", { name: /Otras categorías/ }).click();
+  await expect(categoryPanel.getByRole("status")).toContainText("7.0% del total");
+  await categoryPanel.getByRole("button", { name: /Otras categorías/ }).click();
+  await expect(categoryPanel.getByRole("status")).toContainText("Total: $100.000");
+  await page.screenshot({ path: info.outputPath("inicio-mobile.png"), fullPage: true });
+});
 function session(owner: string) {
   const payload = { sub: owner, exp: Math.floor(Date.now() / 1000) + 3600 };
   const token = `eyJhbGciOiJFUzI1NiJ9.${Buffer.from(JSON.stringify(payload)).toString("base64url")}.fake`;
@@ -241,6 +531,13 @@ test("alta de cuenta selecciona producto y deriva el tipo", async ({ page }, inf
   await page.goto("/app/accounts");
   await page.getByRole("button", { name: "Agregar cuenta", exact: true }).click();
   const accountDialog = page.getByRole("dialog", { name: "Elige tu producto financiero" });
+  const closeButton = accountDialog.getByRole("button", { name: "Cerrar", exact: true });
+  const submitButton = accountDialog.getByRole("button", { name: "Agregar cuenta", exact: true });
+  await closeButton.focus();
+  await page.keyboard.press("Shift+Tab");
+  await expect(submitButton).toBeFocused();
+  await page.keyboard.press("Tab");
+  await expect(closeButton).toBeFocused();
   await expect(page.getByRole("textbox", { name: "Moneda" })).toHaveCount(0);
   await page.getByRole("textbox", { name: "Nombre visible" }).fill("Cuenta para gastos");
   const preview = page.getByRole("img", { name: /Vista previa de/ });
@@ -262,6 +559,68 @@ test("alta de cuenta selecciona producto y deriva el tipo", async ({ page }, inf
   await expect(productSelect.locator("option")).toHaveCount(2);
   await productSelect.selectOption("banco_estado_cuenta_rut");
   await expect(preview).toContainText("CuentaRUT");
+  await accountDialog.getByRole("textbox", { name: /Últimos 4/ }).fill("1234");
+  for (const [width, height] of [[800, 600], [1024, 600], [1280, 650], [1532, 730], [1920, 1080]]) {
+    await page.setViewportSize({ width, height });
+    const layout = await accountDialog.evaluate(dialog => {
+      const panel = dialog.firstElementChild as HTMLElement;
+      const bounds = panel.getBoundingClientRect();
+      return { overflow: panel.scrollHeight - panel.clientHeight, widthOverflow: panel.scrollWidth - panel.clientWidth, top: bounds.top, bottom: bounds.bottom };
+    });
+    expect(layout.overflow, `scroll del modal a ${width}×${height}`).toBeLessThanOrEqual(1);
+    expect(layout.widthOverflow).toBeLessThanOrEqual(1);
+    expect(layout.top).toBeGreaterThanOrEqual(16);
+    expect(layout.bottom).toBeLessThanOrEqual(height - 16);
+    await expect(preview).toBeInViewport({ ratio: 1 });
+    await expect(accountDialog.getByRole("textbox", { name: /Últimos 4/ })).toBeInViewport({ ratio: 1 });
+    await expect(accountDialog.getByRole("button", { name: "Agregar cuenta" })).toBeInViewport({ ratio: 1 });
+    await page.screenshot({ path: info.outputPath(`modal-${width}x${height}.png`) });
+  }
+  for (const [width, height] of [[320, 568], [360, 640], [390, 844], [430, 932], [768, 1024], [844, 390], [390, 400]]) {
+    await page.setViewportSize({ width, height });
+    await expect(closeButton).toBeInViewport({ ratio: 1 });
+    await expect(submitButton).toBeInViewport({ ratio: 1 });
+    const layout = await accountDialog.evaluate(dialog => {
+      const panel = dialog.firstElementChild as HTMLElement;
+      const body = panel.children[1] as HTMLElement;
+      const bounds = panel.getBoundingClientRect();
+      return { widthOverflow: body.scrollWidth - body.clientWidth, top: bounds.top, bottom: bounds.bottom };
+    });
+    expect(layout.widthOverflow, `ancho del modal a ${width}×${height}`).toBeLessThanOrEqual(1);
+    expect(layout.top).toBeGreaterThanOrEqual(8);
+    expect(layout.bottom).toBeLessThanOrEqual(height - 8);
+    const last4 = accountDialog.getByRole("textbox", { name: /Últimos 4/ });
+    await last4.focus();
+    await last4.scrollIntoViewIfNeeded();
+    const visibleField = await last4.evaluate(input => {
+      const panel = input.closest("form")!;
+      const header = panel.firstElementChild!.getBoundingClientRect();
+      const footer = panel.lastElementChild!.getBoundingClientRect();
+      const field = input.getBoundingClientRect();
+      return field.top >= header.bottom && field.bottom <= footer.top;
+    });
+    expect(visibleField, `campo visible a ${width}×${height}`).toBe(true);
+    await expect(submitButton).toBeInViewport({ ratio: 1 });
+    await page.screenshot({ path: info.outputPath(`modal-${width}x${height}.png`) });
+    await productSelect.scrollIntoViewIfNeeded();
+    await expect(productSelect).toBeInViewport({ ratio: 1 });
+    if (height >= 568) {
+      await preview.scrollIntoViewIfNeeded();
+      await expect(preview).toBeInViewport({ ratio: 1 });
+      await expect(closeButton).toBeInViewport({ ratio: 1 });
+      await expect(submitButton).toBeInViewport({ ratio: 1 });
+      await page.screenshot({ path: info.outputPath(`modal-preview-${width}x${height}.png`) });
+    }
+  }
+  await page.keyboard.press("Escape");
+  await expect(accountDialog).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Agregar cuenta", exact: true })).toBeFocused();
+  await page.getByRole("button", { name: "Agregar cuenta", exact: true }).click();
+  await accountDialog.getByRole("textbox", { name: "Nombre visible" }).fill("Cuenta para gastos");
+  await page.getByRole("combobox", { name: "Institución" }).selectOption("banco_estado");
+  await kindSelect.selectOption("vista");
+  await productSelect.selectOption("banco_estado_cuenta_rut");
+  await page.setViewportSize({ width: 390, height: 844 });
   await preview.scrollIntoViewIfNeeded();
   await page.screenshot({ path: info.outputPath("modal-preview.png") });
   await accountDialog.getByRole("button", { name: "Agregar cuenta" }).click();
@@ -410,10 +769,11 @@ test("cuentas y dashboard muestran alias, institución y producto", async ({ pag
   await page.goto("/app/settings?account_id=1");
   await expect(page).toHaveURL(/\/app\/accounts\?account_id=1$/);
   await expect(page.getByRole("button", { name: "Editar", exact: true })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Eliminar", exact: true })).toBeVisible();
+  await page.getByLabel("Más acciones de la cuenta").click();
+  await expect(page.getByRole("button", { name: "Eliminar cuenta", exact: true })).toBeVisible();
 });
 
-test("cuentas distingue variación registrada y cobertura de cartolas", async ({ page }) => {
+test("cuentas distingue variación registrada y cobertura de cartolas", async ({ page }, info) => {
   await mockApi(page);
   await page.route("**/api/v1/accounts", (route) => route.fulfill({ json: [
     { id: 1, name: "Cuenta principal", institution: "banco_estado", account_type: "vista", product_code: "banco_estado_cuenta_rut", account_last4: "1234", currency: "CLP", created_at: "2026-01-01T00:00:00Z" },
@@ -427,21 +787,27 @@ test("cuentas distingue variación registrada y cobertura de cartolas", async ({
   await page.route("**/api/v1/reports/accounts", (route) => route.fulfill({ json: [
     { account_id: 1, count: 2, income: 150000, expenses: 50000, net: 100000 },
   ] }));
+  await page.route("**/api/v1/transaction-pages**", route => route.fulfill({ json: { items: [], total: 82, offset: 0, limit: 50 } }));
   await page.addInitScript(
     (value) => localStorage.setItem("sb-demo-auth-token", JSON.stringify(value)),
     session(ownerA),
   );
 
   await page.goto("/app/accounts?account_id=1");
-  await expect(page.getByText("Variación registrada", { exact: true })).toBeVisible();
+  await expect(page.getByText("Variación registrada", { exact: true }).filter({ visible: true })).toBeVisible();
   await expect(page.getByText("Saldo neto", { exact: true })).toHaveCount(0);
   await expect(page.getByText(/Última cartola procesada: marzo de 2026/)).toBeVisible();
+  await page.getByText("Ver detalles de importación", { exact: true }).click();
   await expect(page.getByText(/Última importación correcta: 03 abr\.? 2026/)).toBeVisible();
   await expect(page.getByText("1 con error", { exact: true })).toBeVisible();
   await expect(page.getByText("1 pendiente", { exact: true })).toBeVisible();
   await expect(page.getByText("1 mes sin cartola", { exact: true })).toBeVisible();
   await expect(page.getByText(/Sin cartola registrada entre períodos importados: febrero de 2026/)).toBeVisible();
   await expect(page.getByText("Cartolas por actualizar", { exact: true })).toBeVisible();
+
+  await expect(page.getByRole("button", { name: "Movimientos (82)", exact: true })).toBeVisible();
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await page.screenshot({ path: info.outputPath("accounts-desktop.png"), fullPage: true });
 
   const lastClosedMonth = new Date();
   lastClosedMonth.setDate(1);
@@ -615,14 +981,16 @@ test("retiro importado se vincula con Efectivo y se puede deshacer", async ({ pa
   );
   await page.goto("/app/transactions");
   await expect(page.getByRole("button", { name: "Vincular con Efectivo" })).toHaveCount(0);
-  await page.getByRole("combobox", { name: "Categoria de Giro en cajero" }).selectOption("41");
-  await page.getByRole("button", { name: /guardar cambios/i }).first().click();
+  await page.getByRole("button", { name: "Mostrar detalles de Giro en cajero", exact: true }).click();
+  await page.getByRole("button", { name: "Categoria de Giro en cajero", exact: true }).click();
+  await page.getByRole("dialog", { name: "Seleccionar categoría" }).getByRole("button", { name: "Retiro de efectivo", exact: true }).click();
+  await expect.poll(() => bankCategory).toBe(41);
   await page.getByRole("button", { name: "Vincular con Efectivo" }).click();
   const confirm = page.getByRole("dialog", { name: "Vincular con Efectivo" });
   await expect(confirm.getByText("Entrada a Efectivo")).toBeVisible();
   await confirm.getByRole("button", { name: "Confirmar vínculo" }).click();
   await expect(page.getByText("Retiro desde Cuenta demo A")).toBeVisible();
-  await expect(page.getByText("Transferencia interna")).toHaveCount(2);
+  await expect(page.locator("span").filter({ hasText: /^Transferencia interna$/ })).toHaveCount(2);
   await page.getByRole("button", { name: "Deshacer vínculo" }).last().click();
   await page.getByRole("dialog", { name: "Deshacer vínculo" }).getByRole("button", { name: "Deshacer vínculo" }).click();
   await expect(page.getByText("Retiro desde Cuenta demo A")).toHaveCount(0);

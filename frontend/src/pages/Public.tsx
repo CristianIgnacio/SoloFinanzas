@@ -206,7 +206,7 @@ export function LoginPage() {
       <section className="mx-auto my-10 max-w-lg px-5">
         <div className="surface-card space-y-6 p-8">
           <p className="eyebrow">BIENVENIDO A TU ESPACIO</p>
-          <h1 className="text-4xl font-semibold tracking-tight">
+          <h1 className="page-title">
             Más claridad empieza aquí.
           </h1>
           <p className="leading-7 text-muted">
@@ -314,7 +314,7 @@ export function InformationPage({ privacy = false }: { privacy?: boolean }) {
   return (
     <PublicShell>
       <article className="mx-auto max-w-3xl space-y-6 px-5 py-12 leading-8">
-        <h1 className="text-4xl font-semibold">
+        <h1 className="page-title">
           {privacy
             ? "Tu información y tu privacidad"
             : "Cómo usar SoloFinanzas"}
@@ -347,35 +347,63 @@ export function InformationPage({ privacy = false }: { privacy?: boolean }) {
           </>
         ) : (
           <>
-            <ol className="list-decimal space-y-4 pl-6">
-              <li>
-                Ingresa con Google y crea tu primera cuenta desde Cuentas o
-                Configuración.
-              </li>
-              <li>
-                Descarga una cartola PDF con texto seleccionable desde tu banco.
-                Se admiten archivos de hasta 10 MB y 50 páginas.
-              </li>
-              <li>
-                Selecciona la cuenta, importa el PDF y revisa las categorías
-                antes de confirmar.
-              </li>
-              <li>
-                Consulta tu dashboard y movimientos. Puedes deshacer una
-                importación desde el detalle de la cuenta.
-              </li>
-            </ol>
+            <section aria-labelledby="help-accounts-title">
+              <h2 id="help-accounts-title" className="text-2xl font-semibold">Cuentas e importaciones</h2>
+              <ol className="list-decimal space-y-3 pl-6">
+                <li>
+                  Ingresa con Google. En <strong>Cuentas</strong>, agrega una
+                  cuenta financiera y selecciona institución, tipo y producto.
+                  También puedes comenzar con <strong>Efectivo</strong> desde el
+                  inicio para registrar movimientos manualmente.
+                </li>
+                <li>
+                  Para importar, descarga una cartola PDF con texto seleccionable
+                  y elige la cuenta correspondiente. Se admiten archivos de
+                  hasta 10 MB y 50 páginas.
+                </li>
+                <li>
+                  Antes de guardar, revisa los movimientos, categorías y avisos
+                  del análisis. El formato admitido depende del producto; el
+                  importador muestra si está probado o pendiente de verificación.
+                  Los PDF escaneados que requieren OCR no se admiten.
+                </li>
+              </ol>
+              <p className="mt-4">
+                Se pueden registrar productos de Banco de Chile, Santander,
+                BancoEstado, Banco Falabella, Mercado Pago y Copec Pay. Algunas
+                tarjetas de crédito están pendientes de verificación y ciertos
+                formatos todavía no se admiten. Revisa siempre el resultado del
+                análisis antes de confirmar.
+              </p>
+            </section>
+            <section aria-labelledby="help-review-title">
+              <h2 id="help-review-title" className="text-2xl font-semibold">Movimientos y organización</h2>
+              <ul className="list-disc space-y-3 pl-6">
+                <li>
+                  En <strong>Movimientos</strong>, filtra por período, cuenta,
+                  tipo o categoría y corrige la categoría cuando lo necesites.
+                </li>
+                <li>
+                  En <strong>Categorías</strong>, organiza categorías y
+                  subcategorías, y administra las reglas de clasificación.
+                </li>
+                <li>
+                  En <strong>Efectivo</strong>, registra, edita o elimina
+                  movimientos y configura un saldo inicial. Puedes vincular sus
+                  traspasos con movimientos bancarios para reconocerlos como
+                  transferencias entre tus cuentas.
+                </li>
+                <li>
+                  En el detalle de una cuenta puedes revisar sus cartolas y
+                  movimientos. Para deshacer una importación, abre la acción de
+                  eliminar cartola y revisa primero el impacto que se muestra.
+                </li>
+              </ul>
+            </section>
             <p>
-              Se admiten Banco de Chile, Santander, BancoEstado, Banco
-              Falabella, Mercado Pago y CopecPay. Para Falabella se admite la
-              cartola de movimientos de cuenta corriente, no estados de crédito
-              CMR. Los documentos escaneados requieren OCR y no están
-              soportados.
-            </p>
-            <p>
-              Si el servicio tarda en responder después de estar inactivo,
-              espera y reintenta. Conserva siempre tus cartolas originales.
-              Puedes exportar tus datos desde Perfil.
+              Desde <strong>Perfil</strong> puedes descargar tus datos o
+              eliminar tu cuenta. Si el servicio demora en responder después de
+              un período inactivo, espera un momento y vuelve a intentarlo.
             </p>
           </>
         )}

@@ -81,7 +81,7 @@ export function CashMovementFormModal({ categories, transaction, initialDelete =
     <div role="dialog" aria-modal="true" aria-labelledby="cash-movement-title" className="fixed inset-0 z-50 flex items-center justify-center bg-ink/50 px-3 py-4 backdrop-blur-sm">
       <div className="surface-card max-h-[calc(100vh-2rem)] w-full max-w-xl overflow-y-auto p-6 sm:p-8">
         <p className="eyebrow m-0 text-primary">Cuenta Efectivo</p>
-        <h2 id="cash-movement-title" className="mt-2 text-3xl font-semibold tracking-tight text-ink">
+        <h2 id="cash-movement-title" className="mt-2 dialog-title">
           {confirmDelete ? "Eliminar movimiento" : transaction ? "Editar movimiento" : "Registrar movimiento"}
         </h2>
         <p className="mt-2 text-sm text-muted">Registra dinero que entra o sale de tu efectivo. No necesitas una cartola.</p>
@@ -101,28 +101,28 @@ export function CashMovementFormModal({ categories, transaction, initialDelete =
           <form className="mt-7 space-y-5" onSubmit={(event) => void save(event)}>
             <div className="grid gap-4 sm:grid-cols-2">
               <label className="space-y-2 text-sm font-medium text-ink">Tipo
-                <select value={type} onChange={(event) => { setType(event.target.value as TransactionType); setCategoryId(""); }} className="w-full rounded-2xl border border-outline bg-white px-4 py-3 outline-none focus:border-primary">
+                <select value={type} onChange={(event) => { setType(event.target.value as TransactionType); setCategoryId(""); }} className="w-full rounded-2xl border border-outline bg-white px-4 py-3 text-base outline-none sm:text-sm focus:border-primary">
                   <option value={TransactionType.EXPENSE}>Gasto</option>
                   <option value={TransactionType.INCOME}>Ingreso</option>
                 </select>
               </label>
               <label className="space-y-2 text-sm font-medium text-ink">Monto en pesos
-                <input type="number" min="1" max="2147483647" step="1" required value={amount} onChange={(event) => setAmount(event.target.value)} className="w-full rounded-2xl border border-outline bg-white px-4 py-3 outline-none focus:border-primary" />
+                <input type="number" min="1" max="2147483647" step="1" required value={amount} onChange={(event) => setAmount(event.target.value)} className="w-full rounded-2xl border border-outline bg-white px-4 py-3 text-base outline-none sm:text-sm focus:border-primary" />
               </label>
             </div>
             <div className="grid gap-4 sm:grid-cols-2">
               <label className="space-y-2 text-sm font-medium text-ink">Fecha
-                <input type="date" required value={date} onChange={(event) => setDate(event.target.value)} className="w-full rounded-2xl border border-outline bg-white px-4 py-3 outline-none focus:border-primary" />
+                <input type="date" required value={date} onChange={(event) => setDate(event.target.value)} className="w-full rounded-2xl border border-outline bg-white px-4 py-3 text-base outline-none sm:text-sm focus:border-primary" />
               </label>
               <label className="space-y-2 text-sm font-medium text-ink">Categoría (opcional)
-                <select value={categoryId} onChange={(event) => setCategoryId(event.target.value)} className="w-full rounded-2xl border border-outline bg-white px-4 py-3 outline-none focus:border-primary">
+                <select value={categoryId} onChange={(event) => setCategoryId(event.target.value)} className="w-full rounded-2xl border border-outline bg-white px-4 py-3 text-base outline-none sm:text-sm focus:border-primary">
                   <option value="">Sin categoría</option>
                   {compatibleCategories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}
                 </select>
               </label>
             </div>
             <label className="block space-y-2 text-sm font-medium text-ink">Descripción
-              <input type="text" maxLength={240} required value={description} onChange={(event) => setDescription(event.target.value)} placeholder="Ej. Almuerzo" className="w-full rounded-2xl border border-outline bg-white px-4 py-3 outline-none focus:border-primary" />
+              <input type="text" maxLength={240} required value={description} onChange={(event) => setDescription(event.target.value)} placeholder="Ej. Almuerzo" className="w-full rounded-2xl border border-outline bg-white px-4 py-3 text-base outline-none sm:text-sm focus:border-primary" />
             </label>
             {error ? <p role="alert" className="text-sm text-danger">{error}</p> : null}
             <div className="flex flex-wrap items-center justify-between gap-3 border-t border-outline pt-5">

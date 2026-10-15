@@ -52,6 +52,33 @@
 }
 
 @layer components {
+  .page-title {
+    @apply text-3xl font-semibold leading-tight tracking-[-0.04em] text-ink sm:text-4xl lg:text-[2.5rem];
+    overflow-wrap: anywhere;
+  }
+
+  .section-title {
+    @apply text-xl font-semibold leading-snug tracking-tight text-ink sm:text-2xl;
+    overflow-wrap: anywhere;
+  }
+
+  .dialog-title {
+    @apply text-xl font-semibold leading-snug tracking-tight text-ink sm:text-2xl;
+    overflow-wrap: anywhere;
+  }
+
+  /* Size monetary values against their card, not the viewport. */
+  .metric-container {
+    container-type: inline-size;
+    min-width: 0;
+  }
+
+  .metric-value {
+    @apply block whitespace-nowrap font-semibold tabular-nums tracking-tight;
+    font-size: clamp(1.25rem, 10cqi, 2.25rem);
+    line-height: 1.25;
+  }
+
   .surface-card {
     @apply rounded-[1.5rem] border border-outline/80 bg-white shadow-paper;
   }

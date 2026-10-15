@@ -81,9 +81,10 @@ async def security_headers(request: Request, call_next):
                     address = str(ip_address(forwarded))
                 except ValueError:
                     pass
-            limiter.check("ip:" + address, settings.api_requests_per_minute * 2)
-            if request.url.path.startswith("/api/v1/statement-imports/"):
-                limiter.check("pdf-ip:" + address, settings.pdf_requests_per_minute * 2)
+            if settings.rate_limit_enabled:
+                limiter.check("ip:" + address, settings.api_requests_per_minute * 2)
+                if request.url.path.startswith("/api/v1/statement-imports/"):
+                    limiter.check("pdf-ip:" + address, settings.pdf_requests_per_minute * 2)
             size = request.headers.get("content-length")
             if size and (not size.isdigit() or int(size) > 12 * 1024 * 1024):
                 raise HTTPException(413, "La solicitud supera el límite permitido.")
