@@ -12,6 +12,7 @@ type PageIntroProps = {
   description?: string;
   period?: ReactNode;
   actions?: ReactNode;
+  compactOnMobile?: boolean;
 };
 
 export function PageIntro({
@@ -20,25 +21,26 @@ export function PageIntro({
   description,
   period,
   actions,
+  compactOnMobile = false,
 }: PageIntroProps) {
   return (
-    <section className="subtle-divider pb-8">
-      <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
-        <div className="max-w-3xl space-y-4">
+    <section className={cn("subtle-divider", compactOnMobile ? "pb-5 sm:pb-8" : "pb-8")}>
+      <div className={cn("flex flex-col lg:flex-row lg:items-end lg:justify-between", compactOnMobile ? "gap-4 sm:gap-6" : "gap-6")}>
+        <div className={cn("min-w-0 max-w-3xl", compactOnMobile ? "space-y-3 sm:space-y-4" : "space-y-4")}>
           <div className="flex flex-wrap items-center gap-4 text-primary">
             {eyebrow ? <p className="eyebrow m-0">{eyebrow}</p> : null}
             {period ? (
-              <span className="border-b-2 border-primary pb-1 text-lg font-medium md:text-[1.75rem]">
+              <span className="min-w-0 max-w-full border-b-2 border-primary pb-1 text-lg font-medium md:text-[1.75rem]">
                 {period}
               </span>
             ) : null}
           </div>
           <div className="space-y-3">
-            <h1 className="text-5xl font-semibold tracking-[-0.04em] text-ink md:text-6xl">
+            <h1 className={cn("font-semibold tracking-[-0.04em] text-ink [overflow-wrap:anywhere] sm:text-5xl md:text-6xl", compactOnMobile ? "text-3xl" : "text-4xl")}>
               {title}
             </h1>
             {description ? (
-              <p className="max-w-2xl text-lg leading-8 text-muted md:text-[1.35rem]">
+              <p className={cn("max-w-2xl text-muted md:text-[1.35rem]", compactOnMobile ? "text-base leading-6 sm:text-lg sm:leading-8" : "text-lg leading-8")}>
                 {description}
               </p>
             ) : null}
@@ -52,11 +54,13 @@ export function PageIntro({
 
 type PanelProps = HTMLAttributes<HTMLDivElement> & {
   children: ReactNode;
+  compactOnMobile?: boolean;
+  dense?: boolean;
 };
 
-export function Panel({ className, children, ...props }: PanelProps) {
+export function Panel({ className, children, compactOnMobile = false, dense = false, ...props }: PanelProps) {
   return (
-    <section className={cn("surface-card p-6 md:p-8", className)} {...props}>
+    <section className={cn("surface-card", dense ? "p-3.5 sm:p-5 md:p-7" : compactOnMobile ? "p-4 sm:p-6 md:p-8" : "p-6 md:p-8", className)} {...props}>
       {children}
     </section>
   );
@@ -70,6 +74,7 @@ type StatCardProps = {
   helper?: string;
   helperIcon?: ReactNode;
   helperTone?: "positive" | "negative" | "neutral";
+  compactOnMobile?: boolean;
 };
 
 export function StatCard({
@@ -80,6 +85,7 @@ export function StatCard({
   helper,
   helperIcon,
   helperTone = "neutral",
+  compactOnMobile = false,
 }: StatCardProps) {
   const toneClass =
     tone === "income"
@@ -95,13 +101,13 @@ export function StatCard({
         : "bg-paper-soft text-muted";
 
   return (
-    <article className="surface-card flex h-full min-h-[190px] flex-col justify-between gap-6 p-6">
+    <article className={cn("surface-card flex h-full flex-col justify-between", compactOnMobile ? "min-h-[136px] gap-3 p-4 sm:min-h-[190px] sm:gap-6 sm:p-6" : "min-h-[190px] gap-6 p-6")}>
       <div className="flex items-start justify-between gap-4">
         <p className="text-base font-medium text-muted">{label}</p>
         {icon ? (
           <span
             className={cn(
-              "flex h-12 w-12 shrink-0 items-center justify-center rounded-full",
+                compactOnMobile ? "flex h-10 w-10 shrink-0 items-center justify-center rounded-full sm:h-12 sm:w-12" : "flex h-12 w-12 shrink-0 items-center justify-center rounded-full",
               toneClass,
             )}
           >
@@ -109,14 +115,14 @@ export function StatCard({
           </span>
         ) : null}
       </div>
-      <div className="space-y-3">
-        <strong className="block text-4xl font-semibold tracking-[-0.04em] text-ink md:text-5xl">
+      <div className={compactOnMobile ? "min-w-0 space-y-2 sm:space-y-3" : "space-y-3"}>
+        <strong className={cn("block font-semibold tracking-[-0.04em] text-ink [overflow-wrap:anywhere] md:text-5xl", compactOnMobile ? "text-3xl sm:text-4xl" : "text-4xl")}>
           {value}
         </strong>
         {helper ? (
           <p
             className={cn(
-              "inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-sm font-semibold",
+              "inline-flex max-w-full items-center gap-2 rounded-full px-3 py-1.5 text-sm font-semibold",
               helperToneClass,
             )}
           >
@@ -137,11 +143,13 @@ type ButtonTone = "primary" | "secondary" | "ghost";
 
 type ButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & {
   tone?: ButtonTone;
+  compactOnMobile?: boolean;
 };
 
 export function Button({
   className,
   tone = "primary",
+  compactOnMobile = false,
   type = "button",
   ...props
 }: ButtonProps) {
@@ -156,7 +164,8 @@ export function Button({
     <button
       type={type}
       className={cn(
-        "inline-flex items-center justify-center gap-2 rounded-2xl border px-5 py-3 text-base font-medium transition disabled:cursor-not-allowed disabled:opacity-50",
+        "inline-flex items-center justify-center gap-2 rounded-2xl border font-medium transition disabled:cursor-not-allowed disabled:opacity-50",
+        compactOnMobile ? "min-h-11 px-3 py-2.5 text-sm sm:px-5 sm:py-3 sm:text-base" : "px-5 py-3 text-base",
         toneClass,
         className,
       )}
@@ -174,7 +183,7 @@ export function Tag({ children, active = false }: TagProps) {
   return (
     <span
       className={cn(
-        "inline-flex items-center rounded-full border px-4 py-2 text-base transition",
+        "inline-flex min-h-11 items-center rounded-full border px-3 py-2 text-sm transition sm:px-4 sm:text-base",
         active
           ? "border-primary bg-primary text-white"
           : "border-outline bg-white text-ink",
