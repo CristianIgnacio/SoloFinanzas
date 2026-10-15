@@ -15,6 +15,7 @@ class Settings(BaseSettings):
     pdf_max_pages: int = 50
     api_requests_per_minute: int = 120
     pdf_requests_per_minute: int = 5
+    rate_limit_enabled: bool = True
     trust_proxy_headers: bool = False
     frontend_origins: list[str] = [
         "http://127.0.0.1:5173",
@@ -36,3 +37,5 @@ def validate_runtime_config(config: Settings, *, on_render: bool) -> None:
             raise RuntimeError("Production requires PostgreSQL and Supabase HTTPS.")
         if any(origin == "*" or not origin.startswith("https://") for origin in config.frontend_origins):
             raise RuntimeError("Production requires exact HTTPS frontend origins.")
+        if not config.rate_limit_enabled:
+            raise RuntimeError("Production requires rate limiting to remain enabled.")

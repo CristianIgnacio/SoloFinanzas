@@ -53,9 +53,10 @@ def get_identity(request: Request, credentials: HTTPAuthorizationCredentials | N
         raise HTTPException(503, "El servicio de acceso no está disponible.") from error
     except (jwt.PyJWTError, ValueError, KeyError, TypeError) as error:
         raise HTTPException(401, "La sesión no es válida. Vuelve a ingresar.", headers={"WWW-Authenticate": "Bearer"}) from error
-    from app.core.limits import limiter
-    limiter.check("user:" + str(owner), settings.api_requests_per_minute)
-    if request.url.path.startswith("/api/v1/statement-imports/"):
-        limiter.check("pdf:" + str(owner), settings.pdf_requests_per_minute)
+    if settings.rate_limit_enabled:
+        from app.core.limits import limiter
+        limiter.check("user:" + str(owner), settings.api_requests_per_minute)
+        if request.url.path.startswith("/api/v1/statement-imports/"):
+            limiter.check("pdf:" + str(owner), settings.pdf_requests_per_minute)
     metadata = claims.get("user_metadata", {})
     return Identity(owner, claims.get("email", ""), metadata.get("full_name", ""), claims)
