@@ -1,4 +1,4 @@
-﻿import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 
 import {
@@ -14,7 +14,9 @@ import {
   StatusNotice,
   UploadIcon,
   WarningIcon,
+  cn,
 } from "../components";
+import { PdfAnalysisVisual } from "../components/PdfAnalysisVisual";
 import { PdfImportFeedbackModal } from "../components/PdfImportFeedbackModal";
 import { getAccountPdfAvailability, groupCategories } from "../lib";
 import { ApiRequestError } from "../lib/apiClient";
@@ -49,32 +51,6 @@ type EditablePreviewTransaction = TransactionPreviewCandidate & {
   category_id: number | null;
 };
 
-function DocumentPreview({ preview }: { preview: PdfPreview | null }) {
-  return (
-    <div className="relative overflow-hidden rounded-2xl border border-outline/80 bg-[#a9a79d] p-4 shadow-paper">
-      <div className="absolute inset-0 bg-[linear-gradient(165deg,rgba(255,255,255,0.28),transparent_45%,rgba(0,0,0,0.08))]" />
-      <div className="relative mx-auto mt-3 min-h-36 w-28 rounded-sm bg-[#f5f2e9] p-4 shadow-[0_10px_24px_rgba(0,0,0,0.18)]">
-        {preview ? (
-          <div className="space-y-2 text-[6px] leading-tight text-[#777267]">
-            {preview.preview_lines.slice(0, 10).map((line, index) => (
-              <p key={`${line}-${index}`} className="truncate">
-                {line}
-              </p>
-            ))}
-          </div>
-        ) : (
-          <div className="space-y-2">
-            <div className="h-1 w-10 rounded bg-[#cecabe]" />
-            <div className="h-1 w-12 rounded bg-[#dad6cb]" />
-            <div className="mt-7 h-1 w-8 rounded bg-[#cecabe]" />
-            <div className="h-1 w-12 rounded bg-[#dad6cb]" />
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
 export function ImportStatementsPage() {
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [products, setProducts] = useState<FinancialProduct[]>([]);
@@ -99,6 +75,7 @@ export function ImportStatementsPage() {
   const accountSelectRef = useRef<HTMLSelectElement>(null);
   const feedbackRef = useRef<HTMLDivElement>(null);
   const previewRef = useRef<HTMLDivElement>(null);
+  const analysisRef = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const requestedAccountId = searchParams.get("account_id");
@@ -146,6 +123,17 @@ export function ImportStatementsPage() {
 
   const account = accounts.find((item) => String(item.id) === selectedAccount);
   const pdfAvailability = account ? getAccountPdfAvailability(account, products) : null;
+  const busy = analyzing || importing;
+
+  const scrollTo = (element: HTMLElement | null) => element?.scrollIntoView({
+    behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth",
+    block: "start",
+  });
+
+  useEffect(() => {
+    if (analyzing) scrollTo(analysisRef.current);
+    else if (preview && preview.issues.length === 0) scrollTo(previewRef.current);
+  }, [analyzing, preview]);
 
   const summary = useMemo(() => {
     const income = editableTransactions
@@ -196,6 +184,7 @@ export function ImportStatementsPage() {
   };
 
   const onFileChange = (fileList: FileList | null) => {
+    if (busy || !fileList?.length) return;
     const file = fileList?.[0] ?? null;
     resetAnalysis();
     if (file && file.size > MAX_PDF_SIZE) {
@@ -214,7 +203,7 @@ export function ImportStatementsPage() {
   };
 
   const analyzeDocument = async () => {
-    if (!selectedFile || !selectedAccount || !pdfAvailability?.allowed) return;
+    if (busy || !selectedFile || !selectedAccount || !pdfAvailability?.allowed) return;
     setAnalyzing(true);
     resetAnalysis();
     try {
@@ -242,7 +231,7 @@ export function ImportStatementsPage() {
   };
 
   const importDocument = async () => {
-    if (!selectedFile || !selectedAccount || !preview || !pdfAvailability?.allowed
+    if (busy || editableTransactions.length === 0 || !selectedFile || !selectedAccount || !preview || !pdfAvailability?.allowed
       || (preview.issues.length > 0 && !issuesAccepted)) return;
     setImporting(true);
     setError(null);
@@ -318,333 +307,184 @@ export function ImportStatementsPage() {
   };
 
   return (
-    <div className="space-y-8">
-      <PageIntro
-        eyebrow="Importar PDF"
-        title="Subir Cartola"
-        description="Importa cartolas PDF de tus cuentas y revisa la disponibilidad según su producto financiero."
-      />
+    <div className="space-y-5 sm:space-y-8">
+      <PageIntro compactOnMobile eyebrow="Importar PDF" title="Importar cartola"
+        description="Selecciona tu cuenta, analiza el PDF y revisa los movimientos antes de guardarlos." />
+
+      <ol aria-label="Etapas de importación" className="grid grid-cols-3 gap-2 sm:gap-4">
+        {["Preparar", "Revisar", "Guardar"].map((label, index) => {
+          const active = importing ? index === 2 : preview ? index === 1 : index === 0;
+          return <li key={label} aria-current={active ? "step" : undefined}
+            className={cn("flex min-w-0 items-center gap-1.5 rounded-2xl border px-2 py-2.5 text-xs font-semibold sm:gap-2 sm:p-3 sm:text-sm", active ? "border-primary/25 bg-primary-mist text-primary" : "border-outline/70 bg-white/60 text-muted")}>
+            <span className={cn("grid h-6 w-6 shrink-0 place-items-center rounded-full sm:h-7 sm:w-7", active ? "bg-primary text-white" : "bg-paper-soft")}>{index + 1}</span>{label}
+          </li>;
+        })}
+      </ol>
 
       {error || codedError ? (
-        <div ref={feedbackRef}>
+        <div ref={feedbackRef} className="scroll-mt-28">
           {error ? <StatusNotice tone="error">{error}</StatusNotice> : null}
-          {codedError ? (
-            <button
-              type="button"
-              onClick={() => setFeedbackModal("error")}
-              className="flex w-full items-center gap-4 rounded-2xl border border-danger/25 bg-danger-soft/40 px-5 py-4 text-left transition hover:bg-danger-soft/70"
-            >
-              <WarningIcon className="h-6 w-6 shrink-0 text-danger" />
-              <span className="min-w-0 flex-1">
-                <span className="block font-semibold text-ink">{issueTitles[codedError.code] ?? "No pudimos analizar el PDF"}</span>
-                <span className="block text-sm text-muted">Abre el detalle para saber cómo resolverlo.</span>
-              </span>
-              <span className="shrink-0 text-sm font-semibold text-danger">Ver detalle</span>
-            </button>
-          ) : null}
+          {codedError ? <button type="button" onClick={() => setFeedbackModal("error")}
+            className="flex w-full items-center gap-3 rounded-2xl border border-danger/25 bg-danger-soft/40 p-4 text-left transition hover:bg-danger-soft/70">
+            <WarningIcon className="h-5 w-5 shrink-0 text-danger" />
+            <span className="min-w-0 flex-1">
+              <span className="block text-sm font-semibold text-ink">{issueTitles[codedError.code] ?? "No pudimos continuar"}</span>
+              <span className="mt-1 block text-sm text-muted">Ver el detalle y cómo resolverlo</span>
+            </span>
+          </button> : null}
         </div>
       ) : null}
 
-      <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_340px]">
-        <Panel className="space-y-6">
-          <div className="space-y-2">
-            <h2 className="text-3xl font-medium tracking-[-0.03em]">Archivo de Datos</h2>
-            <p className="text-muted">
-              Selecciona una cartola PDF con texto seleccionable para analizarla.
-            </p>
+      <div className="grid min-w-0 gap-4 xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)] xl:items-start xl:gap-6">
+        <Panel compactOnMobile className="min-w-0 space-y-4 sm:space-y-5">
+          <div className="flex items-center gap-3">
+            <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-primary-mist text-primary"><BankIcon className="h-5 w-5" /></span>
+            <div><h2 className="text-xl font-semibold tracking-tight">Cuenta de destino</h2><p className="mt-1 text-sm text-muted">Elige la cuenta de esta cartola.</p></div>
           </div>
-
-          <button
-            type="button"
-            onClick={() => fileInputRef.current?.click()}
-            onDrop={(event) => {
-              event.preventDefault();
-              onFileChange(event.dataTransfer.files);
-            }}
-            onDragOver={(event) => event.preventDefault()}
-            className="flex min-h-[360px] w-full flex-col items-center justify-center gap-6 rounded-[1.75rem] border-2 border-dashed border-outline bg-paper/80 px-6 text-center transition hover:border-primary/40 hover:bg-primary-mist/30"
-          >
-            <span className="flex h-20 w-20 items-center justify-center rounded-full bg-paper-soft text-primary">
-              <PdfIcon className="h-9 w-9" />
-            </span>
-            <div className="space-y-3">
-              <h3 className="text-4xl font-medium tracking-[-0.04em]">
-                {selectedFile ? selectedFile.name : "Sube tu cartola bancaria aqui"}
-              </h3>
-              <p className="mx-auto max-w-xl text-lg leading-8 text-muted">
-                Arrastra el PDF o haz clic para buscarlo en tu equipo.
-              </p>
+          <label className="block min-w-0 space-y-2 text-sm">
+            <span className="font-medium text-ink">Cuenta Destino</span>
+            <select ref={accountSelectRef} value={selectedAccount} onChange={(event) => {
+              setSelectedAccount(event.target.value);
+              resetAnalysis();
+            }} disabled={busy || loadingAccounts || accounts.length === 0}
+              className="min-h-11 w-full min-w-0 rounded-xl border border-outline bg-white px-3 py-3 text-base outline-none transition focus:border-primary disabled:opacity-60">
+              <option value="">{accounts.length > 0 ? "Selecciona una cuenta..." : "No hay cuentas registradas"}</option>
+              {accounts.map(item => <option key={item.id} value={item.id}>{item.name}{item.account_last4 ? ` · •••• ${item.account_last4}` : ""} · {InstitutionLabels[item.institution]}</option>)}
+            </select>
+          </label>
+          {pdfAvailability?.notice ? <StatusNotice tone={pdfAvailability.allowed ? "info" : "error"}>{pdfAvailability.notice}</StatusNotice> : null}
+          {!loadingAccounts && accounts.length === 0 ? <Button compactOnMobile tone="secondary" onClick={() => navigate("/app/accounts?new_account=1")}>Agregar cuenta</Button> : null}
+          <div className="space-y-2">
+            <label htmlFor="pdf-password" className="flex items-center gap-2 text-sm font-medium text-ink"><LockIcon className="h-4 w-4 text-muted" />Contraseña del documento</label>
+            <div className="relative">
+              <input id="pdf-password" type={showPassword ? "text" : "password"} value={password} disabled={busy}
+                onChange={(event) => { setPassword(event.target.value); resetAnalysis(); }} placeholder="Opcional" autoComplete="off"
+                className="min-h-11 w-full min-w-0 rounded-xl border border-outline bg-white px-3 py-3 pr-14 text-base outline-none transition focus:border-primary disabled:opacity-60" />
+              <button type="button" onClick={() => setShowPassword(visible => !visible)} aria-label={showPassword ? "Ocultar contraseña" : "Mostrar contraseña"} aria-pressed={showPassword}
+                className="absolute right-1 top-1/2 flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-lg text-muted transition hover:bg-paper-soft hover:text-ink">
+                {showPassword ? <EyeOffIcon className="h-5 w-5" /> : <EyeIcon className="h-5 w-5" />}
+              </button>
             </div>
-            <p className="text-sm text-muted">PDF con texto seleccionable, maximo 10 MB.</p>
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="application/pdf,.pdf"
-              className="hidden"
-              onChange={(event) => onFileChange(event.target.files)}
-            />
-          </button>
+            <p className="text-sm leading-5 text-muted">Complétala si tu PDF está protegido. La contraseña no se almacena.</p>
+          </div>
+          {preview ? <p className="border-t border-outline/70 pt-3 text-sm leading-5 text-muted">Si cambias la cuenta, la contraseña o el archivo, deberás analizar la cartola otra vez.</p> : null}
         </Panel>
 
-        <Panel className="flex h-full flex-col justify-between gap-6">
-          <div className="space-y-6">
-            <DocumentPreview preview={preview} />
-            <div className="space-y-5">
-              <div className="space-y-2">
-                <h2 className="text-3xl font-medium tracking-[-0.03em]">Configuracion</h2>
-                <p className="text-sm text-muted">
-                  Elige la cuenta a la que pertenecen los movimientos.
-                </p>
-              </div>
-
-              <label className="space-y-2 text-sm">
-                <span className="font-medium text-ink">Cuenta Destino</span>
-                <div className="relative">
-                  <select
-                    ref={accountSelectRef}
-                    value={selectedAccount}
-                    onChange={(event) => {
-                      setSelectedAccount(event.target.value);
-                      resetAnalysis();
-                    }}
-                    disabled={loadingAccounts || accounts.length === 0}
-                    className="w-full appearance-none rounded-xl border border-outline bg-white px-4 py-3 pr-10 outline-none transition focus:border-primary"
-                  >
-                    <option value="">
-                      {accounts.length > 0
-                        ? "Selecciona una cuenta..."
-                        : "No hay cuentas registradas"}
-                    </option>
-                    {accounts.map((account) => (
-                      <option key={account.id} value={account.id}>
-                        {account.name}
-                        {account.account_last4 ? ` **** ${account.account_last4}` : ""}
-                        {" - "}
-                        {InstitutionLabels[account.institution]}
-                      </option>
-                    ))}
-                  </select>
-                  <BankIcon className="pointer-events-none absolute right-4 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" />
-                </div>
-              </label>
-
-              {pdfAvailability?.notice ? (
-                <StatusNotice tone={pdfAvailability.allowed ? "info" : "error"}>
-                  {pdfAvailability.notice}
-                </StatusNotice>
-              ) : null}
-
-              <label className="space-y-2 text-sm">
-                <span className="font-medium text-ink">Contrasena del Documento</span>
-                <div className="relative">
-                  <input
-                    type={showPassword ? "text" : "password"}
-                    value={password}
-                    onChange={(event) => {
-                      setPassword(event.target.value);
-                      resetAnalysis();
-                    }}
-                    placeholder="Opcional"
-                    className="w-full rounded-xl border border-outline bg-white px-4 py-3 pr-12 outline-none transition focus:border-primary"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowPassword((visible) => !visible)}
-                    aria-label={showPassword ? "Ocultar contrasena" : "Mostrar contrasena"}
-                    aria-pressed={showPassword}
-                    className="absolute right-2 top-1/2 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-lg text-muted transition hover:bg-paper-soft hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
-                  >
-                    {showPassword ? (
-                      <EyeOffIcon className="h-5 w-5" />
-                    ) : (
-                      <EyeIcon className="h-5 w-5" />
-                    )}
-                  </button>
-                </div>
-              </label>
-            </div>
+        <Panel compactOnMobile className="min-w-0 space-y-4">
+          <div className="flex items-center justify-between gap-3">
+            <h2 className="text-xl font-semibold tracking-tight">Tu cartola PDF</h2>
+            <span className="shrink-0 rounded-full bg-paper-soft px-2.5 py-1 text-sm font-medium text-muted">Máx. 10 MB</span>
           </div>
-
-          <div className="grid gap-3 sm:grid-cols-2">
-            <Button
-              tone="secondary"
-              onClick={() => {
-                setSelectedFile(null);
-                setPassword("");
-                setShowPassword(false);
-                resetAnalysis();
-              }}
-            >
-              Limpiar
-            </Button>
-            <Button
-              className="min-h-14"
-              disabled={!selectedFile || !selectedAccount || !pdfAvailability?.allowed || analyzing}
-              onClick={analyzeDocument}
-            >
-              <UploadIcon className="h-5 w-5" />
-              {analyzing ? "Analizando..." : "Analizar Documento"}
+          {!preview ? <div ref={analysisRef} className="scroll-mt-28"><PdfAnalysisVisual analyzing={analyzing} hasFile={Boolean(selectedFile)} /></div> : (
+            <div role="status" className="rounded-xl bg-primary-mist p-3 text-sm text-primary">Análisis completado · {summary.count} movimientos detectados</div>
+          )}
+          <button type="button" disabled={busy} aria-label={selectedFile ? "Cambiar archivo PDF" : "Seleccionar archivo PDF"}
+            onClick={() => fileInputRef.current?.click()}
+            onDrop={(event) => { event.preventDefault(); onFileChange(event.dataTransfer.files); }} onDragOver={event => event.preventDefault()}
+            className={cn("flex w-full min-w-0 items-center gap-3 rounded-2xl border-2 border-dashed border-outline bg-paper/70 p-4 text-left transition hover:border-primary/40 hover:bg-primary-mist/30 disabled:cursor-wait disabled:opacity-60", !selectedFile && "min-h-28")}>
+            <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-white text-primary"><PdfIcon className="h-6 w-6" /></span>
+            <span className="min-w-0 flex-1">
+              <span className="block text-sm font-semibold text-ink [overflow-wrap:anywhere]">{selectedFile?.name ?? "Selecciona tu cartola"}</span>
+              <span className="mt-1 block text-sm leading-5 text-muted">{selectedFile ? `${new Intl.NumberFormat("es-CL", { maximumFractionDigits: 1 }).format(selectedFile.size / 1024)} KB · Toca para cambiar el archivo` : "Busca un PDF con texto seleccionable en tus archivos."}</span>
+              {!selectedFile ? <span className="mt-1 hidden text-sm text-muted xl:block">También puedes arrastrarlo aquí.</span> : null}
+            </span>
+          </button>
+          <input ref={fileInputRef} type="file" accept="application/pdf,.pdf" disabled={busy} className="hidden" onChange={(event) => {
+            onFileChange(event.target.files);
+            event.target.value = "";
+          }} />
+          <div className="flex gap-2 border-t border-outline/70 pt-4">
+            <Button compactOnMobile tone="secondary" disabled={busy || (!selectedFile && !password)} onClick={() => {
+              setSelectedFile(null); setPassword(""); setShowPassword(false); resetAnalysis();
+              if (fileInputRef.current) fileInputRef.current.value = "";
+            }}>Limpiar</Button>
+            <Button compactOnMobile className="min-w-0 flex-1" aria-label={analyzing ? "Analizando..." : "Analizar Documento"} disabled={!selectedFile || !selectedAccount || !pdfAvailability?.allowed || busy} onClick={analyzeDocument}>
+              <UploadIcon className="h-5 w-5 shrink-0" />{analyzing ? "Analizando..." : "Analizar PDF"}
             </Button>
           </div>
         </Panel>
       </div>
 
       {preview ? (
-        <div ref={previewRef}>
-        <Panel className="space-y-6">
-          {preview.issues.length > 0 ? (
-            <div className="flex flex-col gap-4 rounded-[1.5rem] border border-danger/25 bg-[linear-gradient(110deg,#fff1e9,#fffaf4)] p-5 sm:flex-row sm:items-center">
-              <span className="grid h-12 w-12 shrink-0 place-items-center rounded-2xl bg-danger text-white">
-                <WarningIcon className="h-5 w-5" />
-              </span>
-              <div className="min-w-0 flex-1">
-                <p className="font-semibold text-ink">{issuesAccepted ? "Diferencias revisadas" : "Tu documento requiere revisión"}</p>
-                <p className="mt-1 text-sm text-muted">
-                  {preview.issues.length} {preview.issues.length === 1 ? "diferencia detectada" : "diferencias detectadas"}. {issuesAccepted ? "Aceptaste continuar con esta cuenta." : "Revisa el detalle para habilitar la importación."}
-                </p>
-              </div>
-              <Button
-                tone="secondary"
-                onClick={() => {
-                  setAcknowledgementChecked(issuesAccepted);
-                  setFeedbackModal("issues");
-                }}
-              >
-                {issuesAccepted ? "Ver diferencias" : "Revisar diferencias"}
-              </Button>
-            </div>
-          ) : null}
-          <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
+        <div ref={previewRef} className="min-w-0 scroll-mt-28 space-y-4" aria-busy={importing}>
+          <Panel compactOnMobile className="min-w-0 space-y-5">
             <div className="space-y-2">
-              <p className="eyebrow m-0 text-primary">Vista previa</p>
-              <h2 className="text-3xl font-medium tracking-[-0.03em]">
-                {summary.count} movimientos detectados
-              </h2>
-              <p className="text-muted">
-                Periodo {preview.period_month} · {preview.page_count} pagina
-                {preview.page_count === 1 ? "" : "s"} ·{" "}
-                {preview.is_encrypted ? "PDF protegido" : "PDF sin contrasena"}
-              </p>
+              <p className="eyebrow m-0 text-primary">Revisa antes de guardar</p>
+              <h2 className="section-title">{summary.count} movimientos detectados</h2>
+              <p className="text-sm leading-6 text-muted">Período {preview.period_month} · {preview.page_count} {preview.page_count === 1 ? "página" : "páginas"} · {preview.is_encrypted ? "PDF protegido" : "PDF sin contraseña"}</p>
+              <p className="text-sm text-muted">Puedes corregir el tipo y la categoría de cada movimiento.</p>
             </div>
-            <Button
-              disabled={summary.count === 0 || !pdfAvailability?.allowed || importing
-                || (preview.issues.length > 0 && !issuesAccepted)}
-              onClick={importDocument}
-            >
-              <UploadIcon className="h-5 w-5" />
-              {importing ? "Importando..." : "Confirmar Importacion"}
+            <div className={cn("grid gap-3 sm:grid-cols-3", [summary.income, summary.expenses].some(value => currencyFormatter.format(value).length > 10) ? "grid-cols-1" : "grid-cols-2")} aria-label="Resumen de la importación">
+              <div className="col-span-full flex items-center justify-between rounded-2xl bg-paper-soft p-4 sm:col-span-1 sm:block"><p className="text-sm text-muted">Movimientos</p><p className="text-2xl font-semibold tabular-nums sm:mt-1">{summary.count}</p></div>
+              <div className="metric-container rounded-2xl bg-primary-mist p-3 text-primary sm:p-4"><p className="text-sm">Ingresos</p><p className="metric-value mt-1">{currencyFormatter.format(summary.income)}</p></div>
+              <div className="metric-container rounded-2xl bg-danger-soft p-3 text-danger sm:p-4"><p className="text-sm">Gastos</p><p className="metric-value mt-1">{currencyFormatter.format(summary.expenses)}</p></div>
+            </div>
+            {preview.issues.length > 0 ? (
+              <div className="flex flex-col gap-3 rounded-2xl border border-danger/25 bg-danger-soft/40 p-4 sm:flex-row sm:items-center">
+                <div className="flex min-w-0 flex-1 items-start gap-3">
+                  <WarningIcon className="mt-0.5 h-5 w-5 shrink-0 text-danger" />
+                  <div><p className="text-sm font-semibold">{issuesAccepted ? "Diferencias revisadas" : "Tu documento requiere revisión"}</p>
+                    <p className="mt-1 text-sm leading-5 text-muted">{preview.issues.length} {preview.issues.length === 1 ? "diferencia detectada" : "diferencias detectadas"}. {issuesAccepted ? "Aceptaste continuar con esta cuenta." : "Revisa el detalle para habilitar la importación."}</p></div>
+                </div>
+                <Button compactOnMobile tone="secondary" disabled={importing} onClick={() => { setAcknowledgementChecked(issuesAccepted); setFeedbackModal("issues"); }}>{issuesAccepted ? "Ver diferencias" : "Revisar diferencias"}</Button>
+              </div>
+            ) : null}
+            {preview.parsing_errors.length > 0 ? <StatusNotice tone="error">{preview.parsing_errors.length} fila(s) no pudieron interpretarse. Revisa el PDF antes de confirmar.</StatusNotice> : null}
+
+            {summary.count > 0 ? <div className="xl:max-h-[min(65vh,680px)] xl:overflow-auto xl:rounded-2xl xl:border xl:border-outline/80">
+              <table role="table" aria-label="Movimientos por importar" className="block w-full border-collapse xl:table xl:min-w-[760px]">
+                <thead role="rowgroup" className="sr-only text-left text-sm text-muted xl:not-sr-only xl:sticky xl:top-0 xl:z-10 xl:table-header-group xl:bg-paper">
+                  <tr role="row"><th className="px-3 py-3 font-medium">Fecha</th><th className="px-3 py-3 font-medium">Descripción</th><th className="px-3 py-3 font-medium">Tipo</th><th className="px-3 py-3 font-medium">Categoría</th><th className="px-3 py-3 text-right font-medium">Monto</th></tr>
+                </thead>
+                <tbody role="rowgroup" className="grid gap-3 md:grid-cols-2 xl:table-row-group">
+                  {editableTransactions.map((transaction, index) => (
+                    <tr role="row" key={`${transaction.source_line}-${index}`} className="grid min-w-0 grid-cols-2 gap-x-2 gap-y-3 rounded-2xl border border-outline/80 p-3.5 xl:table-row xl:rounded-none xl:border-x-0 xl:border-t-0 xl:p-0 xl:last:border-b-0">
+                      <td role="cell" className="col-start-1 row-start-1 block self-center text-sm text-muted xl:table-cell xl:whitespace-nowrap xl:px-3 xl:py-4">{transaction.date}</td>
+                      <td role="cell" className="col-span-2 row-start-2 block min-w-0 text-sm font-medium [overflow-wrap:anywhere] xl:table-cell xl:px-3 xl:py-4">{transaction.description}</td>
+                      <td role="cell" className="col-span-2 row-start-3 block min-w-0 xl:table-cell xl:w-32 xl:px-3 xl:py-4">
+                        <label className="block min-w-0 space-y-1.5">
+                          <span className="text-sm font-medium text-muted xl:sr-only">Tipo <span className="sr-only">del movimiento {index + 1}</span></span>
+                          <select value={transaction.transaction_type} disabled={importing} onChange={event => updateTransactionType(transaction.source_id, event.target.value as TransactionType)}
+                            className="min-h-11 w-full min-w-0 rounded-xl border border-outline bg-white px-3 py-2 text-base outline-none transition focus:border-primary disabled:opacity-60 xl:text-sm">
+                            <option value={TransactionType.EXPENSE}>Gasto</option><option value={TransactionType.INCOME}>Ingreso</option>
+                          </select>
+                        </label>
+                      </td>
+                      <td role="cell" className="col-span-2 row-start-4 block min-w-0 xl:table-cell xl:w-48 xl:px-3 xl:py-4">
+                        <label className="block min-w-0 space-y-1.5">
+                          <span className="text-sm font-medium text-muted xl:sr-only">Categoría <span className="sr-only">del movimiento {index + 1}</span></span>
+                          <select value={transaction.category_id ?? ""} disabled={importing} onChange={event => updateTransactionCategory(transaction.source_id, event.target.value ? Number(event.target.value) : null)}
+                            className="min-h-11 w-full min-w-0 rounded-xl border border-outline bg-white px-3 py-2 text-base outline-none transition focus:border-primary disabled:opacity-60 xl:text-sm">
+                            <option value="">Sin categoría</option>
+                            {categoryGroupsFor(transaction.transaction_type).map(group => <optgroup key={group.root.id} label={group.root.name}>
+                              <option value={group.root.id}>{group.children.length > 0 ? `${group.root.name} (sin subcategoría)` : group.root.name}</option>
+                              {group.children.map(category => <option key={category.id} value={category.id}>{category.name}</option>)}
+                            </optgroup>)}
+                          </select>
+                        </label>
+                      </td>
+                      <td role="cell" className={cn("col-start-2 row-start-1 block min-w-0 self-center text-right text-sm font-semibold tabular-nums [overflow-wrap:anywhere] xl:table-cell xl:whitespace-nowrap xl:px-3 xl:py-4", transaction.amount_clp >= 0 ? "text-primary" : "text-danger")}>{currencyFormatter.format(transaction.amount_clp)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div> : <EmptyState title="No se detectaron movimientos" description="Revisa el documento o selecciona otra cartola para volver a analizarla." />}
+
+            {preview.preview_lines.length > 0 ? <details className="rounded-xl border border-outline/70 p-3 text-sm">
+              <summary className="min-h-8 cursor-pointer font-medium text-primary">Ver texto detectado en el PDF</summary>
+              <div className="mt-3 max-h-48 space-y-1 overflow-y-auto text-sm leading-5 text-muted [overflow-wrap:anywhere]">{preview.preview_lines.map((line, index) => <p key={index}>{line}</p>)}</div>
+            </details> : null}
+          </Panel>
+          <div className="sticky bottom-[calc(4rem+env(safe-area-inset-bottom)+0.75rem)] z-30 flex flex-col gap-3 rounded-2xl border border-outline bg-white/95 p-3 shadow-paper backdrop-blur-sm sm:flex-row sm:items-center sm:justify-between sm:p-4 lg:bottom-4">
+            <div className="min-w-0"><p className="truncate text-sm font-semibold" title={account?.name}>{account?.name}</p>
+              <p className="mt-1 text-sm text-muted" role="status">{importing ? "Guardando tus movimientos..." : preview.issues.length > 0 && !issuesAccepted ? "Revisa las diferencias antes de confirmar." : `${summary.count} movimientos · Se guardarán al confirmar.`}</p>
+            </div>
+            <Button compactOnMobile disabled={summary.count === 0 || !pdfAvailability?.allowed || busy || (preview.issues.length > 0 && !issuesAccepted)} onClick={importDocument}>
+              <UploadIcon className="h-5 w-5 shrink-0" />{importing ? "Importando..." : "Confirmar importación"}
             </Button>
           </div>
-
-          <div className="grid gap-4 sm:grid-cols-3">
-            <div className="rounded-2xl bg-paper-soft p-4">
-              <p className="text-sm text-muted">Movimientos</p>
-              <p className="mt-1 text-2xl font-semibold">{summary.count}</p>
-            </div>
-            <div className="rounded-2xl bg-primary-mist p-4 text-primary">
-              <p className="text-sm">Ingresos</p>
-              <p className="mt-1 text-2xl font-semibold">
-                {currencyFormatter.format(summary.income)}
-              </p>
-            </div>
-            <div className="rounded-2xl bg-danger-soft p-4 text-danger">
-              <p className="text-sm">Gastos</p>
-              <p className="mt-1 text-2xl font-semibold">
-                {currencyFormatter.format(summary.expenses)}
-              </p>
-            </div>
-          </div>
-
-          {preview.parsing_errors.length > 0 ? (
-            <StatusNotice tone="error">
-              {preview.parsing_errors.length} fila(s) no pudieron interpretarse. Revisa el PDF antes de confirmar.
-            </StatusNotice>
-          ) : null}
-
-          <div className="max-h-[600px] overflow-auto rounded-2xl border border-outline/80">
-            <table className="w-full min-w-[860px] border-collapse">
-              <thead className="sticky top-0 z-10 bg-paper text-left text-sm text-muted shadow-[0_1px_0_rgba(218,214,203,0.8)]">
-                <tr className="border-b border-outline/80">
-                  <th className="px-4 py-3 font-medium">Fecha</th>
-                  <th className="px-4 py-3 font-medium">Descripcion</th>
-                  <th className="px-4 py-3 font-medium">Tipo</th>
-                  <th className="px-4 py-3 font-medium">Categoria</th>
-                  <th className="px-4 py-3 text-right font-medium">Monto</th>
-                </tr>
-              </thead>
-              <tbody>
-                {editableTransactions.map((transaction, index) => (
-                  <tr
-                    key={`${transaction.source_line}-${index}`}
-                    className="border-b border-outline/50 last:border-b-0"
-                  >
-                    <td className="px-4 py-4 text-muted">{transaction.date}</td>
-                    <td className="px-4 py-4 font-medium">{transaction.description}</td>
-                    <td className="px-4 py-4">
-                      <select
-                        value={transaction.transaction_type}
-                        onChange={(event) =>
-                          updateTransactionType(
-                            transaction.source_id,
-                            event.target.value as TransactionType,
-                          )
-                        }
-                        className="w-full rounded-xl border border-outline bg-white px-3 py-2 text-sm outline-none transition focus:border-primary"
-                      >
-                        <option value={TransactionType.EXPENSE}>Gasto</option>
-                        <option value={TransactionType.INCOME}>Ingreso</option>
-                      </select>
-                    </td>
-                    <td className="px-4 py-4">
-                      <select
-                        value={transaction.category_id ?? ""}
-                        onChange={(event) =>
-                          updateTransactionCategory(
-                            transaction.source_id,
-                            event.target.value ? Number(event.target.value) : null,
-                          )
-                        }
-                        className="w-full rounded-xl border border-outline bg-white px-3 py-2 text-sm outline-none transition focus:border-primary"
-                      >
-                        <option value="">Sin categoria</option>
-                        {categoryGroupsFor(transaction.transaction_type).map((group) => (
-                          <optgroup key={group.root.id} label={group.root.name}>
-                            <option value={group.root.id}>
-                              {group.children.length > 0
-                                ? `${group.root.name} (sin subcategoria)`
-                                : group.root.name}
-                            </option>
-                            {group.children.map((category) => (
-                              <option key={category.id} value={category.id}>
-                                {category.name}
-                              </option>
-                            ))}
-                          </optgroup>
-                        ))}
-                      </select>
-                    </td>
-                    <td
-                      className={
-                        transaction.amount_clp >= 0
-                          ? "px-4 py-4 text-right font-medium text-primary"
-                          : "px-4 py-4 text-right font-medium text-danger"
-                      }
-                    >
-                      {currencyFormatter.format(transaction.amount_clp)}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </Panel>
         </div>
-      ) : (
-        <EmptyState
-          title="Aun no hay una cartola analizada"
-          description="Selecciona un PDF y usa Analizar Documento para revisar los movimientos antes de guardarlos."
-        />
-      )}
+      ) : null}
 
       {feedbackModal === "issues" && preview?.issues.length ? (
         <PdfImportFeedbackModal
@@ -658,15 +498,16 @@ export function ImportStatementsPage() {
           onAccept={() => {
             setIssuesAccepted(true);
             setFeedbackModal(null);
-            previewRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+            scrollTo(previewRef.current);
           }}
           onChangeAccount={() => {
             setFeedbackModal(null);
-            accountSelectRef.current?.focus();
+            scrollTo(accountSelectRef.current);
+            accountSelectRef.current?.focus({ preventScroll: true });
           }}
           onReviewMovements={() => {
             setFeedbackModal(null);
-            previewRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+            scrollTo(previewRef.current);
           }}
           onClose={() => {
             setFeedbackModal(null);
@@ -687,4 +528,3 @@ export function ImportStatementsPage() {
     </div>
   );
 }
-

@@ -1,12 +1,12 @@
-import { useRef } from "react";
-import { BankIcon, PlusIcon } from "./icons";
+import { useEffect, useRef } from "react";
+import { createPortal } from "react-dom";
+import { PlusIcon } from "./icons";
 import { AccountVisualCard } from "./AccountVisualCard";
 import { Button } from "./ui";
 import { useAccountProducts } from "../hooks/useAccountProducts";
 import {
   CurrencyCode,
   InstitutionCode,
-  InstitutionLabels,
   InstitutionOptions,
 } from "../types";
 import type { FinancialProduct } from "../types";
@@ -56,6 +56,9 @@ export function AccountFormModal({
   saving,
 }: AccountFormModalProps) {
   const isEditing = mode === "edit";
+  const overlayRef = useRef<HTMLDivElement>(null);
+  const panelRef = useRef<HTMLFormElement>(null);
+  const errorRef = useRef<HTMLDivElement>(null);
   const original = useRef({ accountType: form.account_type, institution: form.institution }).current;
   const { products, loading: loadingCatalog, error: catalogError } = useAccountProducts();
   const selectedProduct = products.find((product) => product.code === form.product_code);
@@ -90,68 +93,128 @@ export function AccountFormModal({
     if (product) onChange("account_type", product.kind);
   };
 
-  return (
-    <div role="dialog" aria-modal="true" aria-labelledby="account-form-title" className="fixed inset-0 z-50 flex items-center justify-center bg-ink/50 px-3 py-4 backdrop-blur-sm sm:px-5">
-      <div className="surface-card max-h-[calc(100vh-2rem)] w-full max-w-6xl overflow-y-auto p-5 sm:p-7 lg:p-9">
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <p className="eyebrow m-0">{isEditing ? "Editar cuenta" : "Nueva cuenta"}</p>
-            <h2 id="account-form-title" className="mt-2 text-3xl font-semibold tracking-[-0.04em] text-ink sm:text-4xl">
+  useEffect(() => {
+    const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    panelRef.current?.focus({ preventScroll: true });
+
+    // The on-screen keyboard can resize the visual viewport without changing 100dvh.
+    const viewport = window.visualViewport;
+    const updateViewport = () => {
+      if (!viewport || viewport.scale !== 1) return;
+      overlayRef.current?.style.setProperty("--account-modal-height", `${viewport.height}px`);
+      overlayRef.current?.style.setProperty("--account-modal-top", `${viewport.offsetTop}px`);
+    };
+    updateViewport();
+    viewport?.addEventListener("resize", updateViewport);
+    viewport?.addEventListener("scroll", updateViewport);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      viewport?.removeEventListener("resize", updateViewport);
+      viewport?.removeEventListener("scroll", updateViewport);
+      if (previousFocus?.isConnected) previousFocus.focus({ preventScroll: true });
+    };
+  }, []);
+
+  useEffect(() => {
+    if (error) errorRef.current?.scrollIntoView({ block: "nearest" });
+  }, [error]);
+
+  const fieldClassName = "h-11 w-full min-w-0 rounded-xl border border-outline bg-white px-3 text-base text-ink outline-none transition focus:border-primary disabled:opacity-60 sm:h-10 sm:rounded-lg sm:text-sm";
+
+  return createPortal(
+    <div ref={overlayRef} role="dialog" aria-modal="true" aria-labelledby="account-form-title" aria-describedby="account-form-description"
+      className="fixed inset-x-0 top-[var(--account-modal-top,0px)] z-50 flex h-[min(100dvh,var(--account-modal-height,100dvh))] items-center justify-center bg-ink/50 p-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] pt-[max(0.5rem,env(safe-area-inset-top))] backdrop-blur-sm sm:p-4"
+      onKeyDown={(event) => {
+        if (event.key === "Escape") {
+          event.stopPropagation();
+          if (!saving) onClose();
+        }
+        if (event.key !== "Tab") return;
+        const controls = Array.from(panelRef.current?.querySelectorAll<HTMLElement>(
+          'button:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex="0"]',
+        ) ?? []);
+        const first = controls[0];
+        const last = controls[controls.length - 1];
+        if (!first || !last) return;
+        if (event.shiftKey && (document.activeElement === first || document.activeElement === panelRef.current)) {
+          event.preventDefault();
+          last.focus();
+        } else if (!event.shiftKey && document.activeElement === last) {
+          event.preventDefault();
+          first.focus();
+        }
+      }}
+    >
+      <form ref={panelRef} tabIndex={-1} noValidate
+        onSubmit={(event) => {
+          event.preventDefault();
+          if (!saving && !selectorsDisabled && !creditPreviewOnly) onSubmit();
+        }}
+        className="surface-card flex max-h-full w-full max-w-[820px] min-w-0 flex-col overflow-hidden outline-none"
+      >
+        <div className="flex shrink-0 items-start justify-between gap-3 border-b border-outline/70 px-4 py-3 sm:px-5">
+          <div className="min-w-0">
+            <p className="mb-1 text-xs font-semibold uppercase tracking-[0.16em] text-primary">{isEditing ? "Editar cuenta" : "Nueva cuenta"}</p>
+            <h2 id="account-form-title" className="dialog-title">
               {isEditing ? "Actualiza tu cuenta" : "Elige tu producto financiero"}
             </h2>
-            <p className="mt-2 max-w-2xl text-sm text-muted sm:text-base">
-              Recorre institución, tipo de cuenta y producto. La vista previa cambia con tu selección.
-            </p>
+            <p id="account-form-description" className="mt-1 text-sm leading-6 text-muted">Completa los datos para identificar tu cuenta.</p>
           </div>
-          <button type="button" onClick={onClose} aria-label="Cerrar" className="shrink-0 rounded-full border border-outline bg-white px-3 py-2 text-sm text-muted transition hover:text-ink">
-            Cerrar
+          <button type="button" onClick={onClose} disabled={saving} aria-label="Cerrar" className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-outline text-muted transition hover:bg-paper-soft hover:text-ink disabled:opacity-50">
+            <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" className="h-5 w-5"><path d="m6 6 12 12M6 18 18 6" /></svg>
           </button>
         </div>
 
-        <div className="mt-7 grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.02fr)] lg:items-start">
-          <div className="lg:col-start-1 lg:row-start-1">
-            <div className="rounded-[1.5rem] border border-outline/80 bg-paper-soft/50 p-4 sm:p-5">
-              <p className="mb-5 text-xs font-bold uppercase tracking-[0.16em] text-muted">Define tu cuenta</p>
-              <div className="space-y-5">
-                <label className="block space-y-2">
-                  <span className="flex items-center gap-3 text-sm font-semibold text-ink"><span className="grid h-7 w-7 place-items-center rounded-full bg-primary text-xs text-white">1</span> Institución</span>
-                  <select value={form.institution} onChange={(event) => changeInstitution(event.target.value)} className="w-full rounded-2xl border border-outline bg-white px-4 py-3 text-ink outline-none transition focus:border-primary">
+        <div className="min-h-0 overflow-y-auto overscroll-contain px-3 py-3 [scroll-padding-block:12px] sm:px-5">
+          <div className="grid min-w-0 gap-3 md:grid-cols-2">
+            <div className="min-w-0 rounded-2xl border border-outline bg-white p-3 sm:px-4 md:col-span-2">
+              <p className="mb-1 text-xs font-bold uppercase tracking-[0.16em] text-muted">Detalles de tu cuenta</p>
+              <div className="grid gap-3 sm:grid-cols-[minmax(0,1.25fr)_minmax(0,1fr)]">
+              <label className="block min-w-0 space-y-1">
+                <span className="text-sm font-semibold text-ink">Nombre visible</span>
+                <input value={form.name} onChange={(event) => onChange("name", event.target.value)} placeholder="Ej: Mi cuenta para gastos" autoComplete="off" className={fieldClassName} />
+              </label>
+              <label className="block min-w-0 space-y-1">
+                <span className="text-sm font-semibold text-ink">Últimos 4 {selectedKind === "credito" ? "de la tarjeta" : "de la cuenta"} <span className="font-normal text-muted">(opcional)</span></span>
+                <input value={form.account_last4} onChange={(event) => onChange("account_last4", event.target.value)} placeholder="1234" inputMode="numeric" maxLength={4} autoComplete="off" className={fieldClassName} />
+              </label>
+            </div>
+            </div>
+          <div className="min-w-0 space-y-2.5 rounded-2xl border border-outline bg-paper-soft/50 p-3 sm:px-4">
+            <p className="text-xs font-bold uppercase tracking-[0.16em] text-muted">Define tu cuenta</p>
+                <label className="block space-y-1">
+                  <span className="flex items-center gap-2 text-sm font-semibold text-ink"><span className="grid h-5 w-5 place-items-center rounded-full bg-primary text-xs text-white">1</span> Institución</span>
+                  <select value={form.institution} onChange={(event) => changeInstitution(event.target.value)} className={fieldClassName}>
                     {InstitutionOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
                   </select>
                 </label>
 
-                <label className="block space-y-2">
-                  <span className="flex items-center gap-3 text-sm font-semibold text-ink"><span className="grid h-7 w-7 place-items-center rounded-full bg-primary text-xs text-white">2</span> Tipo de cuenta</span>
-                  <select value={selectedKind} onChange={(event) => changeKind(event.target.value)} disabled={selectorsDisabled} className="w-full rounded-2xl border border-outline bg-white px-4 py-3 text-ink outline-none transition focus:border-primary disabled:opacity-60">
+                <label className="block space-y-1">
+                  <span className="flex items-center gap-2 text-sm font-semibold text-ink"><span className="grid h-5 w-5 place-items-center rounded-full bg-primary text-xs text-white">2</span> Tipo de cuenta</span>
+                  <select value={selectedKind} onChange={(event) => changeKind(event.target.value)} disabled={selectorsDisabled} className={fieldClassName}>
                     <option value="">Selecciona un tipo de cuenta</option>
                     {showLegacyType ? <option value={original.accountType}>Tipo anterior: {kindLabels[original.accountType] ?? original.accountType}</option> : null}
                     {availableKinds.map((kind) => <option key={kind.value} value={kind.value}>{kind.label}</option>)}
                   </select>
                 </label>
 
-                <label className="block space-y-2">
-                  <span className="flex items-center gap-3 text-sm font-semibold text-ink"><span className="grid h-7 w-7 place-items-center rounded-full bg-primary text-xs text-white">3</span> Producto</span>
-                  <select value={form.product_code} onChange={(event) => changeProduct(event.target.value)} disabled={selectorsDisabled || !selectedKind || Boolean(legacyKind)} className="w-full rounded-2xl border border-outline bg-white px-4 py-3 text-ink outline-none transition focus:border-primary disabled:opacity-60">
+                <label className="block space-y-1">
+                  <span className="flex items-center gap-2 text-sm font-semibold text-ink"><span className="grid h-5 w-5 place-items-center rounded-full bg-primary text-xs text-white">3</span> Producto</span>
+                  <select value={form.product_code} onChange={(event) => changeProduct(event.target.value)} disabled={selectorsDisabled || !selectedKind || Boolean(legacyKind)} className={fieldClassName}>
                     <option value="">{isEditing ? "Sin producto asignado" : "Selecciona un producto"}</option>
                     {availableProducts.map((product) => <option key={product.code} value={product.code}>{product.name}</option>)}
                   </select>
                 </label>
-              </div>
-              {loadingCatalog ? <p className="mt-4 text-xs text-muted">Cargando productos...</p> : null}
-              {catalogError ? <p className="mt-4 text-xs text-danger">{catalogError}</p> : null}
-            </div>
+            {loadingCatalog ? <p className="text-sm text-muted">Cargando productos...</p> : null}
+            {catalogError ? <p className="text-sm text-danger">{catalogError}</p> : null}
 
           </div>
 
-          <div className="rounded-[1.75rem] border border-outline/80 bg-[#f4f6f5] p-4 sm:p-6 lg:sticky lg:top-4 lg:col-start-2 lg:row-start-1 lg:row-span-2">
-            <div className="mb-4 flex items-start justify-between gap-3">
-              <div>
-                <p className="text-xs font-bold uppercase tracking-[0.16em] text-primary">Vista previa</p>
-                <h3 className="mt-1 text-xl font-semibold tracking-[-0.03em] text-ink">Así se verá tu cuenta</h3>
-              </div>
-              <span className="rounded-full border border-outline bg-white px-3 py-1 text-xs font-medium text-muted">Diseño conceptual</span>
-            </div>
-
+          <div className="flex min-w-0 flex-col justify-between gap-2 rounded-2xl border border-outline bg-[#f4f6f5] p-3 sm:px-4">
+            <p className="text-xs font-bold uppercase tracking-[0.16em] text-primary">Vista previa</p>
+            <div className="mx-auto w-full max-w-[300px]">
             <AccountVisualCard
               institution={form.institution}
               accountType={selectedKind}
@@ -160,46 +223,33 @@ export function AccountFormModal({
               name={form.name}
               accountLast4={form.account_last4}
               currency={form.currency}
+              compact
+              compactOnDesktop
               preview
-              className="transition-transform duration-300 hover:-translate-y-1"
+              className="!aspect-auto min-h-[196px] gap-3 !p-4 sm:min-h-[180px] sm:gap-2"
             />
-
-            <div className="mt-5 grid grid-cols-3 items-center gap-2 text-center text-xs font-semibold">
-              <span className="rounded-xl bg-white px-2 py-2 text-primary">Institución ✓</span>
-              <span className={`rounded-xl px-2 py-2 ${selectedKind ? "bg-white text-primary" : "bg-white/55 text-muted"}`}>Tipo {selectedKind ? "✓" : "·"}</span>
-              <span className={`rounded-xl px-2 py-2 ${selectedProduct ? "bg-white text-primary" : "bg-white/55 text-muted"}`}>Producto {selectedProduct ? "✓" : "·"}</span>
             </div>
-            <div className="mt-4 flex items-start gap-3 border-t border-outline/80 pt-4 text-sm text-muted">
-              <BankIcon className="mt-0.5 h-5 w-5 shrink-0 text-primary" />
-              <p>{selectedProduct ? `${selectedProduct.name} es un producto de ${InstitutionLabels[form.institution]}.` : "Selecciona un producto para completar la vista previa."} Este boceto ayuda a identificar la cuenta; no representa una tarjeta emitida.</p>
+            <div className="grid grid-cols-3 gap-1.5 text-center text-xs font-semibold">
+              <span className="rounded-lg bg-white px-1 py-1 text-primary">Institución ✓</span>
+              <span className={`rounded-lg px-1 py-1 ${selectedKind ? "bg-white text-primary" : "bg-white/55 text-muted"}`}>Tipo {selectedKind ? "✓" : "·"}</span>
+              <span className={`rounded-lg px-1 py-1 ${selectedProduct ? "bg-white text-primary" : "bg-white/55 text-muted"}`}>Producto {selectedProduct ? "✓" : "·"}</span>
             </div>
           </div>
 
-          <div className="rounded-[1.5rem] border border-outline/80 bg-white p-4 sm:p-5 lg:col-start-1 lg:row-start-2">
-            <p className="mb-4 text-xs font-bold uppercase tracking-[0.16em] text-muted">Detalles de tu cuenta</p>
-            <div className="space-y-4">
-              <label className="block space-y-2">
-                <span className="text-sm font-semibold text-ink">Nombre visible</span>
-                <input value={form.name} onChange={(event) => onChange("name", event.target.value)} placeholder="Ej: Mi cuenta para gastos" className="w-full rounded-2xl border border-outline bg-white px-4 py-3 outline-none transition focus:border-primary" />
-              </label>
-              <label className="block max-w-xs space-y-2">
-                <span className="text-sm font-semibold text-ink">Últimos 4 {selectedKind === "credito" ? "de la tarjeta" : "de la cuenta"} <span className="font-normal text-muted">(opcional)</span></span>
-                <input value={form.account_last4} onChange={(event) => onChange("account_last4", event.target.value)} placeholder="1234" inputMode="numeric" maxLength={4} className="w-full rounded-2xl border border-outline bg-white px-4 py-3 outline-none transition focus:border-primary" />
-              </label>
-            </div>
           </div>
+
+          {error ? <div ref={errorRef} role="alert" className="mt-3 rounded-xl border border-danger/25 bg-danger-soft/60 px-3 py-2 text-sm text-danger [overflow-wrap:anywhere]">{error}</div> : null}
         </div>
 
-        {error ? <div className="mt-5 rounded-2xl border border-danger/25 bg-danger-soft/60 px-4 py-3 text-sm text-danger">{error}</div> : null}
-
-        <div className="mt-6 flex flex-col-reverse gap-3 border-t border-outline/70 pt-5 sm:flex-row sm:justify-end">
-          <Button tone="secondary" onClick={onClose} disabled={saving}>Cancelar</Button>
-          <Button onClick={onSubmit} disabled={saving || selectorsDisabled || creditPreviewOnly}>
-            <PlusIcon className="h-5 w-5" />
+        <div className="flex shrink-0 justify-end gap-2 border-t border-outline/70 bg-white px-4 py-3 sm:px-5">
+          <Button compactOnMobile className="!text-sm" tone="secondary" onClick={onClose} disabled={saving}>Cancelar</Button>
+          <Button compactOnMobile type="submit" className="min-w-0 flex-1 !text-sm sm:flex-none" disabled={saving || selectorsDisabled || creditPreviewOnly}>
+            <PlusIcon className="h-4 w-4 shrink-0" />
             {saving ? (isEditing ? "Guardando..." : "Creando...") : (isEditing ? "Guardar cambios" : "Agregar cuenta")}
           </Button>
         </div>
-      </div>
-    </div>
+      </form>
+    </div>,
+    document.body,
   );
 }

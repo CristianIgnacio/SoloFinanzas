@@ -84,7 +84,7 @@ function DeleteAccountModal({ account, deleting, onCancel, onConfirm }: {
       <div className="surface-card w-full max-w-xl p-6 md:p-8">
         <div className="space-y-3">
           <p className="eyebrow m-0 text-danger">Eliminar cuenta</p>
-          <h2 id="delete-account-title" className="text-3xl font-medium text-ink">¿Eliminar {account.name}?</h2>
+          <h2 id="delete-account-title" className="dialog-title">¿Eliminar {account.name}?</h2>
           <p className="text-muted">Si esta cuenta tiene cartolas o movimientos asociados, el sistema protegerá esos datos y no permitirá eliminarla.</p>
         </div>
         <div className="mt-8 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
@@ -177,6 +177,7 @@ export function AccountsPage() {
   const [statements, setStatements] = useState<Statement[]>([]);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [pageOffset, setPageOffset] = useState(0);
+  const [transactionTotal, setTransactionTotal] = useState(0);
   const [totals, setTotals] = useState<AccountTotal[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [selectedAccountId, setSelectedAccountId] = useState<number | null>(null);
@@ -276,6 +277,7 @@ export function AccountsPage() {
         if (!cancelled) {
           setStatements(statementData);
           setTransactions(transactionData.items);
+          setTransactionTotal(transactionData.total);
           setTotals(accountTotals);
           setLoadedDetailsAccountId(selectedAccountId);
         }
@@ -497,6 +499,7 @@ export function AccountsPage() {
         ]);
         setStatements(statementData);
         setTransactions(transactionData.items);
+        setTransactionTotal(transactionData.total);
         setTotals(accountTotals);
         setLoadedDetailsAccountId(accountId);
       } catch (refreshError) {
@@ -516,23 +519,18 @@ export function AccountsPage() {
   };
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-5 sm:space-y-8">
       <PageIntro
+        compactOnMobile
         eyebrow="Cuentas"
         title="Mis cuentas"
-        description="Revisa tu Efectivo o selecciona una cuenta financiera para ver sus cartolas y movimientos."
+        description="Tus cuentas, cartolas y movimientos en un solo lugar."
         actions={
           <div className="flex flex-wrap gap-3">
-            <Button tone="secondary" onClick={openCreateAccountModal}>
+            <Button compactOnMobile tone="secondary" onClick={openCreateAccountModal}>
               <PlusIcon className="h-5 w-5" />
               Agregar cuenta
             </Button>
-            {account ? (
-              <Button onClick={() => navigate(`/app/import?account_id=${account.id}`)}>
-                <PlusIcon className="h-5 w-5" />
-                Importar cartola
-              </Button>
-            ) : null}
           </div>
         }
       />
@@ -551,12 +549,12 @@ export function AccountsPage() {
 
       {!loading && selectedAccountId !== null ? (
         <>
-          <section className="space-y-4" aria-label="Selector de cuentas">
+          <section className="min-w-0 space-y-2 sm:space-y-4" aria-label="Selector de cuentas">
             <div className="flex items-center justify-between gap-4">
               <div>
-                <p className="eyebrow m-0 text-primary">Selector de cuentas</p>
-                <p className="mt-1 text-sm text-muted">
-                  {selectedIndex + 1} de {selectableAccounts.length}
+                <p className="m-0 text-sm font-semibold text-primary sm:text-base">Elige una cuenta</p>
+                <p className="mt-1 text-sm text-muted" aria-live="polite">
+                  {selectedIndex + 1} de {selectableAccounts.length}<span className="sm:hidden"> · Desliza para ver más</span>
                 </p>
               </div>
               <div className="flex gap-2">
@@ -581,7 +579,7 @@ export function AccountsPage() {
               </div>
             </div>
 
-            <div ref={accountSelectorRef} className="flex snap-x gap-4 overflow-x-auto px-1 py-2 pb-4">
+            <div ref={accountSelectorRef} className="flex snap-x snap-mandatory gap-3 overflow-x-auto overscroll-x-contain px-1 py-2 pb-4 [scroll-padding-inline:4px] sm:gap-4">
               {selectableAccounts.map((item) => {
                 const active = item.id === selectedAccountId;
                 const financial = "institution" in item ? item : null;
@@ -594,7 +592,7 @@ export function AccountsPage() {
                     aria-pressed={active}
                     aria-label={financial ? `Seleccionar ${item.name} de ${InstitutionLabels[financial.institution]}` : `Seleccionar ${item.name}`}
                     className={cn(
-                      "w-[280px] shrink-0 snap-start rounded-[1.6rem] text-left transition sm:w-[340px]",
+                      "w-[min(280px,calc(100%_-_16px))] shrink-0 snap-start rounded-[1.6rem] text-left transition sm:w-[340px] lg:w-[280px]",
                       active
                         ? "ring-2 ring-primary ring-offset-2"
                         : "hover:-translate-y-1",
@@ -609,16 +607,17 @@ export function AccountsPage() {
                         name={financial.name}
                         accountLast4={financial.account_last4}
                         currency={financial.currency}
+                        compactOnDesktop className="shadow-sm"
                         compact
                       />
-                    ) : <AccountVisualCard variant="cash" name={item.name} cashBalance={cashBalance?.balance_clp ?? null} compact />}
+                    ) : <AccountVisualCard variant="cash" name={item.name} cashBalance={cashBalance?.balance_clp ?? null} compactOnDesktop className="shadow-sm" compact />}
                   </button>
                 );
               })}
               <button
                 type="button"
                 onClick={openCreateAccountModal}
-                className="flex min-h-[180px] min-w-[280px] snap-start flex-col items-center justify-center gap-4 rounded-[1.75rem] border-2 border-dashed border-outline bg-paper-soft/60 p-6 text-center text-muted transition hover:border-primary/50 hover:bg-primary-mist/40 hover:text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-primary sm:min-w-[340px]"
+                className="flex min-h-[180px] w-[min(280px,calc(100%_-_16px))] shrink-0 snap-start flex-col items-center justify-center gap-3 rounded-[1.6rem] border-2 border-dashed border-outline bg-paper-soft/60 p-5 text-center text-muted transition hover:border-primary/50 hover:bg-primary-mist/40 hover:text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-primary sm:w-[340px] lg:w-[280px]"
               >
                 <span className="flex h-14 w-14 items-center justify-center rounded-full bg-white text-primary shadow-sm">
                   <PlusIcon className="h-6 w-6" />
@@ -632,118 +631,63 @@ export function AccountsPage() {
           </section>
 
           {account ? <>
-          <Panel className="space-y-6">
+          <Panel compactOnMobile className="space-y-4 sm:space-y-6 lg:space-y-0 lg:p-5">
             <div className="flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
-              <div className="flex min-w-0 items-center gap-5">
+              <div className="flex min-w-0 items-center gap-3 sm:gap-5">
                 <InstitutionLogo institution={account.institution} size="lg" />
                 <div className="min-w-0">
-                  <p className="eyebrow m-0 text-primary">Información de la cuenta</p>
-                  <h2 className="mt-2 break-words text-3xl font-semibold tracking-[-0.03em]">
+                  <p className="m-0 text-sm font-medium text-muted lg:hidden">Información de la cuenta</p>
+                  <h2 className="mt-1 section-title lg:mt-0">
                     {account.name}
                   </h2>
-                  <p className="mt-1 text-muted">{InstitutionLabels[account.institution]}</p>
+                  <p className="mt-1 text-sm text-muted lg:hidden">{InstitutionLabels[account.institution]}</p>
+                  <p className="mt-1 hidden text-sm text-muted lg:block">
+                    {accountProductName(account, products)} · {account.account_last4 ? `•••• ${account.account_last4}` : "Sin identificador"} · {account.currency}
+                  </p>
                 </div>
               </div>
-              <div aria-label="Acciones de la cuenta" className="flex shrink-0 items-center justify-end gap-2 sm:pl-4">
-                <Button tone="secondary" onClick={() => openEditAccountModal(account)}>
+              <div aria-label="Acciones de la cuenta" className="grid grid-cols-[minmax(0,1fr)_auto] gap-2 sm:flex sm:flex-wrap sm:items-center sm:justify-end sm:pl-4">
+                <Button compactOnMobile className="col-span-2 sm:col-auto" onClick={() => navigate(`/app/import?account_id=${account.id}`)}>
+                  <PlusIcon className="h-4 w-4" />Importar cartola
+                </Button>
+                <Button compactOnMobile tone="secondary" onClick={() => openEditAccountModal(account)}>
                   <PencilIcon className="h-4 w-4" />Editar
                 </Button>
-                <Button tone="ghost" className="text-danger hover:!border-danger hover:!bg-danger hover:!text-white" onClick={() => setAccountPendingDelete(account)}>
-                  <TrashIcon className="h-4 w-4" />Eliminar
-                </Button>
+                <details className="relative" key={account.id}>
+                  <summary aria-label="Más acciones de la cuenta" className="flex h-11 w-11 cursor-pointer list-none items-center justify-center rounded-xl border border-outline text-xl text-muted hover:bg-paper-soft focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary [&::-webkit-details-marker]:hidden">⋯</summary>
+                  <div className="absolute right-0 top-full z-20 mt-2 w-48 rounded-xl border border-outline bg-white p-1 shadow-lg">
+                    <button type="button" className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm text-danger hover:bg-danger-soft" onClick={(event) => {
+                      event.currentTarget.closest("details")?.removeAttribute("open");
+                      setAccountPendingDelete(account);
+                    }}>
+                      <TrashIcon className="h-4 w-4" />Eliminar cuenta
+                    </button>
+                  </div>
+                </details>
               </div>
             </div>
-            <div className="subtle-divider" />
-            <dl className="grid divide-y divide-outline/70 sm:grid-cols-3 sm:divide-x sm:divide-y-0">
-              <div className="py-3 sm:pr-5 sm:pl-0">
+            <div className="subtle-divider lg:hidden" />
+            <dl className="grid grid-cols-2 gap-y-3 rounded-2xl bg-paper-soft/70 p-3 sm:grid-cols-3 sm:gap-0 sm:divide-x sm:divide-outline/70 sm:bg-transparent sm:p-0 lg:hidden">
+              <div className="col-span-2 border-b border-outline/70 pb-3 sm:col-span-1 sm:border-0 sm:py-3 sm:pr-5">
                 <dt className="text-sm text-muted">Producto</dt>
                 <dd className="mt-1 break-words font-semibold">{accountProductName(account, products)}</dd>
               </div>
-              <div className="py-3 sm:px-5">
+              <div className="min-w-0 sm:px-5 sm:py-3">
                 <dt className="text-sm text-muted">Identificador</dt>
                 <dd className="mt-1 font-semibold">
                   {account.account_last4 ? `•••• ${account.account_last4}` : "No definido"}
                 </dd>
               </div>
-              <div className="py-3 sm:pl-5 sm:pr-0">
+              <div className="border-l border-outline/70 pl-3 sm:border-0 sm:py-3 sm:pl-5 sm:pr-0">
                 <dt className="text-sm text-muted">Moneda</dt>
                 <dd className="mt-1 font-semibold">{account.currency}</dd>
               </div>
             </dl>
-            <div className="subtle-divider" />
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-              <div>
-                <p className="eyebrow m-0 text-primary">Estado de cartolas</p>
-                {!detailsReady ? (
-                  <p className="mt-2 text-sm text-muted">Cargando información de cartolas...</p>
-                ) : (
-                  <>
-                    <p className="mt-2 text-sm text-ink">
-                      {statementCoverage.latestPeriod
-                        ? <>Última cartola procesada: <strong className="capitalize">{formatPeriod(statementCoverage.latestPeriod)}</strong></>
-                        : statementCoverage.lastUploadedAt
-                          ? "Hay cartolas procesadas, pero su período no está identificado."
-                          : "Aún no hay cartolas procesadas para esta cuenta."}
-                    </p>
-                    {statementCoverage.lastUploadedAt ? (
-                      <p className="mt-1 text-sm text-muted">Última importación correcta: {formatDate(statementCoverage.lastUploadedAt)}</p>
-                    ) : null}
-                    {statementCoverage.missingPeriods.length > 0 ? (
-                      <p className="mt-2 text-sm text-muted">
-                        Sin cartola registrada entre períodos importados: {statementCoverage.missingPeriods.slice(0, 3).map(formatPeriod).join(", ")}
-                        {statementCoverage.missingPeriods.length > 3 ? ` y ${statementCoverage.missingPeriods.length - 3} más` : ""}.
-                      </p>
-                    ) : null}
-                  </>
-                )}
-              </div>
-              {detailsReady ? (
-                <div className="flex flex-wrap gap-2 sm:justify-end" aria-label="Avisos de cartolas">
-                  <span
-                    className={cn(
-                      "rounded-full px-3 py-1 text-xs font-semibold",
-                      statementCoverage.isUpToDate
-                        ? "bg-primary-mist text-primary"
-                        : statementCoverage.latestPeriod
-                          ? "bg-[#fff4e5] text-[#8a592e]"
-                          : "bg-paper-soft text-muted",
-                    )}
-                    title={`Según las cartolas importadas, se considera al día si hay una procesada de ${formatPeriod(statementCoverage.lastClosedPeriod)} o posterior, sin meses intermedios faltantes ni importaciones pendientes o con error. No consulta el banco en tiempo real.`}
-                  >
-                    {statementCoverage.isUpToDate
-                      ? "Cartolas al día"
-                      : statementCoverage.latestPeriod
-                        ? "Cartolas por actualizar"
-                        : statementCoverage.lastUploadedAt
-                          ? "Sin período verificable"
-                          : "Sin cartolas procesadas"}
-                  </span>
-                  {statementCoverage.failedCount > 0 ? (
-                    <span className="rounded-full bg-danger-soft px-3 py-1 text-xs font-semibold text-danger">
-                      {statementCoverage.failedCount} con error
-                    </span>
-                  ) : null}
-                  {statementCoverage.pendingCount > 0 ? (
-                    <span className="rounded-full bg-paper-soft px-3 py-1 text-xs font-semibold text-muted">
-                      {statementCoverage.pendingCount} pendiente{statementCoverage.pendingCount === 1 ? "" : "s"}
-                    </span>
-                  ) : null}
-                  {statementCoverage.missingPeriods.length > 0 ? (
-                    <span className="rounded-full bg-[#fff4e5] px-3 py-1 text-xs font-semibold text-[#8a592e]">
-                      {statementCoverage.missingPeriods.length} mes{statementCoverage.missingPeriods.length === 1 ? "" : "es"} sin cartola
-                    </span>
-                  ) : null}
-                  {statementCoverage.processedWithoutPeriod > 0 ? (
-                    <span className="rounded-full bg-paper-soft px-3 py-1 text-xs font-semibold text-muted">
-                      {statementCoverage.processedWithoutPeriod} sin período identificado
-                    </span>
-                  ) : null}
-                </div>
-              ) : null}
-            </div>
+
           </Panel>
 
           <AccountActivitySummary
+            compactOnDesktop
             description="Resumen de todo el historial importado. Ingresos y gastos excluyen transferencias internas; la variación registrada incluye todos los movimientos y no es el saldo disponible del banco."
             firstLabel="Variación registrada"
             firstValue={detailsReady ? formatCurrency(summary.net) : "—"}
@@ -753,64 +697,144 @@ export function AccountsPage() {
             formatCurrency={formatCurrency}
           />
 
-          <Panel className="p-0 md:p-0">
-            <div className="flex gap-2 overflow-x-auto border-b border-outline px-5 pt-5 md:px-8 md:pt-7">
+          <Panel className="!p-0">
+            <div className="grid grid-cols-2 gap-1 border-b border-outline px-3 pt-3 sm:flex sm:gap-2 sm:px-5 sm:pt-5 md:px-8 md:pt-7">
               <button
                 type="button"
                 onClick={() => setActiveTab("statements")}
                 className={cn(
-                  "whitespace-nowrap border-b-2 px-4 py-3 font-semibold transition",
+                  "min-w-0 border-b-2 px-1 py-3 text-sm font-semibold transition sm:whitespace-nowrap sm:px-4 sm:text-base",
                   activeTab === "statements"
                     ? "border-primary text-primary"
                     : "border-transparent text-muted hover:text-ink",
                 )}
               >
-                Cartolas importadas ({statements.length})
+                <span className="sm:hidden">Cartolas</span><span className="hidden sm:inline">Cartolas importadas</span> ({detailsReady ? statements.length : "…"})
               </button>
               <button
                 type="button"
                 onClick={() => setActiveTab("transactions")}
                 className={cn(
-                  "whitespace-nowrap border-b-2 px-4 py-3 font-semibold transition",
+                  "min-w-0 border-b-2 px-1 py-3 text-sm font-semibold transition sm:whitespace-nowrap sm:px-4 sm:text-base",
                   activeTab === "transactions"
                     ? "border-primary text-primary"
                     : "border-transparent text-muted hover:text-ink",
                 )}
               >
-                Movimientos ({transactions.length})
+                Movimientos ({detailsReady ? transactionTotal : "…"})
               </button>
             </div>
 
-            <div className="p-5 md:p-8">
+            <div className="p-4 sm:p-5 md:p-8">
               {loadingDetails ? <LoadingState message="Cargando detalle de la cuenta..." /> : null}
 
+              {activeTab === "statements" ? (
+                <div className="mb-5 border-b border-outline/70 pb-5">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                    <div>
+                      <p className="eyebrow m-0 text-primary">Estado de cartolas</p>
+                      {!detailsReady ? (
+                        <p className="mt-2 text-sm text-muted">Cargando información de cartolas...</p>
+                      ) : (
+                        <>
+                          <p className="mt-2 text-sm text-ink">
+                            {statementCoverage.latestPeriod
+                              ? <>Última cartola procesada: <strong className="capitalize">{formatPeriod(statementCoverage.latestPeriod)}</strong></>
+                              : statementCoverage.lastUploadedAt
+                                ? "Hay cartolas procesadas, pero su período no está identificado."
+                                : "Aún no hay cartolas procesadas para esta cuenta."}
+                          </p>
+                          {statementCoverage.lastUploadedAt || statementCoverage.missingPeriods.length > 0 ? (
+                            <details className="mt-2 text-sm text-muted">
+                              <summary className="w-fit cursor-pointer rounded text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary">Ver detalles de importación</summary>
+                          {statementCoverage.lastUploadedAt ? (
+                            <p className="mt-1 text-sm text-muted">Última importación correcta: {formatDate(statementCoverage.lastUploadedAt)}</p>
+                          ) : null}
+                          {statementCoverage.missingPeriods.length > 0 ? (
+                            <p className="mt-2 text-sm text-muted">
+                              Sin cartola registrada entre períodos importados: {statementCoverage.missingPeriods.slice(0, 3).map(formatPeriod).join(", ")}
+                              {statementCoverage.missingPeriods.length > 3 ? ` y ${statementCoverage.missingPeriods.length - 3} más` : ""}.
+                            </p>
+                          ) : null}
+                            </details>
+                          ) : null}
+                        </>
+                      )}
+                    </div>
+                    {detailsReady ? (
+                      <div className="flex flex-wrap gap-2 sm:justify-end" aria-label="Avisos de cartolas">
+                        <span
+                          className={cn(
+                            "rounded-full px-3 py-1 text-sm font-semibold",
+                            statementCoverage.isUpToDate
+                              ? "bg-primary-mist text-primary"
+                              : statementCoverage.latestPeriod
+                                ? "bg-[#fff4e5] text-[#8a592e]"
+                                : "bg-paper-soft text-muted",
+                          )}
+                          title={`Según las cartolas importadas, se considera al día si hay una procesada de ${formatPeriod(statementCoverage.lastClosedPeriod)} o posterior, sin meses intermedios faltantes ni importaciones pendientes o con error. No consulta el banco en tiempo real.`}
+                        >
+                          {statementCoverage.isUpToDate
+                            ? "Cartolas al día"
+                            : statementCoverage.latestPeriod
+                              ? "Cartolas por actualizar"
+                              : statementCoverage.lastUploadedAt
+                                ? "Sin período verificable"
+                                : "Sin cartolas procesadas"}
+                        </span>
+                        {statementCoverage.failedCount > 0 ? (
+                          <span className="rounded-full bg-danger-soft px-3 py-1 text-sm font-semibold text-danger">
+                            {statementCoverage.failedCount} con error
+                          </span>
+                        ) : null}
+                        {statementCoverage.pendingCount > 0 ? (
+                          <span className="rounded-full bg-paper-soft px-3 py-1 text-sm font-semibold text-muted">
+                            {statementCoverage.pendingCount} pendiente{statementCoverage.pendingCount === 1 ? "" : "s"}
+                          </span>
+                        ) : null}
+                        {statementCoverage.missingPeriods.length > 0 ? (
+                          <span className="rounded-full bg-[#fff4e5] px-3 py-1 text-sm font-semibold text-[#8a592e]">
+                            {statementCoverage.missingPeriods.length} mes{statementCoverage.missingPeriods.length === 1 ? "" : "es"} sin cartola
+                          </span>
+                        ) : null}
+                        {statementCoverage.processedWithoutPeriod > 0 ? (
+                          <span className="rounded-full bg-paper-soft px-3 py-1 text-sm font-semibold text-muted">
+                            {statementCoverage.processedWithoutPeriod} sin período identificado
+                          </span>
+                        ) : null}
+                </div>
+              ) : null}
+            </div>
+                </div>
+              ) : null}
+
               {detailsReady && activeTab === "statements" && statements.length > 0 ? (
-                <div className="overflow-x-auto">
-                  <table className="w-full min-w-[840px] border-collapse">
-                    <thead className="text-left text-sm text-muted">
+                <div className="md:overflow-x-auto">
+                  <table role="table" className="block w-full border-collapse md:table md:min-w-[840px] lg:min-w-0 lg:text-sm">
+                    <thead role="rowgroup" className="sr-only text-left text-sm text-muted md:not-sr-only md:table-header-group">
                       <tr className="border-b border-outline">
-                        <th className="px-4 py-3 font-medium">Nombre</th>
-                        <th className="px-4 py-3 font-medium">Periodo</th>
-                        <th className="px-4 py-3 font-medium">Importada</th>
-                        <th className="px-4 py-3 font-medium">Estado</th>
-                        <th className="px-4 py-3 text-right font-medium">Acciones</th>
+                        <th className="px-4 lg:px-2 py-3 font-medium">Nombre</th>
+                        <th className="px-4 lg:px-2 py-3 font-medium">Periodo</th>
+                        <th className="px-4 lg:px-2 py-3 font-medium">Importada</th>
+                        <th className="px-4 lg:px-2 py-3 font-medium">Estado</th>
+                        <th className="px-4 lg:px-2 py-3 text-right font-medium">Acciones</th>
                       </tr>
                     </thead>
-                    <tbody>
+                    <tbody role="rowgroup" className="block space-y-3 md:table-row-group md:space-y-0">
                       {statements.map((statement) => (
-                        <tr key={statement.id} className="border-b border-outline/60 last:border-0">
-                          <td className="px-4 py-4 font-medium">
-                            <span className="inline-flex items-center gap-3">
-                              <PdfIcon className="h-5 w-5 text-primary" />
-                              {statement.file_name}
+                        <tr role="row" key={statement.id} className="grid min-w-0 grid-cols-2 gap-3 rounded-2xl border border-outline/70 p-3 md:table-row md:rounded-none md:border-x-0 md:border-t-0 md:p-0 md:last:border-0">
+                          <td role="cell" className="col-span-2 block min-w-0 text-sm font-medium md:table-cell md:px-4 md:py-4 md:text-base lg:px-2 lg:text-sm">
+                            <span className="flex items-center gap-2 [overflow-wrap:anywhere] md:inline-flex md:gap-3 lg:max-w-[220px] lg:break-all">
+                              <PdfIcon className="h-5 w-5 shrink-0 text-primary" />
+                              <span className="min-w-0">{statement.file_name}</span>
                             </span>
                           </td>
-                          <td className="px-4 py-4 capitalize text-muted">{formatPeriod(statement.period_month)}</td>
-                          <td className="px-4 py-4 text-muted">{formatDate(statement.uploaded_at)}</td>
-                          <td className="px-4 py-4">
+                          <td role="cell" className="block text-sm capitalize text-muted md:table-cell md:px-4 md:py-4 md:text-base lg:px-2 lg:text-sm"><span className="mb-1 block text-xs font-semibold uppercase tracking-wide md:hidden">Período</span>{formatPeriod(statement.period_month)}</td>
+                          <td role="cell" className="block text-sm text-muted md:table-cell md:px-4 md:py-4 md:text-base lg:px-2 lg:text-sm"><span className="mb-1 block text-xs font-semibold uppercase tracking-wide md:hidden">Importada</span>{formatDate(statement.uploaded_at)}</td>
+                          <td role="cell" className="col-span-2 block md:table-cell md:px-4 md:py-4 lg:px-2">
                             <span
                               className={cn(
-                                "rounded-full px-3 py-1 text-xs font-semibold",
+                                "rounded-full px-3 py-1 text-sm font-semibold",
                                 statement.status === StatementStatus.PROCESSED
                                   ? "bg-primary-mist text-primary"
                                   : statement.status === StatementStatus.FAILED
@@ -821,10 +845,11 @@ export function AccountsPage() {
                               {statusLabels[statement.status]}
                             </span>
                           </td>
-                          <td className="px-4 py-4 text-right">
-                            <div className="flex items-center justify-end gap-2">
+                          <td role="cell" className="col-span-2 block border-t border-outline/60 pt-2 md:table-cell md:border-0 md:px-4 md:py-4 md:text-right lg:px-2">
+                            <div className="flex flex-wrap items-center justify-between gap-1 md:justify-end md:gap-2">
                               <Button
-                                className="px-3 py-2 text-sm"
+                                compactOnMobile
+                                className="px-2 py-2 text-sm"
                                 tone="ghost"
                                 onClick={() => navigate(`/app/transactions?statement_id=${statement.id}`)}
                               >
@@ -832,14 +857,15 @@ export function AccountsPage() {
                               </Button>
                               <Button
                                 aria-label={`Deshacer importacion de ${statement.file_name}`}
-                                className="px-3 py-2 text-sm text-danger hover:!border-danger hover:!bg-danger hover:!text-white"
+                                compactOnMobile
+                                className="px-2 py-2 text-sm text-danger hover:!border-danger hover:!bg-danger hover:!text-white"
                                 disabled={deletingStatementId !== null}
                                 onClick={() => void openDeleteStatementModal(statement)}
                                 title={`Deshacer importacion de ${statement.file_name}`}
                                 tone="ghost"
                               >
                                 <TrashIcon className="h-4 w-4" />
-                                {deletingStatementId === statement.id ? "Eliminando..." : "Deshacer"}
+                                <span className="lg:sr-only">{deletingStatementId === statement.id ? "Eliminando..." : "Deshacer"}</span>
                               </Button>
                             </div>
                           </td>
@@ -854,10 +880,10 @@ export function AccountsPage() {
                 <AccountMovementsTable transactions={transactions} categoryMap={categoryMap} formatCurrency={formatCurrency} />
               ) : null}
 
-              {activeTab === 'transactions' && detailsReady && <div className="flex justify-center gap-3 py-4">
-                <Button tone="secondary" disabled={loadingDetails || pageOffset === 0} onClick={() => setPageOffset(Math.max(0, pageOffset - PAGE_SIZE))}>Anterior</Button>
-                <span className="self-center">{summary.count} movimientos · página {Math.floor(pageOffset / PAGE_SIZE) + 1}</span>
-                <Button tone="secondary" disabled={loadingDetails || pageOffset + PAGE_SIZE >= summary.count} onClick={() => setPageOffset(pageOffset + PAGE_SIZE)}>Siguiente</Button>
+              {activeTab === 'transactions' && detailsReady && <div className="grid grid-cols-2 items-center gap-2 border-t border-outline/60 pt-4 sm:flex sm:justify-center sm:gap-3 sm:border-0 sm:py-4">
+                <Button compactOnMobile tone="secondary" disabled={loadingDetails || pageOffset === 0} onClick={() => setPageOffset(Math.max(0, pageOffset - PAGE_SIZE))}>Anterior</Button>
+                <span className="order-first col-span-2 text-center text-sm text-muted sm:order-none">{transactionTotal} movimientos · página {Math.floor(pageOffset / PAGE_SIZE) + 1}</span>
+                <Button compactOnMobile tone="secondary" disabled={loadingDetails || pageOffset + PAGE_SIZE >= transactionTotal} onClick={() => setPageOffset(pageOffset + PAGE_SIZE)}>Siguiente</Button>
               </div>}
               {detailsReady && activeTab === "statements" && statements.length === 0 ? (
                 <EmptyState

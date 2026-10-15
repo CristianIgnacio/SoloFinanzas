@@ -230,7 +230,7 @@ test("movimientos carga más al bajar y reinicia la lista al filtrar", async ({ 
   await expect(page.getByRole("combobox", { name: "Periodo", exact: true })).toBeVisible();
 });
 
-test("inicio conserva sus indicadores y gráficos dentro de la pantalla móvil", async ({ page }, info) => {
+test("inicio conserva sus indicadores y gráficos en móvil y escritorio", async ({ page }, info) => {
   await mockApi(page);
   const names = ["Comida y restaurantes", "Servicios con un nombre largo para el gráfico móvil", "Transporte", "Salud", "Compras", "Educación", "Viajes"];
   const amounts = [50000, 20000, 10000, 8000, 5000, 4000, 3000];
@@ -244,7 +244,7 @@ test("inicio conserva sus indicadores y gráficos dentro de la pantalla móvil",
   await page.route("**/api/v1/dashboard**", route => route.fulfill({ json: {
     period_month: "2026-09", available_periods: ["2026-09"],
     cards: [
-      { label: "Balance", value: "$12.345.678", trend: "Subio 5%" },
+      { label: "Balance", value: "-$123.456.789", trend: "Subio 5%" },
       { label: "Ingresos", value: "$8.765.432", trend: "Subio 3%" },
       { label: "Gastos", value: "$4.321.123", trend: "Bajo 2%" },
     ],
@@ -253,9 +253,19 @@ test("inicio conserva sus indicadores y gráficos dentro de la pantalla móvil",
   await page.addInitScript(value => localStorage.setItem("sb-demo-auth-token", JSON.stringify(value)), session(ownerA));
   await page.goto("/app");
   await expect(page.getByRole("heading", { name: "Evolucion Mensual" })).toBeVisible();
-  for (const width of [320, 375, 390, 430]) {
+  for (const width of [320, 375, 390, 430, 768, 1024, 1280, 1440]) {
     await page.setViewportSize({ width, height: 844 });
     await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth), { message: `ancho ${width}` }).toBeLessThanOrEqual(width);
+    for (const value of ["-$123.456.789", "$8.765.432", "$4.321.123"]) {
+      const amount = page.getByText(value, { exact: true }).first();
+      expect(await amount.evaluate(el => {
+        const range = document.createRange();
+        range.selectNodeContents(el);
+        const lines = [...range.getClientRects()];
+        const bounds = el.getBoundingClientRect();
+        return lines.length === 1 && lines[0].left >= bounds.left && lines[0].right <= bounds.right;
+      }), `${value} completo en una línea a ${width}px`).toBe(true);
+    }
   }
   await page.setViewportSize({ width: 390, height: 844 });
   const gainsCard = page.getByText("Ganancias tarjetas").locator("xpath=ancestor::section[1]");
@@ -521,6 +531,13 @@ test("alta de cuenta selecciona producto y deriva el tipo", async ({ page }, inf
   await page.goto("/app/accounts");
   await page.getByRole("button", { name: "Agregar cuenta", exact: true }).click();
   const accountDialog = page.getByRole("dialog", { name: "Elige tu producto financiero" });
+  const closeButton = accountDialog.getByRole("button", { name: "Cerrar", exact: true });
+  const submitButton = accountDialog.getByRole("button", { name: "Agregar cuenta", exact: true });
+  await closeButton.focus();
+  await page.keyboard.press("Shift+Tab");
+  await expect(submitButton).toBeFocused();
+  await page.keyboard.press("Tab");
+  await expect(closeButton).toBeFocused();
   await expect(page.getByRole("textbox", { name: "Moneda" })).toHaveCount(0);
   await page.getByRole("textbox", { name: "Nombre visible" }).fill("Cuenta para gastos");
   const preview = page.getByRole("img", { name: /Vista previa de/ });
@@ -542,6 +559,68 @@ test("alta de cuenta selecciona producto y deriva el tipo", async ({ page }, inf
   await expect(productSelect.locator("option")).toHaveCount(2);
   await productSelect.selectOption("banco_estado_cuenta_rut");
   await expect(preview).toContainText("CuentaRUT");
+  await accountDialog.getByRole("textbox", { name: /Últimos 4/ }).fill("1234");
+  for (const [width, height] of [[800, 600], [1024, 600], [1280, 650], [1532, 730], [1920, 1080]]) {
+    await page.setViewportSize({ width, height });
+    const layout = await accountDialog.evaluate(dialog => {
+      const panel = dialog.firstElementChild as HTMLElement;
+      const bounds = panel.getBoundingClientRect();
+      return { overflow: panel.scrollHeight - panel.clientHeight, widthOverflow: panel.scrollWidth - panel.clientWidth, top: bounds.top, bottom: bounds.bottom };
+    });
+    expect(layout.overflow, `scroll del modal a ${width}×${height}`).toBeLessThanOrEqual(1);
+    expect(layout.widthOverflow).toBeLessThanOrEqual(1);
+    expect(layout.top).toBeGreaterThanOrEqual(16);
+    expect(layout.bottom).toBeLessThanOrEqual(height - 16);
+    await expect(preview).toBeInViewport({ ratio: 1 });
+    await expect(accountDialog.getByRole("textbox", { name: /Últimos 4/ })).toBeInViewport({ ratio: 1 });
+    await expect(accountDialog.getByRole("button", { name: "Agregar cuenta" })).toBeInViewport({ ratio: 1 });
+    await page.screenshot({ path: info.outputPath(`modal-${width}x${height}.png`) });
+  }
+  for (const [width, height] of [[320, 568], [360, 640], [390, 844], [430, 932], [768, 1024], [844, 390], [390, 400]]) {
+    await page.setViewportSize({ width, height });
+    await expect(closeButton).toBeInViewport({ ratio: 1 });
+    await expect(submitButton).toBeInViewport({ ratio: 1 });
+    const layout = await accountDialog.evaluate(dialog => {
+      const panel = dialog.firstElementChild as HTMLElement;
+      const body = panel.children[1] as HTMLElement;
+      const bounds = panel.getBoundingClientRect();
+      return { widthOverflow: body.scrollWidth - body.clientWidth, top: bounds.top, bottom: bounds.bottom };
+    });
+    expect(layout.widthOverflow, `ancho del modal a ${width}×${height}`).toBeLessThanOrEqual(1);
+    expect(layout.top).toBeGreaterThanOrEqual(8);
+    expect(layout.bottom).toBeLessThanOrEqual(height - 8);
+    const last4 = accountDialog.getByRole("textbox", { name: /Últimos 4/ });
+    await last4.focus();
+    await last4.scrollIntoViewIfNeeded();
+    const visibleField = await last4.evaluate(input => {
+      const panel = input.closest("form")!;
+      const header = panel.firstElementChild!.getBoundingClientRect();
+      const footer = panel.lastElementChild!.getBoundingClientRect();
+      const field = input.getBoundingClientRect();
+      return field.top >= header.bottom && field.bottom <= footer.top;
+    });
+    expect(visibleField, `campo visible a ${width}×${height}`).toBe(true);
+    await expect(submitButton).toBeInViewport({ ratio: 1 });
+    await page.screenshot({ path: info.outputPath(`modal-${width}x${height}.png`) });
+    await productSelect.scrollIntoViewIfNeeded();
+    await expect(productSelect).toBeInViewport({ ratio: 1 });
+    if (height >= 568) {
+      await preview.scrollIntoViewIfNeeded();
+      await expect(preview).toBeInViewport({ ratio: 1 });
+      await expect(closeButton).toBeInViewport({ ratio: 1 });
+      await expect(submitButton).toBeInViewport({ ratio: 1 });
+      await page.screenshot({ path: info.outputPath(`modal-preview-${width}x${height}.png`) });
+    }
+  }
+  await page.keyboard.press("Escape");
+  await expect(accountDialog).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Agregar cuenta", exact: true })).toBeFocused();
+  await page.getByRole("button", { name: "Agregar cuenta", exact: true }).click();
+  await accountDialog.getByRole("textbox", { name: "Nombre visible" }).fill("Cuenta para gastos");
+  await page.getByRole("combobox", { name: "Institución" }).selectOption("banco_estado");
+  await kindSelect.selectOption("vista");
+  await productSelect.selectOption("banco_estado_cuenta_rut");
+  await page.setViewportSize({ width: 390, height: 844 });
   await preview.scrollIntoViewIfNeeded();
   await page.screenshot({ path: info.outputPath("modal-preview.png") });
   await accountDialog.getByRole("button", { name: "Agregar cuenta" }).click();
@@ -690,10 +769,11 @@ test("cuentas y dashboard muestran alias, institución y producto", async ({ pag
   await page.goto("/app/settings?account_id=1");
   await expect(page).toHaveURL(/\/app\/accounts\?account_id=1$/);
   await expect(page.getByRole("button", { name: "Editar", exact: true })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Eliminar", exact: true })).toBeVisible();
+  await page.getByLabel("Más acciones de la cuenta").click();
+  await expect(page.getByRole("button", { name: "Eliminar cuenta", exact: true })).toBeVisible();
 });
 
-test("cuentas distingue variación registrada y cobertura de cartolas", async ({ page }) => {
+test("cuentas distingue variación registrada y cobertura de cartolas", async ({ page }, info) => {
   await mockApi(page);
   await page.route("**/api/v1/accounts", (route) => route.fulfill({ json: [
     { id: 1, name: "Cuenta principal", institution: "banco_estado", account_type: "vista", product_code: "banco_estado_cuenta_rut", account_last4: "1234", currency: "CLP", created_at: "2026-01-01T00:00:00Z" },
@@ -707,21 +787,27 @@ test("cuentas distingue variación registrada y cobertura de cartolas", async ({
   await page.route("**/api/v1/reports/accounts", (route) => route.fulfill({ json: [
     { account_id: 1, count: 2, income: 150000, expenses: 50000, net: 100000 },
   ] }));
+  await page.route("**/api/v1/transaction-pages**", route => route.fulfill({ json: { items: [], total: 82, offset: 0, limit: 50 } }));
   await page.addInitScript(
     (value) => localStorage.setItem("sb-demo-auth-token", JSON.stringify(value)),
     session(ownerA),
   );
 
   await page.goto("/app/accounts?account_id=1");
-  await expect(page.getByText("Variación registrada", { exact: true })).toBeVisible();
+  await expect(page.getByText("Variación registrada", { exact: true }).filter({ visible: true })).toBeVisible();
   await expect(page.getByText("Saldo neto", { exact: true })).toHaveCount(0);
   await expect(page.getByText(/Última cartola procesada: marzo de 2026/)).toBeVisible();
+  await page.getByText("Ver detalles de importación", { exact: true }).click();
   await expect(page.getByText(/Última importación correcta: 03 abr\.? 2026/)).toBeVisible();
   await expect(page.getByText("1 con error", { exact: true })).toBeVisible();
   await expect(page.getByText("1 pendiente", { exact: true })).toBeVisible();
   await expect(page.getByText("1 mes sin cartola", { exact: true })).toBeVisible();
   await expect(page.getByText(/Sin cartola registrada entre períodos importados: febrero de 2026/)).toBeVisible();
   await expect(page.getByText("Cartolas por actualizar", { exact: true })).toBeVisible();
+
+  await expect(page.getByRole("button", { name: "Movimientos (82)", exact: true })).toBeVisible();
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await page.screenshot({ path: info.outputPath("accounts-desktop.png"), fullPage: true });
 
   const lastClosedMonth = new Date();
   lastClosedMonth.setDate(1);

@@ -58,7 +58,7 @@ function MovementActions({ transaction, onEdit, onDelete }: {
           placeMenu();
           setOpen((value) => !value);
         }}
-        className="flex h-10 w-10 items-center justify-center rounded-full text-muted transition hover:bg-paper-soft hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary">
+        className="flex h-11 w-11 items-center justify-center rounded-full text-muted transition hover:bg-paper-soft hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary">
         <svg aria-hidden="true" viewBox="0 0 24 24" fill="currentColor" className="h-5 w-5"><circle cx="12" cy="5" r="1.8" /><circle cx="12" cy="12" r="1.8" /><circle cx="12" cy="19" r="1.8" /></svg>
       </button>
       {open ? createPortal(
@@ -201,24 +201,24 @@ export function CashAccountPanel({ account, categories, onBalanceChange }: {
   };
 
   return (
-    <div id="cash-account" className="space-y-8">
-      <Panel className="space-y-6">
+    <div id="cash-account" className="space-y-5 sm:space-y-8">
+      <Panel compactOnMobile className="space-y-4 sm:space-y-6">
         <div className="flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex min-w-0 items-center gap-5">
-            <span className="grid h-16 w-16 shrink-0 place-items-center rounded-2xl bg-primary-mist text-primary"><WalletIcon className="h-7 w-7" /></span>
+          <div className="flex min-w-0 items-center gap-3 sm:gap-5">
+            <span className="grid h-14 w-14 shrink-0 place-items-center rounded-2xl bg-primary-mist text-primary sm:h-16 sm:w-16"><WalletIcon className="h-7 w-7" /></span>
             <div className="min-w-0">
-              <p className="eyebrow m-0 text-primary">Información de la cuenta</p>
-              <h2 className="mt-2 break-words text-3xl font-semibold tracking-[-0.03em]">{account.name}</h2>
-              <p className="mt-1 text-muted">Cuenta manual</p>
+              <p className="m-0 text-sm font-medium text-muted">Información de la cuenta</p>
+              <h2 className="mt-1 section-title sm:mt-2">{account.name}</h2>
+              <p className="mt-1 text-sm text-muted sm:text-base">Cuenta manual</p>
             </div>
           </div>
-          <Button onClick={() => { setEditing(null); setInitialDelete(false); setFormOpen(true); }}>Registrar movimiento</Button>
+          <Button compactOnMobile onClick={() => { setEditing(null); setInitialDelete(false); setFormOpen(true); }}>Registrar movimiento</Button>
         </div>
         <div className="subtle-divider" />
-        <dl className="grid divide-y divide-outline/70 sm:grid-cols-3 sm:divide-x sm:divide-y-0">
-          <div className="py-3 sm:pr-5"><dt className="text-sm text-muted">Producto</dt><dd className="mt-1 font-semibold">Efectivo</dd></div>
-          <div className="py-3 sm:px-5"><dt className="text-sm text-muted">Saldo inicial</dt><dd className="mt-1 font-semibold">{balance?.opening_balance_date ? pesos.format(balance.opening_balance_clp ?? 0) : "No configurado"}</dd></div>
-          <div className="py-3 sm:pl-5"><dt className="text-sm text-muted">Moneda</dt><dd className="mt-1 font-semibold">CLP</dd></div>
+        <dl className="grid grid-cols-2 gap-y-3 rounded-2xl bg-paper-soft/70 p-3 sm:grid-cols-3 sm:gap-0 sm:divide-x sm:divide-outline/70 sm:bg-transparent sm:p-0">
+          <div className="col-span-2 border-b border-outline/70 pb-3 sm:col-span-1 sm:border-0 sm:py-3 sm:pr-5"><dt className="text-sm text-muted">Producto</dt><dd className="mt-1 font-semibold">Efectivo</dd></div>
+          <div className="min-w-0 pr-3 sm:px-5 sm:py-3"><dt className="text-sm text-muted">Saldo inicial</dt><dd className="mt-1 font-semibold tabular-nums [overflow-wrap:anywhere]">{balance?.opening_balance_date ? pesos.format(balance.opening_balance_clp ?? 0) : "No configurado"}</dd></div>
+          <div className="border-l border-outline/70 pl-3 sm:border-0 sm:py-3 sm:pl-5"><dt className="text-sm text-muted">Moneda</dt><dd className="mt-1 font-semibold">CLP</dd></div>
         </dl>
         <div className="subtle-divider" />
         <div>
@@ -235,11 +235,11 @@ export function CashAccountPanel({ account, categories, onBalanceChange }: {
         </div>
           {balanceEditing ? (
             <form onSubmit={(event) => void saveOpeningBalance(event)} className="flex flex-wrap items-end gap-3 border-t border-outline pt-5">
-              <label className="space-y-2 text-sm font-medium text-ink">Saldo inicial en pesos
-                <input type="number" min="0" max="2147483647" step="1" required value={openingAmount} onChange={(event) => setOpeningAmount(event.target.value)} className="block w-48 rounded-2xl border border-outline bg-white px-4 py-3 outline-none focus:border-primary" />
+              <label className="w-full min-w-0 space-y-2 text-sm font-medium text-ink sm:w-auto">Saldo inicial en pesos
+                <input type="number" min="0" max="2147483647" step="1" required value={openingAmount} onChange={(event) => setOpeningAmount(event.target.value)} className="block w-full min-w-0 rounded-2xl border border-outline bg-white px-4 py-3 text-base outline-none sm:text-sm focus:border-primary sm:w-48" />
               </label>
-              <label className="space-y-2 text-sm font-medium text-ink">Fecha de inicio
-                <input type="date" required value={openingDate} onChange={(event) => setOpeningDate(event.target.value)} className="block rounded-2xl border border-outline bg-white px-4 py-3 outline-none focus:border-primary" />
+              <label className="w-full min-w-0 space-y-2 text-sm font-medium text-ink sm:w-auto">Fecha de inicio
+                <input type="date" required value={openingDate} onChange={(event) => setOpeningDate(event.target.value)} className="block w-full min-w-0 rounded-2xl border border-outline bg-white px-4 py-3 text-base outline-none sm:text-sm focus:border-primary" />
               </label>
               <Button type="submit" disabled={balanceSaving}>{balanceSaving ? "Guardando..." : "Guardar saldo"}</Button>
               {balance?.opening_balance_date ? <Button tone="ghost" disabled={balanceSaving} onClick={() => void clearOpeningBalance()}>Quitar saldo inicial</Button> : null}
@@ -258,12 +258,12 @@ export function CashAccountPanel({ account, categories, onBalanceChange }: {
         ready={summary !== null && balance !== null}
         formatCurrency={formatCurrency}
       />
-      <Panel className="p-0 md:p-0">
-        <div className="flex items-center justify-between gap-3 overflow-x-auto border-b border-outline px-5 pt-5 md:px-8 md:pt-7">
-          <h3 className="whitespace-nowrap border-b-2 border-primary px-4 py-3 font-semibold text-primary">Movimientos ({count})</h3>
-          <Link className="whitespace-nowrap text-sm font-semibold text-primary underline-offset-4 hover:underline" to={`/app/transactions?account_id=${account.id}`}>Ver todos</Link>
+      <Panel className="!p-0">
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-outline px-4 pt-3 sm:px-5 sm:pt-5 md:px-8 md:pt-7">
+          <h3 className="border-b-2 border-primary py-3 text-sm font-semibold text-primary sm:px-4 sm:text-base">Movimientos ({count})</h3>
+          <Link className="inline-flex min-h-11 items-center text-sm font-semibold text-primary underline-offset-4 hover:underline" to={`/app/transactions?account_id=${account.id}`}>Ver todos</Link>
         </div>
-        <div className="p-5 md:p-8">
+        <div className="p-4 sm:p-5 md:p-8">
           {transactions.length > 0 ? <AccountMovementsTable transactions={transactions} categoryMap={categoryMap} formatCurrency={formatCurrency} renderActions={(transaction) => (
             transaction.origin === "manual" ? (
               <MovementActions transaction={transaction}
@@ -274,10 +274,10 @@ export function CashAccountPanel({ account, categories, onBalanceChange }: {
             ) : null
           )} /> : null}
           {transactions.length === 0 ? <p className="py-2 text-sm text-muted">Todavía no hay movimientos en Efectivo.</p> : null}
-          <div className="flex justify-center gap-3 py-4">
-            <Button tone="secondary" disabled={pageOffset === 0} onClick={() => setPageOffset(Math.max(0, pageOffset - PAGE_SIZE))}>Anterior</Button>
-            <span className="self-center">{count} movimientos · página {Math.floor(pageOffset / PAGE_SIZE) + 1}</span>
-            <Button tone="secondary" disabled={pageOffset + PAGE_SIZE >= count} onClick={() => setPageOffset(pageOffset + PAGE_SIZE)}>Siguiente</Button>
+          <div className="grid grid-cols-2 items-center gap-2 border-t border-outline/60 pt-4 sm:flex sm:justify-center sm:gap-3 sm:border-0 sm:py-4">
+            <Button compactOnMobile tone="secondary" disabled={pageOffset === 0} onClick={() => setPageOffset(Math.max(0, pageOffset - PAGE_SIZE))}>Anterior</Button>
+            <span className="order-first col-span-2 text-center text-sm text-muted sm:order-none">{count} movimientos · página {Math.floor(pageOffset / PAGE_SIZE) + 1}</span>
+            <Button compactOnMobile tone="secondary" disabled={pageOffset + PAGE_SIZE >= count} onClick={() => setPageOffset(pageOffset + PAGE_SIZE)}>Siguiente</Button>
           </div>
         </div>
       </Panel>
