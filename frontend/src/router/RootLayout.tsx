@@ -215,7 +215,7 @@ export function RootLayout() {
               end={to === "/app"}
               aria-label={label}
               className={({ isActive }) => cn(
-                "flex min-h-16 w-full min-w-0 flex-col items-center justify-center gap-1 px-0 text-[0.625rem] font-medium transition-colors focus-visible:z-10",
+                "flex min-h-16 w-full min-w-0 flex-col items-center justify-center gap-1 px-0 text-xs font-medium transition-colors focus-visible:z-10",
                 isActive ? "text-primary" : "text-muted hover:text-ink",
               )}
             >
@@ -232,7 +232,7 @@ export function RootLayout() {
             aria-haspopup="dialog"
             onClick={() => setMoreOpen(true)}
             className={cn(
-              "flex min-h-16 w-full min-w-0 flex-col items-center justify-center gap-1 px-0 text-[0.625rem] font-medium transition-colors focus-visible:z-10",
+              "flex min-h-16 w-full min-w-0 flex-col items-center justify-center gap-1 px-0 text-xs font-medium transition-colors focus-visible:z-10",
               moreIsActive || moreOpen ? "text-primary" : "text-muted hover:text-ink",
             )}
           >

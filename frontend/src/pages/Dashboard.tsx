@@ -720,7 +720,7 @@ export function DashboardPage() {
           yAxis: {
             splitNumber: 4,
             axisLabel: {
-              fontSize: 11,
+              fontSize: 12,
               margin: 6,
               formatter: formatCompactAxisCurrency,
             },
@@ -790,7 +790,7 @@ export function DashboardPage() {
                   setSelectedExpenseCategory(null);
                   setSelectedPeriod(event.target.value);
                 }}
-                className="appearance-none bg-transparent pl-1 pr-8 text-lg font-medium text-primary outline-none md:text-[1.75rem]"
+                className="appearance-none bg-transparent pl-1 pr-8 text-base font-medium text-primary outline-none sm:text-lg"
               >
                 {data.available_periods.map((period) => (
                   <option key={period} value={period}>
@@ -817,7 +817,7 @@ export function DashboardPage() {
 
       {data && !support.loading && !showFirstAccountWelcome ? (
         <>
-          <section className="grid items-stretch gap-4 lg:grid-cols-3">
+          <section className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,17rem),1fr))] items-stretch gap-4">
             {data.cards.slice(0, 3).map((card, index) => (
               <StatCard
                 compactOnMobile
@@ -858,10 +858,10 @@ export function DashboardPage() {
             </Link>
           ) : null}
 
-          <section className="grid min-w-0 gap-4 sm:gap-6 lg:grid-cols-[minmax(0,1.65fr)_340px]">
+          <section className="grid min-w-0 gap-4 sm:gap-6 xl:grid-cols-[minmax(0,1.65fr)_340px]">
             <Panel compactOnMobile className="min-w-0">
               <div className="space-y-2">
-                <h2 className="text-2xl font-medium tracking-[-0.05em] sm:text-4xl lg:text-5xl">
+                <h2 className="section-title">
                   Evolucion Mensual
                 </h2>
                 <p className="text-muted">
@@ -874,7 +874,7 @@ export function DashboardPage() {
 
             <Panel compactOnMobile className="min-w-0 space-y-4 sm:space-y-6">
               <div className="space-y-2">
-                <h2 className="text-2xl font-medium tracking-[-0.04em] sm:text-4xl">
+                <h2 className="section-title">
                   Gastos por Categoria
                 </h2>
                 <p className="text-sm text-muted">
@@ -894,7 +894,7 @@ export function DashboardPage() {
                       }}
                     />
                     <div className="pointer-events-none absolute left-1/2 top-[48%] w-28 -translate-x-1/2 -translate-y-1/2 text-center leading-tight">
-                      <span className="line-clamp-2 text-[0.7rem] font-medium text-muted [overflow-wrap:anywhere]" title={selectedExpense?.label}>
+                      <span className="line-clamp-2 text-xs font-medium text-muted [overflow-wrap:anywhere]" title={selectedExpense?.label}>
                         {selectedExpense?.label ?? "Total"}
                       </span>
                       <strong className="mt-1 block text-sm font-semibold text-ink [overflow-wrap:anywhere] sm:text-base">
@@ -945,8 +945,8 @@ export function DashboardPage() {
             </Panel>
           </section>
 
-          <section className="grid min-w-0 gap-4 sm:gap-6 lg:grid-cols-[360px_minmax(0,1fr)]">
-            <Panel compactOnMobile className="flex aspect-[1.25] w-full max-w-[22rem] min-w-0 flex-col items-center justify-center gap-3 justify-self-center text-center sm:aspect-auto sm:min-h-[240px] sm:max-w-none sm:gap-4">
+          <section className="grid min-w-0 gap-4 sm:gap-6 xl:grid-cols-[320px_minmax(0,1fr)]">
+            <Panel compactOnMobile className="metric-container flex aspect-[1.25] w-full max-w-[22rem] min-w-0 flex-col items-center justify-center gap-3 justify-self-center text-center sm:aspect-auto sm:min-h-[240px] sm:max-w-none sm:gap-4">
               <span className="flex h-14 w-14 items-center justify-center rounded-2xl border border-primary/20 bg-primary-mist text-primary shadow-sm sm:h-20 sm:w-20">
                 <InvestmentIcon className="h-7 w-7 sm:h-9 sm:w-9" />
               </span>
@@ -954,7 +954,7 @@ export function DashboardPage() {
                 <p className="text-sm font-semibold uppercase tracking-[0.16em] text-primary/80">
                   Ganancias tarjetas
                 </p>
-                <strong className="block text-3xl font-semibold tracking-[-0.05em] text-ink [overflow-wrap:anywhere] sm:text-5xl">
+                <strong className="metric-value text-ink">
                   {formatCurrency(cardGains.total)}
                 </strong>
               </div>
@@ -969,13 +969,13 @@ export function DashboardPage() {
             </Panel>
 
             <Panel compactOnMobile className="min-w-0 space-y-4 sm:space-y-5">
-              <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+              <div className="flex flex-wrap items-end justify-between gap-3">
                 <div className="flex items-start gap-3">
                   <span className="mt-1 flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-danger-soft text-danger">
                     <CalendarIcon className="h-5 w-5" />
                   </span>
                   <div className="space-y-1">
-                    <h2 className="text-2xl font-medium tracking-[-0.04em] sm:text-4xl">
+                    <h2 className="section-title">
                       Gasto diario
                     </h2>
                     <p className="text-sm text-muted">
@@ -1032,11 +1032,11 @@ export function DashboardPage() {
             </Panel>
           </section>
 
-          <section className="grid min-w-0 gap-4 sm:gap-6 lg:grid-cols-[minmax(360px,1.1fr)_minmax(0,0.9fr)]">
+          <section className="grid min-w-0 gap-4 sm:gap-6 xl:grid-cols-[minmax(360px,1.1fr)_minmax(0,0.9fr)]">
             <Panel compactOnMobile className="min-w-0 space-y-4 sm:space-y-6">
-              <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex flex-wrap items-center justify-between gap-4">
                 <div className="space-y-2">
-                  <h2 className="text-3xl font-medium tracking-[-0.04em]">Tus cuentas</h2>
+                  <h2 className="section-title">Tus cuentas</h2>
                   <p className="text-sm text-muted">Las más recientes aparecen primero.</p>
                 </div>
                 <div className="flex shrink-0 items-center gap-3">
@@ -1087,9 +1087,9 @@ export function DashboardPage() {
             </Panel>
 
             <Panel compactOnMobile className="flex h-full min-w-0 flex-col gap-4 sm:gap-6">
-              <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+              <div className="flex flex-wrap items-start justify-between gap-4">
                 <div className="space-y-1">
-                  <h2 className="text-2xl font-medium tracking-[-0.04em] sm:text-4xl">
+                  <h2 className="section-title">
                     Top 5 Movimientos
                   </h2>
                   <p className="text-sm text-muted">Mayores montos del periodo visible</p>

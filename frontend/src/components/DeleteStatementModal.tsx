@@ -65,7 +65,7 @@ export function DeleteStatementModal({
           <div className="space-y-3">
             <p className="eyebrow m-0 text-danger">Deshacer importacion</p>
             <h2
-              className="text-4xl font-medium tracking-[-0.04em] text-ink"
+              className="dialog-title"
               id="delete-statement-title"
             >
               Confirmar eliminacion

@@ -30,17 +30,17 @@ export function PageIntro({
           <div className="flex flex-wrap items-center gap-4 text-primary">
             {eyebrow ? <p className="eyebrow m-0">{eyebrow}</p> : null}
             {period ? (
-              <span className="min-w-0 max-w-full border-b-2 border-primary pb-1 text-lg font-medium md:text-[1.75rem]">
+              <span className="min-w-0 max-w-full border-b-2 border-primary pb-1 text-base font-medium sm:text-lg">
                 {period}
               </span>
             ) : null}
           </div>
           <div className="space-y-3">
-            <h1 className={cn("font-semibold tracking-[-0.04em] text-ink [overflow-wrap:anywhere] sm:text-5xl md:text-6xl", compactOnMobile ? "text-3xl" : "text-4xl")}>
+            <h1 className="page-title">
               {title}
             </h1>
             {description ? (
-              <p className={cn("max-w-2xl text-muted md:text-[1.35rem]", compactOnMobile ? "text-base leading-6 sm:text-lg sm:leading-8" : "text-lg leading-8")}>
+              <p className="max-w-2xl text-base leading-relaxed text-muted sm:text-lg">
                 {description}
               </p>
             ) : null}
@@ -101,7 +101,7 @@ export function StatCard({
         : "bg-paper-soft text-muted";
 
   return (
-    <article className={cn("surface-card flex h-full flex-col justify-between", compactOnMobile ? "min-h-[136px] gap-3 p-4 sm:min-h-[190px] sm:gap-6 sm:p-6" : "min-h-[190px] gap-6 p-6")}>
+    <article className={cn("surface-card metric-container flex h-full flex-col justify-between", compactOnMobile ? "min-h-[136px] gap-3 p-4 sm:min-h-[190px] sm:gap-6 sm:p-6" : "min-h-[190px] gap-6 p-6")}>
       <div className="flex items-start justify-between gap-4">
         <p className="text-base font-medium text-muted">{label}</p>
         {icon ? (
@@ -116,7 +116,7 @@ export function StatCard({
         ) : null}
       </div>
       <div className={compactOnMobile ? "min-w-0 space-y-2 sm:space-y-3" : "space-y-3"}>
-        <strong className={cn("block font-semibold tracking-[-0.04em] text-ink [overflow-wrap:anywhere] md:text-5xl", compactOnMobile ? "text-3xl sm:text-4xl" : "text-4xl")}>
+        <strong className="metric-value text-ink">
           {value}
         </strong>
         {helper ? (

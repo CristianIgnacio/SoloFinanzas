@@ -22,7 +22,7 @@ export function CashLinkModal({ transaction, accountName, saving, error, onClose
     <div role="dialog" aria-modal="true" aria-labelledby="cash-link-title" className="fixed inset-0 z-50 flex items-center justify-center bg-ink/50 px-3 py-4 backdrop-blur-sm">
       <div className="surface-card max-h-[calc(100vh-2rem)] w-full max-w-lg overflow-y-auto p-6 sm:p-8">
         <p className="eyebrow m-0 text-primary">Transferencia con Efectivo</p>
-        <h2 id="cash-link-title" className="mt-2 text-3xl font-semibold tracking-tight text-ink">
+        <h2 id="cash-link-title" className="mt-2 dialog-title">
           {undo ? "Deshacer vínculo" : "Vincular con Efectivo"}
         </h2>
         <p className="mt-2 text-sm text-muted">

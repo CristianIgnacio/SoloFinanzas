@@ -486,7 +486,7 @@ export function TransactionsPage() {
     <div className="space-y-5 sm:space-y-8">
       <header className="flex flex-wrap items-center justify-between gap-3 border-b border-outline/70 pb-4 sm:pb-5">
         <div className="hidden w-full items-center gap-3 pb-1 lg:flex">
-          <span className="text-xs font-medium uppercase tracking-widest text-muted">Periodo</span>
+          <span className="text-sm font-medium uppercase tracking-widest text-muted">Periodo</span>
           <label className="relative inline-flex max-w-full items-center">
             <span className="sr-only">Filtrar movimientos por periodo</span>
             <select value={selectedMonth} onChange={event => setSelectedMonth(event.target.value)}
@@ -497,7 +497,7 @@ export function TransactionsPage() {
             <ChevronDownIcon className="pointer-events-none absolute right-1 h-4 w-4 text-primary" />
           </label>
         </div>
-        <h1 className="text-2xl font-semibold tracking-tight text-ink sm:text-3xl lg:text-[2.5rem]">Movimientos</h1>
+        <h1 className="page-title">Movimientos</h1>
         <div className="flex flex-wrap items-center gap-2 sm:gap-3">
           {cashAccount && !statementId ? (
             <Button compactOnMobile onClick={() => { setEditingCashTransaction(null); setCashFormOpen(true); }}>
@@ -542,7 +542,7 @@ export function TransactionsPage() {
           </div>
           <button type="button" aria-expanded={filtersOpen} aria-controls="movement-filters" onClick={() => setFiltersOpen(open => !open)}
             className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-outline bg-white px-3 text-sm font-medium text-ink">
-            Filtros{activeFilterCount > 0 ? <span className="rounded-full bg-primary px-1.5 text-xs leading-5 text-white">{activeFilterCount}</span> : null}
+            Filtros{activeFilterCount > 0 ? <span className="rounded-full bg-primary px-1.5 text-sm leading-5 text-white">{activeFilterCount}</span> : null}
             <ChevronDownIcon className={cn("h-4 w-4 transition", filtersOpen && "rotate-180")} />
           </button>
         </div>
@@ -579,8 +579,8 @@ export function TransactionsPage() {
         </div>
         {activeFilterCount > 0 ? (
           <div className="flex flex-wrap items-center gap-2" aria-label="Filtros aplicados">
-            {activeFilters.map(item => <button key={item.key} type="button" onClick={item.clear} aria-label={`Quitar filtro: ${item.label}`} className="inline-flex min-h-9 max-w-full items-center gap-2 rounded-full bg-primary-mist px-3 text-xs font-medium text-primary"><span className="truncate">{item.label}</span><span aria-hidden="true">×</span></button>)}
-            <button type="button" onClick={() => { setSelectedMonth(ALL_PERIODS); setSelectedAccount(ALL_ACCOUNTS); setSelectedCategory(ALL_CATEGORIES); setExcludeInternalTransfers(false); }} className="min-h-9 px-2 text-xs font-medium text-muted underline underline-offset-2">Limpiar filtros</button>
+            {activeFilters.map(item => <button key={item.key} type="button" onClick={item.clear} aria-label={`Quitar filtro: ${item.label}`} className="inline-flex min-h-9 max-w-full items-center gap-2 rounded-full bg-primary-mist px-3 text-sm font-medium text-primary"><span className="truncate">{item.label}</span><span aria-hidden="true">×</span></button>)}
+            <button type="button" onClick={() => { setSelectedMonth(ALL_PERIODS); setSelectedAccount(ALL_ACCOUNTS); setSelectedCategory(ALL_CATEGORIES); setExcludeInternalTransfers(false); }} className="min-h-9 px-2 text-sm font-medium text-muted underline underline-offset-2">Limpiar filtros</button>
           </div>
         ) : null}
       </section>
@@ -599,7 +599,7 @@ export function TransactionsPage() {
             <section key={date} className="space-y-3 sm:space-y-4">
               <div className="flex items-center gap-2.5 sm:gap-3">
                 <span className="h-5 w-[3px] rounded-full bg-primary-soft" />
-                <h2 className="text-[0.6875rem] font-semibold uppercase tracking-[0.06em] text-ink sm:text-base sm:tracking-[0.08em] lg:text-xl">
+                <h2 className="text-sm font-semibold uppercase tracking-[0.06em] text-ink sm:text-base sm:tracking-[0.08em] lg:text-xl">
                   {formatDateLabel(date)}
                 </h2>
               </div>
@@ -632,7 +632,7 @@ export function TransactionsPage() {
                         <div className={cn("min-w-0", (transaction.is_internal_transfer || transaction.origin === "cash_transfer") && "pl-5 sm:pl-0")}>
                           {transaction.is_internal_transfer || transaction.origin === "cash_transfer" ? (
                             <span role="img" aria-label="Transferencia interna" className="pointer-events-none absolute left-0 top-0 h-11 w-11 bg-primary [clip-path:polygon(0_0,100%_0,0_100%)] sm:hidden">
-                              <span aria-hidden="true" className="absolute left-2 top-2 text-xs font-bold leading-none text-white">↔</span>
+                              <span aria-hidden="true" className="absolute left-2 top-2 text-sm font-bold leading-none text-white">↔</span>
                             </span>
                           ) : null}
                           <div className="flex min-h-6 min-w-0 items-center gap-3">
@@ -646,7 +646,7 @@ export function TransactionsPage() {
                               className="block min-w-0 max-w-full text-left focus-visible:rounded focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
                             >
                               <span className={cn(
-                                "block text-[0.9375rem] font-semibold leading-6 tracking-[-0.02em] text-ink sm:text-[1.0625rem] lg:text-[1.375rem] lg:leading-7 xl:text-[1.625rem] xl:leading-8",
+                                "block text-base font-semibold leading-6 tracking-[-0.02em] text-ink sm:text-[1.0625rem] lg:text-[1.375rem] lg:leading-7 xl:text-[1.625rem] xl:leading-8",
                                 detailsOpen ? "whitespace-normal [overflow-wrap:anywhere]" : "truncate whitespace-nowrap",
                               )}>
                                 {transaction.description}
@@ -656,7 +656,7 @@ export function TransactionsPage() {
                         </div>
                         <div className="min-w-0 text-right lg:col-start-3 lg:row-span-2 lg:row-start-1 lg:self-center">
                           <p className={cn(
-                            "max-w-full whitespace-nowrap text-[0.9375rem] font-semibold tabular-nums sm:text-lg lg:text-[1.375rem] xl:text-[1.625rem]",
+                            "max-w-full whitespace-nowrap text-base font-semibold tabular-nums sm:text-lg lg:text-[1.375rem] xl:text-[1.625rem]",
                             transaction.amount_clp >= 0 ? "text-primary" : "text-ink",
                           )}>
                           {new Intl.NumberFormat("es-CL", {
@@ -667,14 +667,14 @@ export function TransactionsPage() {
                           </p>
                         </div>
                         <div className="flex min-h-6 min-w-0 flex-wrap items-center gap-2 self-center sm:pl-[3.75rem] lg:col-start-2 lg:row-start-2 lg:pl-0">
-                          <span className="hidden text-xs text-muted sm:inline lg:text-base">
+                          <span className="hidden text-sm text-muted sm:inline lg:text-base">
                             {transaction.transaction_type === "income" ? "Ingreso" : "Gasto"}
                           </span>
                           {account ? (
                             <Link
                               to={`/app/accounts?account_id=${account.id}`}
                               aria-label={`Ver detalle de ${account.name}`}
-                              className="relative inline-flex max-w-full items-center gap-1.5 rounded-md text-xs font-medium text-muted transition hover:text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary lg:rounded-full lg:border lg:border-outline lg:bg-white lg:px-2.5 lg:py-1 lg:font-semibold"
+                              className="relative inline-flex max-w-full items-center gap-1.5 rounded-md text-sm font-medium text-muted transition hover:text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary lg:rounded-full lg:border lg:border-outline lg:bg-white lg:px-2.5 lg:py-1 lg:font-semibold"
                             >
                               <span className="block shrink-0">{"institution" in account ? (
                                 <InstitutionLogo institution={account.institution} size="sm" />
@@ -682,22 +682,22 @@ export function TransactionsPage() {
                               <span className="min-w-0 truncate">{account.name}</span>
                             </Link>
                           ) : (
-                            <span className="block truncate text-xs font-medium text-muted">
+                            <span className="block truncate text-sm font-medium text-muted">
                               Tarjeta #{transaction.account_id}
                             </span>
                           )}
                           {transaction.is_internal_transfer || transaction.origin === "cash_transfer" ? (
-                            <span className="hidden rounded-full border border-primary/20 bg-primary-mist px-2.5 py-1 text-xs font-semibold text-primary sm:inline-flex lg:px-2 lg:py-0.5 lg:text-[0.625rem] lg:uppercase lg:tracking-[0.02em] 2xl:text-xs">
+                            <span className="hidden rounded-full border border-primary/20 bg-primary-mist px-2.5 py-1 text-sm font-semibold text-primary sm:inline-flex lg:px-2 lg:py-0.5 lg:text-xs lg:uppercase lg:tracking-[0.02em] 2xl:text-sm">
                               Transferencia interna
                             </span>
                           ) : null}
-                          <span className="hidden text-xs text-muted 2xl:inline">{originLabel}</span>
+                          <span className="hidden text-sm text-muted 2xl:inline">{originLabel}</span>
                         </div>
-                        <span className="min-w-0 self-center text-right text-xs leading-5 text-muted sm:hidden" title={categoryMap.get(Number(categoryValue))?.name ?? "Sin categoría"}>
+                        <span className="min-w-0 self-center text-right text-sm leading-5 text-muted sm:hidden" title={categoryMap.get(Number(categoryValue))?.name ?? "Sin categoría"}>
                           <span className="line-clamp-1 [overflow-wrap:anywhere]">{categoryMap.get(Number(categoryValue))?.name ?? "Sin categoría"}</span>
                         </span>
                         <div className={cn("col-span-2 mt-2 w-full min-w-0 text-left sm:col-span-1 sm:ml-auto sm:mt-0 sm:max-w-64 sm:text-right lg:col-start-4 lg:row-span-2 lg:row-start-1 lg:self-center", detailsOpen ? "block" : "hidden sm:block")}>
-                          <span className="block text-left text-xs font-medium text-muted lg:sr-only">Categoría</span>
+                          <span className="block text-left text-sm font-medium text-muted lg:sr-only">Categoría</span>
                           <div className="relative mt-1 w-full min-w-0 lg:mt-0">
                               <CategoryPicker
                                 label={`Categoria de ${transaction.description}`}
@@ -714,19 +714,19 @@ export function TransactionsPage() {
                         <div id={`transaction-details-${transaction.id}`} className="space-y-3 border-t border-outline/70 pt-3">
                           <dl className="grid grid-cols-2 gap-3 text-sm">
                             <div className="sm:hidden">
-                              <dt className="text-xs text-muted">Tipo</dt>
+                              <dt className="text-sm text-muted">Tipo</dt>
                               <dd className="mt-1 font-medium text-ink">{transaction.transaction_type === "income" ? "Ingreso" : "Gasto"}</dd>
                             </div>
                             <div>
-                              <dt className="text-xs text-muted">Fecha</dt>
+                              <dt className="text-sm text-muted">Fecha</dt>
                               <dd className="mt-1 font-medium text-ink">{formatDateLabel(transaction.date)}</dd>
                             </div>
                             <div>
-                              <dt className="text-xs text-muted">Origen</dt>
+                              <dt className="text-sm text-muted">Origen</dt>
                               <dd className="mt-1 font-medium text-ink">{originLabel}</dd>
                             </div>
                             <div className="sm:hidden">
-                              <dt className="text-xs text-muted">Transferencia interna</dt>
+                              <dt className="text-sm text-muted">Transferencia interna</dt>
                               <dd className="mt-1 font-medium text-ink">{transaction.is_internal_transfer || transaction.origin === "cash_transfer" ? "Sí" : "No"}</dd>
                             </div>
                           </dl>
