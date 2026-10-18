@@ -16,6 +16,8 @@ class UserModel(SQLModel, table=True):
     email: str = ""
     display_name: str = ""
     initialized: bool = False
+    category_catalog_version: int = Field(default=0, sa_column_kwargs={"server_default": "0"})
+    rule_catalog_version: int = Field(default=0, sa_column_kwargs={"server_default": "0"})
     deletion_pending: bool = False
     onboarding_choice: str | None = Field(default=None, max_length=8)
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))

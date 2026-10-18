@@ -47,6 +47,8 @@ class TransactionModel(OwnedModel, table=True):
         sa_column=Column(enum_sql_type(CategorySource), nullable=True),
     )
     rule_id_applied: int | None = Field(default=None, foreign_key="categorization_rules.id")
+    category_reviewed: bool = Field(default=False)
+    category_version: int = Field(default=0)
     fingerprint: str | None = Field(default=None, index=True)
     raw_data: dict[str, Any] | None = Field(default=None, sa_column=Column(JSON))
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
