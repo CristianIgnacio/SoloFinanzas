@@ -3,6 +3,641 @@ import { expect, test, type Page } from "@playwright/test";
 const ownerA = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const ownerB = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 
+test("eliminar categorías propias conserva movimientos mediante traslado explícito", async ({ page }, info) => {
+  await mockApi(page);
+  const base = { type: "expense", parent_id: null as number | null, is_default: false,
+    is_active: true, sort_order: 1, transaction_count: 0, rule_count: 0 };
+  let categories = [
+    { ...base, id: 1, name: "Personal usada", transaction_count: 3, rule_count: 1 },
+    { ...base, id: 2, name: "Alimentación", is_default: true },
+    { ...base, id: 3, name: "Ingresos", type: "income", is_default: true },
+    { ...base, id: 4, name: "Archivada", is_active: false },
+    { ...base, id: 5, name: "Con hijas" },
+    { ...base, id: 6, name: "Subcategoría usada", parent_id: 5, transaction_count: 1 },
+    { ...base, id: 7, name: "Personal vacía" },
+  ];
+  let merged = false;
+  let deleted = false;
+  await page.route("**/api/v1/categories?*", route => route.fulfill({ json: categories }));
+  await page.route("**/api/v1/categories/1/merge", route => {
+    expect(route.request().postDataJSON()).toEqual({ target_category_id: 2 });
+    merged = true;
+    categories = categories.filter(item => item.id !== 1);
+    return route.fulfill({ json: categories.find(item => item.id === 2) });
+  });
+  await page.route("**/api/v1/categories/7", route => {
+    expect(route.request().method()).toBe("DELETE");
+    deleted = true;
+    categories = categories.filter(item => item.id !== 7);
+    return route.fulfill({ status: 204 });
+  });
+  await page.addInitScript(value => localStorage.setItem("sb-demo-auth-token", JSON.stringify(value)), session(ownerA));
+  await page.goto("/app/categories");
+  await page.getByRole("button", { name: "Más acciones de Subcategoría usada" }).click();
+  await expect(page.getByRole("menu", { name: "Acciones de Subcategoría usada" }).getByRole("menuitem", { name: "Eliminar" })).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("menu")).toHaveCount(0);
+  await page.getByRole("button", { name: "Más acciones de Alimentación" }).click();
+  await expect(page.getByRole("menu", { name: "Acciones de Alimentación" }).getByRole("menuitem", { name: "Eliminar" })).toHaveCount(0);
+  await page.keyboard.press("Escape");
+  await page.getByRole("button", { name: "Más acciones de Personal usada" }).click();
+  await page.getByRole("menu", { name: "Acciones de Personal usada" }).getByRole("menuitem", { name: "Eliminar" }).click();
+  const dialog = page.getByRole("dialog", { name: "Eliminar Personal usada", exact: true });
+  await expect(dialog.getByRole("button", { name: "Eliminar categoría", exact: true })).toBeDisabled();
+  await expect(dialog.locator('option[value="3"]')).toHaveCount(0);
+  await expect(dialog.locator('option[value="4"]')).toHaveCount(0);
+  expect(merged).toBe(false);
+  await dialog.getByRole("combobox").selectOption("2");
+  await dialog.screenshot({ path: info.outputPath("delete-category.png") });
+  await dialog.getByRole("button", { name: "Trasladar y eliminar", exact: true }).click();
+  await expect(dialog).toHaveCount(0);
+  expect(merged).toBe(true);
+  await page.getByRole("button", { name: "Más acciones de Con hijas" }).click();
+  await page.getByRole("menu", { name: "Acciones de Con hijas" }).getByRole("menuitem", { name: "Eliminar" }).click();
+  const parentDialog = page.getByRole("dialog", { name: "Eliminar Con hijas", exact: true });
+  await expect(parentDialog.getByText(/Primero mueve o elimina sus subcategorías/)).toBeVisible();
+  await expect(parentDialog.getByRole("button", { name: "Eliminar categoría", exact: true })).toHaveCount(0);
+  await parentDialog.getByRole("button", { name: "Cancelar", exact: true }).click();
+  await page.getByRole("button", { name: "Más acciones de Personal vacía" }).click();
+  await page.getByRole("menu", { name: "Acciones de Personal vacía" }).getByRole("menuitem", { name: "Eliminar" }).click();
+  expect(deleted).toBe(false);
+  await page.getByRole("dialog", { name: "Eliminar Personal vacía", exact: true }).getByRole("button", { name: "Eliminar categoría", exact: true }).click();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  expect(deleted).toBe(true);
+});
+
+test("fusionar solo aparece cuando la categoría puede fusionarse", async ({ page }, info) => {
+  await mockApi(page);
+  const base = { type: "expense", parent_id: null as number | null, is_default: false,
+    is_active: true, sort_order: 1, transaction_count: 0, rule_count: 0 };
+  let categories = [
+    { ...base, id: 1, name: "Comida propia", transaction_count: 2, rule_count: 1 },
+    { ...base, id: 2, name: "Alimentación", is_default: true },
+    { ...base, id: 3, name: "Grupo con hijas" },
+    { ...base, id: 4, name: "Café propio", parent_id: 3, transaction_count: 1 },
+    { ...base, id: 5, name: "Cafeterías", parent_id: 2, is_default: true },
+    { ...base, id: 6, name: "Ingresos", type: "income" },
+  ];
+  const requests: Array<{ source: number; target: number }> = [];
+  await page.route("**/api/v1/categories?*", route => route.fulfill({ json: categories }));
+  await page.route("**/api/v1/categories/*/merge", route => {
+    const source = Number(route.request().url().match(/categories\/(\d+)\/merge/)?.[1]);
+    const target = route.request().postDataJSON().target_category_id;
+    requests.push({ source, target });
+    categories = categories.filter(item => item.id !== source);
+    return route.fulfill({ json: categories.find(item => item.id === target) });
+  });
+  await page.addInitScript(value => localStorage.setItem("sb-demo-auth-token", JSON.stringify(value)), session(ownerA));
+  await page.goto("/app/categories");
+
+  await expect(page.getByRole("heading", { name: "Fusionar categoria" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Crear subcategoría en Grupo con hijas" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Crear subcategoría en Café propio" })).toHaveCount(0);
+  await page.getByRole("button", { name: "Más acciones de Alimentación" }).click();
+  await expect(page.getByRole("menu", { name: "Acciones de Alimentación" }).getByRole("menuitem", { name: "Fusionar" })).toHaveCount(0);
+  await page.keyboard.press("Escape");
+  await page.getByRole("button", { name: "Más acciones de Grupo con hijas" }).click();
+  await expect(page.getByRole("menu", { name: "Acciones de Grupo con hijas" }).getByRole("menuitem", { name: "Fusionar" })).toHaveCount(0);
+  await page.keyboard.press("Escape");
+  await page.getByRole("button", { name: "Más acciones de Ingresos" }).click();
+  await expect(page.getByRole("menu", { name: "Acciones de Ingresos" }).getByRole("menuitem", { name: "Fusionar" })).toHaveCount(0);
+  await page.keyboard.press("Escape");
+  await page.getByRole("button", { name: "Crear subcategoría en Grupo con hijas" }).click();
+  await expect(page.getByRole("dialog", { name: "Agregar al catalogo" })).toBeVisible();
+  await page.getByRole("dialog", { name: "Agregar al catalogo" }).getByRole("button", { name: "Cancelar" }).click();
+  await page.getByRole("button", { name: "Más acciones de Comida propia" }).click();
+  await page.getByRole("menu", { name: "Acciones de Comida propia" }).getByRole("menuitem", { name: "Editar" }).click();
+  await expect(page.getByRole("dialog", { name: "Actualizar organizacion" })).toBeVisible();
+  await page.getByRole("dialog", { name: "Actualizar organizacion" }).getByRole("button", { name: "Cancelar" }).click();
+
+  await page.getByRole("button", { name: "Más acciones de Café propio" }).click();
+  await page.getByRole("menu", { name: "Acciones de Café propio" }).getByRole("menuitem", { name: "Fusionar" }).click();
+  const childDialog = page.getByRole("dialog", { name: "Fusionar Café propio" });
+  await expect(childDialog.getByRole("button", { name: "Fusionar categorías" })).toBeDisabled();
+  await expect(childDialog.locator('option[value="6"]')).toHaveCount(0);
+  await childDialog.getByRole("combobox").selectOption("5");
+  await childDialog.screenshot({ path: info.outputPath("merge-category.png") });
+  await childDialog.getByRole("button", { name: "Fusionar categorías" }).click();
+  await expect(childDialog).toHaveCount(0);
+  expect(requests).toEqual([{ source: 4, target: 5 }]);
+  await page.getByRole("button", { name: "Más acciones de Grupo con hijas" }).click();
+  await expect(page.getByRole("menu", { name: "Acciones de Grupo con hijas" }).getByRole("menuitem", { name: "Fusionar" })).toBeVisible();
+  await page.keyboard.press("Escape");
+
+  await page.getByRole("button", { name: "Más acciones de Comida propia" }).click();
+  await page.getByRole("menu", { name: "Acciones de Comida propia" }).getByRole("menuitem", { name: "Fusionar" }).click();
+  const rootDialog = page.getByRole("dialog", { name: "Fusionar Comida propia" });
+  await rootDialog.getByRole("combobox").selectOption("2");
+  await rootDialog.getByRole("button", { name: "Fusionar categorías" }).click();
+  await expect(rootDialog).toHaveCount(0);
+  expect(requests).toEqual([{ source: 4, target: 5 }, { source: 1, target: 2 }]);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  await page.setViewportSize({ width: 320, height: 844 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+});
+
+test("apariencia de categoría se guarda y se hereda en los movimientos", async ({ page }, info) => {
+  await mockApi(page);
+  let parent = { id: 1, name: "Mis comidas", code: "food", type: "expense", parent_id: null, is_default: true,
+    icon: null as string | null, color: null as string | null, is_active: true, sort_order: 1,
+    transaction_count: 0, rule_count: 0 };
+  let child = { ...parent, id: 2, name: "Cafeterías", code: "cafes", parent_id: 1 };
+  await page.route("**/api/v1/categories?*", route => route.fulfill({ json: [parent, child] }));
+  await page.route("**/api/v1/categories/1", route => {
+    const payload = route.request().postDataJSON();
+    expect(payload).toMatchObject({ icon: "groceries", color: "sky", name: "Mis comidas" });
+    parent = { ...parent, ...payload };
+    return route.fulfill({ json: parent });
+  });
+  await page.route("**/api/v1/categories/2", route => {
+    const payload = route.request().postDataJSON();
+    child = { ...child, ...payload };
+    return route.fulfill({ json: child });
+  });
+  await page.addInitScript(value => localStorage.setItem("sb-demo-auth-token", JSON.stringify(value)), session(ownerA));
+  await page.goto("/app/categories");
+  await page.getByRole("button", { name: "Más acciones de Mis comidas" }).click();
+  await page.getByRole("menu", { name: "Acciones de Mis comidas" }).getByRole("menuitem", { name: "Editar" }).click();
+  const dialog = page.getByRole("dialog", { name: "Actualizar organizacion" });
+  await expect(dialog.getByRole("button", { name: "Icono: Alimentación", exact: true })).toHaveAttribute("aria-pressed", "true");
+  await expect(dialog.getByRole("button", { name: /^Icono:/ })).toHaveCount(30);
+  await dialog.getByRole("button", { name: "Icono: Supermercado", exact: true }).click();
+  await dialog.getByRole("button", { name: "Color: Celeste", exact: true }).click();
+  await dialog.screenshot({ path: info.outputPath("category-style.png") });
+  await dialog.getByRole("button", { name: "Guardar cambios", exact: true }).click();
+  await expect(dialog).toHaveCount(0);
+  await page.reload();
+  await expect(page.locator('[data-category-icon="groceries"][data-category-color="sky"]')).toHaveCount(2);
+
+  await page.getByRole("button", { name: "Más acciones de Cafeterías" }).click();
+  await page.getByRole("menu", { name: "Acciones de Cafeterías" }).getByRole("menuitem", { name: "Editar" }).click();
+  const childDialog = page.getByRole("dialog", { name: "Actualizar organizacion" });
+  await expect(childDialog.getByText(/Sin personalización, hereda el icono/)).toBeVisible();
+  await childDialog.getByRole("button", { name: "Icono: Café", exact: true }).click();
+  await childDialog.getByRole("button", { name: "Color: Rojo", exact: true }).click();
+  await childDialog.getByRole("button", { name: "Guardar cambios", exact: true }).click();
+  await expect(page.locator('[data-category-icon="coffee"][data-category-color="red"]')).toHaveCount(1);
+  await page.getByRole("button", { name: "Más acciones de Cafeterías" }).click();
+  await page.getByRole("menu", { name: "Acciones de Cafeterías" }).getByRole("menuitem", { name: "Editar" }).click();
+  await page.getByRole("dialog", { name: "Actualizar organizacion" }).getByRole("button", { name: "Restablecer estilo" }).click();
+  await page.getByRole("dialog", { name: "Actualizar organizacion" }).getByRole("button", { name: "Guardar cambios", exact: true }).click();
+  await expect(page.locator('[data-category-icon="groceries"][data-category-color="sky"]')).toHaveCount(2);
+
+  const movement = { id: 71, account_id: 1, date: "2026-09-15", description: "Comercio barrio",
+    amount_clp: -1000, transaction_type: "expense", origin: "pdf", category_id: 2 };
+  await page.route("**/api/v1/transaction-pages**", route => route.fulfill({ json: {
+    items: [movement, { ...movement, id: 72, description: "Cafe sin clasificar", category_id: null }], total: 2, offset: 0, limit: 50,
+  } }));
+  await page.goto("/app/transactions");
+  await expect(page.locator('[data-category-icon="groceries"][data-category-color="sky"]:visible')).toHaveCount(1);
+  await expect(page.locator('[data-category-icon="uncategorized"]:visible')).toHaveCount(1);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  await page.screenshot({ path: info.outputPath("category-movements.png"), fullPage: true });
+});
+
+test("cambiar una categoría aprende sin casilla y deshacer usa la versión del servidor", async ({ page }) => {
+  await mockApi(page);
+  const original = { id: 71, account_id: 1, date: "2026-09-15", description: "Comercio barrio",
+    normalized_description: "comercio barrio", amount_clp: -1000, transaction_type: "expense",
+    origin: "pdf", category_id: null as number | null, category_source: "rule", category_reviewed: false, category_version: 0 };
+  let movement = { ...original };
+  let confirmations = 0;
+  await page.route("**/api/v1/categories?*", route => route.fulfill({ json: [
+    { id: 1, name: "Compras", type: "expense", parent_id: null, is_active: true, sort_order: 1 },
+  ] }));
+  await page.route("**/api/v1/transaction-pages**", route => route.fulfill({ json: {
+    items: [movement], total: 1, offset: 0, limit: 50,
+  } }));
+  await page.route("**/api/v1/transactions/71/category", route => {
+    expect(route.request().postDataJSON()).toMatchObject({ category_id: 1, action: "set",
+      expected_version: 0 });
+    expect(route.request().postDataJSON()).not.toHaveProperty("remember");
+    confirmations += 1;
+    movement = { ...original, category_id: 1, category_source: "manual", category_reviewed: true, category_version: 1 };
+    return route.fulfill({ json: { ...movement, category_event_id: 701 } });
+  });
+  await page.route("**/api/v1/transactions/71/category/undo", route => {
+    expect(route.request().postDataJSON()).toEqual({ event_id: 701, expected_version: 1 });
+    movement = { ...original, category_version: 2 };
+    return route.fulfill({ json: movement });
+  });
+  await page.addInitScript(value => localStorage.setItem("sb-demo-auth-token", JSON.stringify(value)), session(ownerA));
+  await page.goto("/app/transactions");
+  await page.getByRole("button", { name: "Mostrar detalles de Comercio barrio" }).click();
+  expect(confirmations).toBe(0);
+  await expect(page.getByRole("checkbox", { name: "Recordar para movimientos similares" })).toHaveCount(0);
+  await page.getByRole("button", { name: "Categoria de Comercio barrio", exact: true }).click();
+  await page.getByRole("dialog", { name: "Seleccionar categoría" }).getByRole("button", { name: "Compras", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Deshacer cambio de categoría" })).toBeVisible();
+  expect(confirmations).toBe(1);
+  await page.getByRole("button", { name: "Deshacer cambio de categoría" }).click();
+  await expect.poll(() => movement.category_version).toBe(2);
+  expect(movement.category_reviewed).toBe(false);
+  expect(movement.category_id).toBeNull();
+});
+
+async function movementProposalFixture(page: Page) {
+  await mockApi(page);
+  const movements = ["Comercio barrio", "COMERCIO BARRIO", "Comercio, barrio"].map((description, index) => ({
+    id: 71 + index, account_id: 1, date: `2026-09-${15 + index}`, description,
+    normalized_description: "comercio barrio", amount_clp: -1000, transaction_type: "expense",
+    origin: "pdf", category_id: null as number | null, category_source: null as string | null,
+    category_reviewed: false, category_version: 0,
+  }));
+  const state = { version: 1, status: "pending", failSave: false, proposalReads: 0, actions: [] as string[] };
+  const proposal = () => ({ id: 7, version: state.version, pattern: "comercio barrio", match_type: "exact",
+    transaction_type: "expense", category_id: 1, evidence_count: 3, decision_count: 3, match_count: 7,
+    state: state.status, reason: "Tres decisiones coinciden.", snoozed_until: null, history: [],
+    examples: movements.map(tx => ({ transaction_id: tx.id, description: tx.description, date: tx.date, category_id: 1 })) });
+  const unrelated = { ...proposal(), id: 9, pattern: "otro comercio", examples: [] };
+  await page.route("**/api/v1/categories?*", route => route.fulfill({ json: [
+    { id: 1, name: "Compras", type: "expense", parent_id: null, is_active: true, sort_order: 1 },
+  ] }));
+  await page.route("**/api/v1/transaction-pages**", route => route.fulfill({ json: {
+    items: movements, total: movements.length, offset: 0, limit: 50,
+  } }));
+  await page.route("**/api/v1/categorization-rules/proposals", route => {
+    state.proposalReads += 1;
+    return route.fulfill({ json: [unrelated, ...(state.status === "pending" && movements.every(tx => tx.category_id === 1) ? [proposal()] : [])] });
+  });
+  await page.route(/\/api\/v1\/transactions\/\d+\/category$/, route => {
+    if (state.failSave) return route.fulfill({ status: 409, json: { detail: "El movimiento cambió en otra sesión." } });
+    const id = Number(route.request().url().match(/transactions\/(\d+)/)?.[1]);
+    const tx = movements.find(item => item.id === id)!;
+    const payload = route.request().postDataJSON();
+    expect(payload.expected_version).toBe(tx.category_version);
+    tx.category_id = payload.category_id;
+    tx.category_source = "manual";
+    tx.category_reviewed = true;
+    tx.category_version += 1;
+    return route.fulfill({ json: { ...tx, category_event_id: tx.id + 100 } });
+  });
+  await page.route("**/api/v1/categorization-rules/patterns/7/decision", route => {
+    const payload = route.request().postDataJSON();
+    expect(payload.expected_version).toBe(state.version);
+    state.actions.push(payload.action);
+    state.status = payload.action === "accept" ? "accepted" : payload.action === "reject" ? "rejected" : "snoozed";
+    return route.fulfill({ json: { state: state.status } });
+  });
+  await page.addInitScript(value => localStorage.setItem("sb-demo-auth-token", JSON.stringify(value)), session(ownerA));
+  await page.goto("/app/transactions");
+  await expect(page.getByRole("button", { name: "Revisar propuestas", exact: true })).toBeVisible();
+  const change = async (index: number) => {
+    const tx = movements[index];
+    const details = page.getByRole("button", { name: `Mostrar detalles de ${tx.description}`, exact: true });
+    if (await details.count()) await details.click();
+    await page.getByRole("button", { name: `Categoria de ${tx.description}`, exact: true }).click();
+    await page.getByRole("dialog", { name: "Seleccionar categoría" }).getByRole("button", { name: "Compras", exact: true }).click();
+  };
+  return { state, movements, change };
+}
+
+test("modal de regla aparece al tercer cambio en Movimientos y acepta sin salir", async ({ page }, info) => {
+  const { state, movements, change } = await movementProposalFixture(page);
+  const modal = page.getByRole("dialog", { name: "¿Crear una regla automática?" });
+  await expect(modal).toHaveCount(0); // An unrelated pending proposal must not interrupt.
+  for (let index = 0; index < 2; index += 1) {
+    const reads = state.proposalReads;
+    await change(index);
+    await expect.poll(() => state.proposalReads).toBeGreaterThan(reads);
+    await expect(modal).toHaveCount(0);
+  }
+  await change(2);
+  await expect(modal).toBeVisible();
+  await expect(modal.getByText(/3 movimientos de «comercio barrio»/)).toBeVisible();
+  await expect(modal.getByText(/7 movimientos actuales coinciden; no se modificarán/)).toBeVisible();
+  await expect(modal.getByText(/2026-09-15 · Comercio barrio/)).toBeVisible();
+  expect(state.actions).toEqual([]);
+  expect(await modal.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
+  await modal.screenshot({ path: info.outputPath("movement-rule-proposal.png") });
+  // Native modal keeps keyboard focus inside and offers an explicit decision.
+  await modal.getByRole("button", { name: "Cerrar propuesta" }).focus();
+  await page.keyboard.press("Shift+Tab");
+  expect(await modal.evaluate(element => element.contains(document.activeElement))).toBe(true);
+  await modal.getByRole("button", { name: "Crear regla", exact: true }).click();
+  await expect(modal).toHaveCount(0);
+  await expect(page.getByText("Regla creada para futuras importaciones.", { exact: true })).toBeVisible();
+  await expect(page).toHaveURL(/\/app\/transactions$/);
+  expect(state.actions).toEqual(["accept"]);
+  expect(movements.every(tx => tx.category_id === 1)).toBe(true);
+  await expect(page.getByRole("button", { name: "Deshacer cambio de categoría" })).toBeVisible();
+});
+
+for (const action of ["snooze", "reject"] as const) {
+  test(`modal de regla permite cerrar, reabrir y ${action} desde Movimientos`, async ({ page }) => {
+    const { state, change } = await movementProposalFixture(page);
+    for (let index = 0; index < 3; index += 1) await change(index);
+    const modal = page.getByRole("dialog", { name: "¿Crear una regla automática?" });
+    await expect(modal).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(modal).toHaveCount(0);
+    expect(state.actions).toEqual([]);
+    // Selecting the saved category again must not repeatedly interrupt.
+    await change(2);
+    await expect(modal).toHaveCount(0);
+    await page.getByRole("button", { name: "Revisar propuestas", exact: true }).click();
+    // The unrelated older proposal is first in this mocked response.
+    await modal.getByRole("button", { name: "Cerrar propuesta" }).click();
+    await expect(modal.getByText(/3 movimientos de «comercio barrio»/)).toBeVisible();
+    await modal.getByRole("button", { name: action === "snooze" ? "Más adelante" : "No proponer este patrón", exact: true }).click();
+    await expect(modal).toHaveCount(0);
+    expect(state.actions).toEqual([action]);
+    await page.reload();
+    await expect(page.getByRole("button", { name: "Revisar propuestas", exact: true })).toBeVisible();
+    await expect(modal).toHaveCount(0);
+  });
+}
+
+test("modal de regla actualiza evidencia obsoleta sin perder la categoría guardada", async ({ page }) => {
+  const { state, movements, change } = await movementProposalFixture(page);
+  let attempts = 0;
+  await page.route("**/api/v1/categorization-rules/patterns/7/decision", route => {
+    const payload = route.request().postDataJSON();
+    attempts += 1;
+    if (attempts === 1) {
+      expect(payload.expected_version).toBe(1);
+      state.version = 2;
+      return route.fulfill({ status: 409, json: { detail: "La propuesta cambió. Revisa sus ejemplos." } });
+    }
+    expect(payload.expected_version).toBe(2);
+    state.status = "accepted";
+    return route.fulfill({ json: { state: "accepted" } });
+  });
+  for (let index = 0; index < 3; index += 1) await change(index);
+  const modal = page.getByRole("dialog", { name: "¿Crear una regla automática?" });
+  await modal.getByRole("button", { name: "Crear regla", exact: true }).click();
+  await expect(modal.getByRole("alert")).toContainText("La propuesta cambió");
+  expect(movements.every(tx => tx.category_id === 1)).toBe(true);
+  await modal.getByRole("button", { name: "Crear regla", exact: true }).click();
+  await expect(modal).toHaveCount(0);
+  expect(attempts).toBe(2);
+});
+
+test("un cambio de categoría fallido no abre el modal de regla", async ({ page }) => {
+  const { state, movements, change } = await movementProposalFixture(page);
+  for (let index = 0; index < 2; index += 1) await change(index);
+  state.failSave = true;
+  await change(2);
+  await expect(page.getByRole("alert")).toContainText("No se pudo guardar");
+  await expect(page.getByRole("dialog", { name: "¿Crear una regla automática?" })).toHaveCount(0);
+  expect(movements[2].category_id).toBeNull();
+});
+
+test("catálogo automático conserva categorías existentes sin solicitar aplicación manual", async ({ page }) => {
+  await mockApi(page);
+  let applied = false;
+  await page.route("**/api/v1/categories?*", route => route.fulfill({ json: [
+    { id: 1, name: "Comida", type: "expense", parent_id: null, is_active: true, sort_order: 1,
+      transaction_count: 7, rule_count: 2, code: "food" },
+  ] }));
+  await page.route("**/api/v1/categories/catalog-preview", route => route.fulfill({ json: [
+    { code: "food", name: "Comida", parent_code: null, category_id: 1, status: "present" },
+    { code: "travel", name: "Viajes", parent_code: null, status: "skipped",
+      reason: "La categoría coincidente está archivada." },
+  ] }));
+  await page.route("**/api/v1/categories/catalog-apply", route => {
+    applied = true;
+    return route.fulfill({ json: [] });
+  });
+  await page.addInitScript(value => localStorage.setItem("sb-demo-auth-token", JSON.stringify(value)), session(ownerA));
+  await page.goto("/app/categories");
+  await expect(page.getByText(/Las categorías predeterminadas se incorporan automáticamente/)).toBeVisible();
+  await page.getByRole("button", { name: "Ver coincidencias omitidas" }).click();
+  await expect(page.getByText(/Viajes — La categoría coincidente está archivada/)).toBeVisible();
+  expect(applied).toBe(false);
+  await expect(page.getByRole("heading", { name: "Comida", exact: true })).toBeVisible();
+  await expect(page.getByText("7 movimientos · 2 reglas")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Aplicar catálogo propuesto" })).toHaveCount(0);
+});
+
+test("subcategorías se ordenan con flechas en móvil y arrastre en escritorio", async ({ page }, info) => {
+  await mockApi(page);
+  const base = { type: "expense", parent_id: null as number | null, is_default: true,
+    is_active: true, sort_order: 0, transaction_count: 0, rule_count: 0 };
+  let categories = [
+    { ...base, id: 1, name: "Alimentación", code: "food" },
+    { ...base, id: 2, name: "Almacén", parent_id: 1, sort_order: 10 },
+    { ...base, id: 3, name: "Archivada", parent_id: 1, is_active: false, sort_order: 20 },
+    { ...base, id: 4, name: "Cafeterías", parent_id: 1, sort_order: 30 },
+    { ...base, id: 5, name: "Restaurantes y comidas fuera de casa", parent_id: 1, sort_order: 40 },
+    { ...base, id: 6, name: "Transporte" },
+    { ...base, id: 7, name: "Metro", parent_id: 6, sort_order: 50 },
+  ];
+  let failNextSave = info.project.name === "mobile";
+  const writes: number[] = [];
+  await page.route("**/api/v1/categories?*", route => route.fulfill({ json: categories }));
+  await page.route(/\/api\/v1\/categories\/\d+$/, route => {
+    expect(route.request().method()).toBe("PATCH");
+    const id = Number(route.request().url().split("/").pop());
+    writes.push(id);
+    const payload = route.request().postDataJSON();
+    expect(Object.keys(payload)).toEqual(["sort_order"]);
+    if (id === 4 && failNextSave) {
+      failNextSave = false;
+      return route.fulfill({ status: 500, json: { detail: "No se pudo guardar" } });
+    }
+    categories = categories.map(category => category.id === id ? { ...category, ...payload } : category);
+    return route.fulfill({ json: categories.find(category => category.id === id) });
+  });
+  await page.addInitScript(value => localStorage.setItem("sb-demo-auth-token", JSON.stringify(value)), session(ownerA));
+  await page.goto("/app/categories");
+  const listNames = () => page.locator("#subcategory-list-1 > div").evaluateAll(rows => rows.map(row => row.querySelector("p")?.textContent));
+  if (info.project.name === "desktop") {
+    await page.setViewportSize({ width: 1440, height: 1100 });
+    const source = page.getByRole("button", { name: "Mover Almacén", exact: true });
+    await expect(source).toBeVisible();
+    await source.dragTo(page.getByRole("button", { name: "Mover Cafeterías", exact: true }));
+    await expect(page.getByText("Orden de subcategorias guardado.", { exact: true })).toBeVisible();
+    await expect.poll(listNames).toEqual(["Cafeterías", "Almacén", "Restaurantes y comidas fuera de casa"]);
+    await page.reload();
+    await expect.poll(listNames).toEqual(["Cafeterías", "Almacén", "Restaurantes y comidas fuera de casa"]);
+    return;
+  }
+  await page.setViewportSize({ width: 320, height: 844 });
+  await expect(page.getByRole("button", { name: /^Mover / })).toHaveCount(0);
+  await page.getByRole("button", { name: "Más acciones de Transporte" }).click();
+  await expect(page.getByRole("menuitem", { name: "Ordenar subcategorías", exact: true })).toHaveCount(0);
+  await page.keyboard.press("Escape");
+  await page.getByRole("button", { name: "Más acciones de Almacén" }).click();
+  await expect(page.getByRole("menuitem", { name: "Ordenar subcategorías", exact: true })).toHaveCount(0);
+  await page.keyboard.press("Escape");
+  const trigger = page.getByRole("button", { name: "Más acciones de Alimentación" });
+  const openOrder = async () => {
+    await trigger.click();
+    await page.getByRole("menuitem", { name: "Ordenar subcategorías", exact: true }).click();
+  };
+  await openOrder();
+  const dialog = page.getByRole("dialog", { name: "Ordenar subcategorías", exact: true });
+  await expect(dialog.getByRole("button", { name: "Subir Almacén" })).toBeDisabled();
+  await expect(dialog.getByRole("button", { name: "Bajar Restaurantes y comidas fuera de casa" })).toBeDisabled();
+  await expect(dialog.getByText("Archivada", { exact: true })).toHaveCount(0);
+  await dialog.getByRole("button", { name: "Bajar Almacén" }).click();
+  await dialog.getByRole("button", { name: "Subir Restaurantes y comidas fuera de casa" }).click();
+  await expect(dialog.getByRole("listitem").locator("p:first-child")).toHaveText(["Cafeterías", "Restaurantes y comidas fuera de casa", "Almacén"]);
+  expect(writes).toEqual([]);
+  expect(await dialog.evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true);
+  await dialog.screenshot({ path: info.outputPath("orden-subcategorias-mobile.png") });
+  await dialog.getByRole("button", { name: "Cancelar", exact: true }).click();
+  await expect(trigger).toBeFocused();
+  expect(writes).toEqual([]);
+  await expect.poll(listNames).toEqual(["Almacén", "Cafeterías", "Restaurantes y comidas fuera de casa"]);
+  await openOrder();
+  await dialog.getByRole("button", { name: "Listo", exact: true }).click();
+  expect(writes).toEqual([]);
+  await openOrder();
+  await dialog.getByRole("button", { name: "Bajar Almacén" }).click();
+  await dialog.getByRole("button", { name: "Listo", exact: true }).click();
+  await expect(dialog.getByText("No fue posible guardar todo el nuevo orden.", { exact: true })).toBeVisible();
+  await expect(dialog.getByRole("listitem").locator("p:first-child")).toHaveText(["Cafeterías", "Almacén", "Restaurantes y comidas fuera de casa"]);
+  await dialog.getByRole("button", { name: "Listo", exact: true }).click();
+  await expect(dialog).toHaveCount(0);
+  await expect(trigger).toBeFocused();
+  await expect.poll(listNames).toEqual(["Cafeterías", "Almacén", "Restaurantes y comidas fuera de casa"]);
+  expect(writes.every(id => [2, 3, 4, 5].includes(id))).toBe(true);
+  expect(categories.find(category => category.id === 3)?.sort_order).toBe(20);
+  expect(categories.find(category => category.id === 7)?.sort_order).toBe(50);
+  await page.reload();
+  await expect.poll(listNames).toEqual(["Cafeterías", "Almacén", "Restaurantes y comidas fuera de casa"]);
+});
+
+test("categorías en móvil abre reglas e historial sin perder la posición del catálogo", async ({ page }, info) => {
+  test.skip(info.project.name !== "mobile", "Navegación del panel móvil");
+  await mockApi(page);
+  const base = { type: "expense", parent_id: null as number | null, is_default: true,
+    is_active: true, sort_order: 1, transaction_count: 24, rule_count: 1 };
+  const categories = [
+    { ...base, id: 1, name: "Alimentación", code: "food" },
+    { ...base, id: 2, name: "Restaurantes", parent_id: 1 },
+    ...Array.from({ length: 12 }, (_, i) => ({ ...base, id: i + 3, name: `Categoría ${i + 3}` })),
+  ];
+  let rules = [{ id: 1, category_id: 1, keyword: "SUPERMERCADO", match_type: "contains", priority: 100, is_active: true, origin: "personal" }];
+  const pattern = (id: number, category_id: number, name: string) => ({ id, category_id, pattern: name,
+    version: 1, state: "accepted", match_type: "exact", transaction_type: "expense", evidence_count: 3,
+    decision_count: 3, match_count: 3, reason: "Regla aceptada", examples: [],
+    history: [{ state: "accepted", reason: "Decisión guardada", at: "2026-10-17T12:00:00Z" }] });
+  await page.route("**/api/v1/categories?*", route => route.fulfill({ json: categories }));
+  await page.route("**/api/v1/categorization-rules", route => {
+    if (route.request().method() === "POST") {
+      const payload = route.request().postDataJSON();
+      expect(payload.category_id).toBe(1);
+      const created = { ...rules[0], ...payload, id: 2 };
+      rules = [...rules, created];
+      return route.fulfill({ json: created });
+    }
+    return route.fulfill({ json: rules });
+  });
+  await page.route("**/api/v1/categorization-rules/patterns", route => route.fulfill({ json: [
+    pattern(7, 1, "Supermercado del barrio"), pattern(8, 2, "Restaurante del centro"),
+  ] }));
+  await page.addInitScript(value => localStorage.setItem("sb-demo-auth-token", JSON.stringify(value)), session(ownerA));
+  await page.goto("/app/categories");
+  for (const width of [320, 390]) {
+    await page.setViewportSize({ width, height: 844 });
+    const add = await page.getByRole("button", { name: "Crear subcategoría en Alimentación" }).boundingBox();
+    const more = await page.getByRole("button", { name: "Más acciones de Alimentación" }).boundingBox();
+    const name = await page.getByRole("heading", { name: "Alimentación", exact: true }).boundingBox();
+    expect(Math.abs(add!.y - more!.y)).toBeLessThan(2);
+    expect(Math.abs(add!.y - name!.y)).toBeLessThan(2);
+    expect(add!.x + add!.width).toBeLessThanOrEqual(more!.x);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  }
+  await page.getByRole("heading", { name: "Alimentación", exact: true }).click();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: /^Alimentación Gasto/ })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Ver reglas e historial de Alimentación" })).toHaveCount(0);
+  const trigger = page.getByRole("button", { name: "Más acciones de Alimentación" });
+  await trigger.scrollIntoViewIfNeeded();
+  const scrollBefore = await page.evaluate(() => scrollY);
+  await trigger.click();
+  await page.getByRole("menu", { name: "Acciones de Alimentación" }).getByRole("menuitem", { name: "Ver reglas e historial" }).click();
+  const dialog = page.getByRole("dialog", { name: "Alimentación", exact: true });
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByText("SUPERMERCADO", { exact: true })).toBeVisible();
+  await dialog.getByPlaceholder("Palabra o comercio").fill("FERIA");
+  await dialog.getByRole("button", { name: "Agregar regla", exact: true }).click();
+  await expect(dialog.getByText("Regla creada correctamente.")).toBeVisible();
+  await expect(dialog.getByText("FERIA", { exact: true })).toBeVisible();
+  await dialog.getByRole("tab", { name: "Historial", exact: true }).click();
+  await expect(dialog.getByText("Supermercado del barrio · Regla aceptada", { exact: true })).toBeVisible();
+  await expect(dialog.getByText("Restaurante del centro · Regla aceptada", { exact: true })).toHaveCount(0);
+  await dialog.getByText("Ver historial", { exact: true }).click();
+  await expect(dialog.getByText(/Decisión guardada/)).toBeVisible();
+  await dialog.screenshot({ path: info.outputPath("categoria-historial-mobile.png") });
+  await page.keyboard.press("Escape");
+  await expect(dialog).not.toBeVisible();
+  await expect(trigger).toBeFocused();
+  expect(Math.abs(await page.evaluate(() => scrollY) - scrollBefore)).toBeLessThan(2);
+  await trigger.click();
+  await page.getByRole("menu", { name: "Acciones de Alimentación" }).getByRole("menuitem", { name: "Ver reglas e historial" }).click();
+  await expect(dialog.getByRole("tab", { name: "Reglas", exact: true })).toHaveAttribute("aria-selected", "true");
+  await dialog.getByRole("button", { name: "Cerrar", exact: true }).click();
+  await page.getByText("Restaurantes", { exact: true }).click();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: /^Restaurantes 24 movimientos/ })).toHaveCount(0);
+  await page.getByRole("button", { name: "Más acciones de Restaurantes" }).click();
+  await page.getByRole("menu", { name: "Acciones de Restaurantes" }).getByRole("menuitem", { name: "Ver reglas e historial" }).click();
+  const childDialog = page.getByRole("dialog", { name: "Alimentación > Restaurantes", exact: true });
+  await expect(childDialog).toBeVisible();
+  await expect(childDialog.getByText("Sin reglas asociadas.")).toBeVisible();
+  await expect(childDialog.getByPlaceholder("Palabra o comercio")).toHaveValue("");
+  await childDialog.getByRole("button", { name: "Cerrar", exact: true }).click();
+  await page.getByRole("button", { name: "Historial general", exact: true }).click();
+  const general = page.getByRole("dialog", { name: "Historial y aprendizaje", exact: true });
+  await expect(general.getByText("Supermercado del barrio · Regla aceptada", { exact: true })).toBeVisible();
+  await expect(general.getByText("Restaurante del centro · Regla aceptada", { exact: true })).toBeVisible();
+  await general.getByRole("button", { name: "Cerrar", exact: true }).click();
+  await page.screenshot({ path: info.outputPath("categoria-acciones-mobile.png") });
+});
+
+test("aprendizaje permite posponer, reactivar, rechazar y aceptar sin cambiar el historial", async ({ page }, info) => {
+  await mockApi(page);
+  let state = "pending";
+  let version = 1;
+  const actions: string[] = [];
+  const pattern = () => ({ id: 7, version, pattern: "comercio barrio", match_type: "exact", transaction_type: "expense",
+    category_id: 1, evidence_count: 3, decision_count: 3, match_count: 7, state, reason: "Tres decisiones coinciden.",
+    snoozed_until: state === "snoozed" ? "2026-11-17T12:00:00Z" : null,
+    examples: [{ transaction_id: 71, date: "2026-09-15", description: "Comercio barrio", category_id: 1 }],
+    history: [{ state, reason: "Decisión guardada", at: "2026-10-17T12:00:00Z" }] });
+  await page.route("**/api/v1/categories?*", route => route.fulfill({ json: [
+    { id: 1, name: "Compras", type: "expense", parent_id: null, is_active: true, sort_order: 1 },
+  ] }));
+  await page.route("**/api/v1/categorization-rules/patterns", route => route.fulfill({ json: [pattern()] }));
+  await page.route("**/api/v1/categorization-rules/patterns/7/decision", route => {
+    const body = route.request().postDataJSON();
+    expect(body.expected_version).toBe(version);
+    actions.push(body.action);
+    state = ({ snooze: "snoozed", reject: "rejected", reactivate: "pending", accept: "accepted" } as Record<string, string>)[body.action];
+    version += 1;
+    return route.fulfill({ json: { state } });
+  });
+  await page.addInitScript(value => localStorage.setItem("sb-demo-auth-token", JSON.stringify(value)), session(ownerA));
+  await page.goto("/app/categories");
+  if (info.project.name === "mobile") await page.getByRole("button", { name: "Historial general" }).click();
+  await expect(page.getByRole("button", { name: "Crear regla", exact: true })).toBeVisible();
+  expect(actions).toEqual([]);
+  await page.getByText("Ver ejemplos y alcance", { exact: true }).click();
+  await expect(page.getByText(/7 movimientos actuales coinciden; no se modificarán/)).toBeVisible();
+  await page.getByRole("button", { name: "Más adelante" }).click();
+  await expect(page.getByRole("button", { name: "Crear regla", exact: true })).toHaveCount(0);
+  if (info.project.name !== "mobile") await page.getByText("Patrones e historial (1)", { exact: true }).click();
+  await page.getByRole("button", { name: "Volver a evaluar" }).click();
+  await page.getByRole("button", { name: "No proponer este patrón", exact: true }).click();
+  await page.reload();
+  if (info.project.name === "mobile") await page.getByRole("button", { name: "Historial general" }).click();
+  await expect(page.getByRole("button", { name: "Crear regla", exact: true })).toHaveCount(0);
+  if (info.project.name !== "mobile") await page.getByText("Patrones e historial (1)", { exact: true }).click();
+  await expect(page.getByText("comercio barrio · Rechazada", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Volver a evaluar" }).click();
+  await page.getByText("Ver ejemplos y alcance", { exact: true }).click();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  await page.locator("#personalizacion").screenshot({ path: info.outputPath("automatic-learning.png") });
+  await page.getByRole("button", { name: "Crear regla", exact: true }).click();
+  await expect(page.getByText("Regla creada para futuras importaciones.", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Crear regla", exact: true })).toHaveCount(0);
+  expect(actions).toEqual(["snooze", "reactivate", "reject", "reactivate", "accept"]);
+});
+
 test("inicio abre pendientes del periodo y permite categorizar y deshacer", async ({ page }) => {
   await mockApi(page);
   let categoryId: number | null = null;
@@ -24,7 +659,13 @@ test("inicio abre pendientes del periodo y permite categorizar y deshacer", asyn
   });
   await page.route("**/api/v1/transactions/22/category", route => {
     categoryId = route.request().postDataJSON().category_id;
-    return route.fulfill({ json: { ...movement, category_id: categoryId } });
+    return route.fulfill({ json: { ...movement, category_id: categoryId,
+      category_reviewed: true, category_version: 1, category_event_id: 101 } });
+  });
+  await page.route("**/api/v1/transactions/22/category/undo", route => {
+    expect(route.request().postDataJSON()).toEqual({ event_id: 101, expected_version: 1 });
+    categoryId = null;
+    return route.fulfill({ json: { ...movement, category_version: 2, category_reviewed: false } });
   });
   await page.addInitScript(value => localStorage.setItem("sb-demo-auth-token", JSON.stringify(value)), session(ownerA));
   await page.setViewportSize({ width: 390, height: 844 });
@@ -64,10 +705,19 @@ test("movimientos no desborda el ancho móvil con descripciones largas", async (
     total: 3, offset: 0, limit: 50,
   } }));
   const categoryUpdates: Array<number | null> = [];
+  const undoEvents: number[] = [];
   await page.route("**/api/v1/transactions/2/category", route => {
     const categoryId = route.request().postDataJSON().category_id as number | null;
     categoryUpdates.push(categoryId);
-    return route.fulfill({ json: { id: 2, category_id: categoryId } });
+    return route.fulfill({ json: { id: 2, category_id: categoryId,
+      category_version: 1, category_reviewed: true, category_event_id: 202 } });
+  });
+  await page.route("**/api/v1/transactions/2/category/undo", route => {
+    undoEvents.push(route.request().postDataJSON().event_id);
+    return route.fulfill({ json: { id: 2, account_id: 1, date: "2026-09-30",
+      description: "Transf a CLEO CHILE", amount_clp: -23600, transaction_type: "expense",
+      origin: "pdf", is_internal_transfer: true, category_id: null, category_source: null,
+      category_version: 2, category_reviewed: false } });
   });
   await page.addInitScript(value => localStorage.setItem("sb-demo-auth-token", JSON.stringify(value)), session(ownerA));
   await page.goto("/app/transactions");
@@ -158,7 +808,8 @@ test("movimientos no desborda el ancho móvil con descripciones largas", async (
   await page.getByRole("button", { name: "Deshacer cambio de categoría" }).click();
   await expect(page.getByText("Cambio deshecho.")).toBeVisible();
   await expect(movementCard.locator("span.line-clamp-1")).toHaveText("Sin categoría");
-  expect(categoryUpdates).toEqual([1, null]);
+  expect(categoryUpdates).toEqual([1]);
+  expect(undoEvents).toEqual([202]);
   await page.setViewportSize({ width: 320, height: 844 });
   await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(320);
   await page.screenshot({ path: info.outputPath("movimientos-mobile.png"), fullPage: true });
