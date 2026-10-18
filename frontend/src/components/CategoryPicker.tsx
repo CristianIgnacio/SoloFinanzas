@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { Category } from "../types";
 import { ChevronDownIcon } from "./icons";
+import { CategoryIcon } from "./CategoryIcon";
 
 type Props = {
   label: string;
@@ -17,6 +18,7 @@ export function CategoryPicker({ label, value, disabled, groups, onChange, purpo
   const [open, setOpen] = useState(false);
   const selected = groups.flatMap(group => [group.root, ...group.children]).find(category => String(category.id) === value);
   const selectedLabel = purpose === "filter" && value === "all" ? "Todas las categorías" : selected?.name ?? "Sin categoría";
+  const categoryMap = new Map(groups.flatMap(group => [group.root, ...group.children]).map(category => [category.id, category]));
 
   useEffect(() => {
     if (!open) return;
@@ -37,7 +39,10 @@ export function CategoryPicker({ label, value, disabled, groups, onChange, purpo
       onClick={() => { onChange(id); setOpen(false); }}
       className={`flex min-h-11 w-full items-center justify-between gap-3 rounded-lg px-3 py-2 text-left text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary ${child ? "pl-6" : ""} ${value === id ? "bg-primary-mist font-semibold text-primary" : "text-ink hover:bg-paper-soft"}`}
     >
-      <span className="min-w-0 break-words">{name}</span>
+      <span className="flex min-w-0 items-center gap-2">
+        {id !== "all" ? <CategoryIcon category={categoryMap.get(Number(id))} categoryMap={categoryMap} size="sm" /> : null}
+        <span className="min-w-0 break-words">{name}</span>
+      </span>
       {value === id ? <span aria-hidden="true" className="shrink-0">✓</span> : null}
     </button>
   );

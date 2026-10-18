@@ -17,6 +17,7 @@ import {
   faEye,
   faEyeSlash,
   faEllipsis,
+  faEllipsisVertical,
   faFilePdf,
   faFloppyDisk,
   faGear,
@@ -189,6 +190,10 @@ export function QuestionIcon(props: IconProps) {
 
 export function MoreIcon(props: IconProps) {
   return <FontAwesomeIcon icon={faEllipsis} {...iconProps(props)} />;
+}
+
+export function MoreVerticalIcon(props: IconProps) {
+  return <FontAwesomeIcon icon={faEllipsisVertical} {...iconProps(props)} />;
 }
 
 export function SignOutIcon(props: IconProps) {

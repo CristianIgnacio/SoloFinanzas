@@ -57,14 +57,20 @@ export class TransactionService {
   static async updateCategory(
     transactionId: number,
     categoryId: number | null,
-    categorySource?: string | null
+    options?: { action?: "set" | "confirm"; remember?: boolean; pattern?: string; match_type?: "exact" | "contains"; expected_version?: number }
   ): Promise<Transaction> {
     return apiClient.patch<Transaction>(
       `/transactions/${transactionId}/category`,
       {
         category_id: categoryId,
-        category_source: categorySource,
+        ...options,
       },
     );
+  }
+
+  static async undoCategory(transactionId: number, eventId: number, expectedVersion: number): Promise<Transaction> {
+    return apiClient.post<Transaction>(`/transactions/${transactionId}/category/undo`, {
+      event_id: eventId, expected_version: expectedVersion,
+    });
   }
 }
