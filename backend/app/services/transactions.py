@@ -3,7 +3,7 @@ from datetime import date
 from sqlmodel import Session, select
 from sqlalchemy import func, or_
 
-from app.domain.enums import CategoryType, TransactionOrigin, TransactionType
+from app.domain.enums import CategorySource, CategoryType, TransactionOrigin, TransactionType
 from app.models.category import CategoryModel
 from app.models.internal_transfer_match import InternalTransferMatchModel
 from app.models.transaction import TransactionModel
@@ -38,17 +38,25 @@ def _to_transaction(
     transaction: TransactionModel,
     matched_ids: set[int],
     cash_linked_ids: set[int] | None = None,
+    evidence=None,
 ) -> Transaction:
+    from app.services.category_feedback import memory_suggestion
+    memory = memory_suggestion(None, transaction.normalized_description,
+                               transaction.transaction_type, evidence) if evidence is not None else None
     return Transaction.model_validate(transaction).model_copy(
         update={
             "is_internal_transfer": transaction.id in matched_ids,
             "cash_transfer_linked": transaction.id in (cash_linked_ids or set()),
+            "personalized_category_id": memory.get("category_id") if memory else None,
+            "suggestion_reason": memory.get("reason") if memory else None,
+            "suggestion_conflict": bool(memory and memory.get("conflict")),
         }
     )
 
 
 def create_transaction(session: Session, payload: TransactionCreate) -> Transaction:
     """Crea una transaccion individual desde el payload validado."""
+    _validate_import_category(session, payload.category_id, payload.transaction_type)
     transaction = TransactionModel(
         account_id=payload.account_id,
         statement_id=payload.statement_id,
@@ -59,8 +67,8 @@ def create_transaction(session: Session, payload: TransactionCreate) -> Transact
         amount_clp=payload.amount_clp,
         transaction_type=payload.transaction_type,
         category_id=payload.category_id,
-        category_source=payload.category_source,
-        rule_id_applied=payload.rule_id_applied,
+        category_source=CategorySource.MANUAL if payload.category_id is not None else None,
+        rule_id_applied=None,
         fingerprint=payload.fingerprint,
         raw_data=payload.raw_data,
     )
@@ -68,14 +76,24 @@ def create_transaction(session: Session, payload: TransactionCreate) -> Transact
     refresh_internal_transfer_matches(session)
     session.commit()
     session.refresh(transaction)
-    return _to_transaction(transaction, _matched_transaction_ids(session), _cash_linked_transaction_ids(session))
+    from app.services.category_feedback import _effective_evidence
+    return _to_transaction(transaction, _matched_transaction_ids(session), _cash_linked_transaction_ids(session), list(_effective_evidence(session)))
 
 
 def create_bulk_transactions(
     session: Session, transactions: list[TransactionCreate]
 ) -> list[Transaction]:
     """Crea multiples transacciones en una sola operacion de sesion."""
-    models = [TransactionModel(**t.model_dump()) for t in transactions]
+    for item in transactions:
+        _validate_import_category(session, item.category_id, item.transaction_type)
+    models = [
+        TransactionModel(**{
+            **item.model_dump(),
+            "category_source": CategorySource.MANUAL if item.category_id is not None else None,
+            "rule_id_applied": None,
+        })
+        for item in transactions
+    ]
     session.add_all(models)
     refresh_internal_transfer_matches(session)
     session.commit()
@@ -83,7 +101,18 @@ def create_bulk_transactions(
         session.refresh(model)
     matched_ids = _matched_transaction_ids(session)
     cash_linked_ids = _cash_linked_transaction_ids(session)
-    return [_to_transaction(t, matched_ids, cash_linked_ids) for t in models]
+    from app.services.category_feedback import _effective_evidence
+    evidence = list(_effective_evidence(session))
+    return [_to_transaction(t, matched_ids, cash_linked_ids, evidence) for t in models]
+
+
+def _validate_import_category(session: Session, category_id: int | None, transaction_type: TransactionType) -> None:
+    if category_id is None:
+        return
+    category = session.get(CategoryModel, category_id)
+    expected = CategoryType.INCOME if transaction_type == TransactionType.INCOME else CategoryType.EXPENSE
+    if category is None or not category.is_active or category.type not in (expected, CategoryType.TRANSFER):
+        raise ValueError("La categoría seleccionada no es compatible con el movimiento.")
 
 
 def list_transactions(
@@ -103,7 +132,9 @@ def list_transactions(
     transactions = session.exec(query.limit(limit).offset(offset)).all()
     matched_ids = _matched_transaction_ids(session)
     cash_linked_ids = _cash_linked_transaction_ids(session)
-    return [_to_transaction(t, matched_ids, cash_linked_ids) for t in transactions]
+    from app.services.category_feedback import _effective_evidence
+    evidence = list(_effective_evidence(session))
+    return [_to_transaction(t, matched_ids, cash_linked_ids, evidence) for t in transactions]
 
 
 def get_transaction(session: Session, transaction_id: int) -> Transaction | None:
@@ -113,7 +144,8 @@ def get_transaction(session: Session, transaction_id: int) -> Transaction | None
     ).first()
     if not transaction:
         return None
-    return _to_transaction(transaction, _matched_transaction_ids(session), _cash_linked_transaction_ids(session))
+    from app.services.category_feedback import _effective_evidence
+    return _to_transaction(transaction, _matched_transaction_ids(session), _cash_linked_transaction_ids(session), list(_effective_evidence(session)))
 
 
 def update_transaction_category(
@@ -121,12 +153,25 @@ def update_transaction_category(
     transaction_id: int,
     category_id: int | None,
     category_source: str | None = None,
+    *,
+    action: str = "set",
+    remember: bool = False,
+    pattern: str | None = None,
+    match_type: str = "exact",
+    expected_version: int | None = None,
 ) -> Transaction | None:
     """Actualiza la categoria manual o automatica de una transaccion."""
     transaction = session.exec(
         select(TransactionModel).where(TransactionModel.id == transaction_id)
     ).first()
     if transaction:
+        if expected_version is not None and transaction.category_version != expected_version:
+            from app.services.category_feedback import CategoryConflictError
+            raise CategoryConflictError("La categoría cambió desde que abriste este movimiento.")
+        if action not in ("set", "confirm"):
+            raise ValueError("La acción de categorización no es válida.")
+        if action == "confirm" and transaction.category_id != category_id:
+            raise ValueError("La confirmación debe conservar la categoría actual.")
         if transaction.origin == TransactionOrigin.CASH_TRANSFER:
             raise ValueError("Deshaz el vínculo para modificar una contraparte de Efectivo.")
         if category_id is not None:
@@ -150,14 +195,22 @@ def update_transaction_category(
                     "o ser una transferencia."
                 )
 
-        transaction.category_id = category_id
-        transaction.category_source = category_source
-        transaction.rule_id_applied = None
-        session.add(transaction)
+        # Older service callers used an explicit manual source to confirm the
+        # current category. Preserve that intent without treating ordinary saves
+        # from the current API as confirmations.
+        if action == "set" and transaction.category_id == category_id and category_source == "manual":
+            action = "confirm"
+        if action == "set" and transaction.category_id == category_id:
+            return get_transaction(session, transaction_id)
+        from app.services.category_feedback import record_decision
+        event = record_decision(session, transaction, category_id, remember=remember,
+                                pattern=pattern, match_type=match_type, decision_kind=action)
         refresh_internal_transfer_matches(session)
         session.commit()
         session.refresh(transaction)
-        return _to_transaction(transaction, _matched_transaction_ids(session), _cash_linked_transaction_ids(session))
+        from app.services.category_feedback import _effective_evidence
+        return _to_transaction(transaction, _matched_transaction_ids(session), _cash_linked_transaction_ids(session), list(_effective_evidence(session))).model_copy(
+            update={"category_event_id": event.id})
     return None
 
 
@@ -214,4 +267,6 @@ def transaction_page(session, limit=50, offset=0, **filters):
     rows = session.exec(query.order_by(TransactionModel.date.desc(), TransactionModel.id.desc()).limit(limit).offset(offset)).all()
     matched = _matched_transaction_ids(session)
     cash_linked = _cash_linked_transaction_ids(session)
-    return dict(items=[_to_transaction(row, matched, cash_linked) for row in rows], total=total, limit=limit, offset=offset)
+    from app.services.category_feedback import _effective_evidence
+    evidence = list(_effective_evidence(session))
+    return dict(items=[_to_transaction(row, matched, cash_linked, evidence) for row in rows], total=total, limit=limit, offset=offset)

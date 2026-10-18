@@ -22,6 +22,8 @@ from app.services.transactions import (
     list_transactions,
     update_transaction_category,
 )
+from app.services.category_feedback import CategoryConflictError, undo_decision
+from pydantic import BaseModel
 
 router = APIRouter()
 SessionDep = Annotated[Session, Depends(get_session)]
@@ -106,7 +108,10 @@ def get_transaction_detail(transaction_id: int, session: SessionDep) -> Transact
 @router.post("/transactions", response_model=Transaction, status_code=status.HTTP_201_CREATED)
 def post_transaction(payload: TransactionCreate, session: SessionDep) -> Transaction:
     """Crea una transaccion manual."""
-    return create_transaction(session, payload)
+    try:
+        return create_transaction(session, payload)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
 
 
 @router.post("/transactions/bulk", response_model=list[Transaction], status_code=status.HTTP_201_CREATED)
@@ -114,7 +119,10 @@ def post_transactions_bulk(
     payloads: list[TransactionCreate], session: SessionDep
 ) -> list[Transaction]:
     """Crea varias transacciones en una sola llamada."""
-    return create_bulk_transactions(session, payloads)
+    try:
+        return create_bulk_transactions(session, payloads)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
 
 
 @router.patch("/transactions/{transaction_id}/category")
@@ -129,10 +137,33 @@ def patch_transaction_category(
             session,
             transaction_id,
             payload.category_id,
-            payload.category_source.value if payload.category_source else None,
+            action=payload.action,
+            remember=payload.remember,
+            pattern=payload.pattern,
+            match_type=payload.match_type,
+            expected_version=payload.expected_version,
         )
+    except CategoryConflictError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
     if not transaction:
+        raise HTTPException(status_code=404, detail="Transaction not found")
+    return transaction
+
+
+class CategoryUndo(BaseModel):
+    event_id: int
+    expected_version: int
+
+
+@router.post("/transactions/{transaction_id}/category/undo", response_model=Transaction)
+def post_category_undo(transaction_id: int, payload: CategoryUndo, session: SessionDep) -> Transaction:
+    try:
+        undo_decision(session, transaction_id, payload.event_id, payload.expected_version)
+    except ValueError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+    transaction = get_transaction(session, transaction_id)
+    if transaction is None:
         raise HTTPException(status_code=404, detail="Transaction not found")
     return transaction
