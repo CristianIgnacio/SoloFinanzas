@@ -9,16 +9,17 @@ from unittest.mock import patch
 
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
-from sqlalchemy import func, text
+from sqlalchemy import event, func, text
 from sqlalchemy.orm import aliased
 from sqlmodel import SQLModel, Session, select
 
 from app.core import database
 from app.core.auth import Identity, get_identity
 from app.core.tenancy import TenantSession
-from app.models import AccountModel, CategoryModel, StatementModel, TransactionModel, CategorizationRuleModel, InternalTransferMatchModel
+from app.models import AccountModel, CategoryModel, StatementModel, TransactionModel, CategorizationRuleModel, InternalTransferMatchModel, CategoryFeedbackModel
 from app.models.user import UserModel
 from app.main import app
+from app.services.catalogs import CATEGORY_CATALOG_VERSION, RULE_CATALOG_VERSION, DEFAULT_CATEGORIES, DEFAULT_CATEGORIZATION_RULES
 
 A = UUID('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa')
 B = UUID('bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb')
@@ -32,7 +33,9 @@ class TenancyTests(unittest.TestCase):
         SQLModel.metadata.create_all(self.engine)
         with Session(self.engine) as s:
             for owner in (A, B):
-                s.add(UserModel(id=owner, initialized=True))
+                s.add(UserModel(id=owner, initialized=True,
+                                category_catalog_version=CATEGORY_CATALOG_VERSION,
+                                rule_catalog_version=RULE_CATALOG_VERSION))
             s.commit()
         self.records = {}
         for owner in (A, B):
@@ -280,11 +283,197 @@ class TenancyTests(unittest.TestCase):
             app.dependency_overrides[get_identity] = lambda owner=owner: Identity(owner, 'new@example.test', 'New', {})
             self.assertEqual(self.client.get('/api/v1/me').status_code, 200)
             first = self.client.get('/api/v1/categories').json()
-            self.assertGreater(len(first), 0)
+            self.assertEqual({row['code'] for row in first}, {seed.code for seed in DEFAULT_CATEGORIES})
+            self.assertEqual(len(first), len(DEFAULT_CATEGORIES))
+            self.assertNotIn('rental_income', {row['code'] for row in first})
             self.assertEqual(self.client.get('/api/v1/categories').json(), first)
         with Session(self.engine) as s:
             sets = [{r.id for r in s.exec(select(CategoryModel).where(CategoryModel.user_id == owner)).all()} for owner in ids]
             self.assertFalse(sets[0] & sets[1])
+            self.assertTrue(all(s.get(UserModel, owner).category_catalog_version == CATEGORY_CATALOG_VERSION
+                                and s.get(UserModel, owner).rule_catalog_version == RULE_CATALOG_VERSION for owner in ids))
+            self.assertTrue(all(len(s.exec(select(CategorizationRuleModel).where(CategorizationRuleModel.user_id == owner)).all())
+                                == len(DEFAULT_CATEGORIZATION_RULES) for owner in ids))
+
+    def test_existing_users_receive_catalog_automatically_preserving_history(self):
+        snapshots = {}
+        for owner in (A, B):
+            with Session(self.engine) as s:
+                user = s.get(UserModel, owner)
+                user.category_catalog_version = 0
+                user.rule_catalog_version = 0
+                s.add(user)
+                s.commit()
+            with TenantSession(self.engine, user_id=owner) as s:
+                food = CategoryModel(name='Comida', type='expense', is_default=False)
+                travel = CategoryModel(name='Viajes', type='expense', is_active=False)
+                s.add_all([food, travel]); s.flush()
+                groceries = CategoryModel(name='  SUPERMERCÁDO  ', type='expense',
+                                          parent_id=food.id, is_default=False)
+                rule = CategorizationRuleModel(keyword='mi comercio', category_id=self.records[owner][1],
+                                               priority=7, origin='user', is_active=False)
+                s.add_all([groceries, rule]); s.commit()
+                s.refresh(rule)
+                snapshots[owner] = (
+                    {row.id: row.model_dump(exclude={'code'}) for row in s.exec(select(CategoryModel)).all()},
+                    s.get(TransactionModel, self.records[owner][3]).model_dump(),
+                    rule.model_dump(), food.id, groceries.id,
+                )
+        for owner in (A, B):
+            app.dependency_overrides[get_identity] = lambda owner=owner: Identity(owner, 'old@example.test', 'Old', {})
+            response = self.client.get('/api/v1/categories')
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(self.client.get('/api/v1/categories').json(), response.json())
+            old_categories, transaction, rule, food_id, groceries_id = snapshots[owner]
+            with TenantSession(self.engine, user_id=owner) as s:
+                for ident, original in old_categories.items():
+                    self.assertEqual(s.get(CategoryModel, ident).model_dump(exclude={'code'}), original)
+                self.assertEqual(s.get(CategoryModel, food_id).code, 'food')
+                self.assertEqual(s.get(CategoryModel, groceries_id).code, 'groceries')
+                self.assertEqual(s.get(TransactionModel, self.records[owner][3]).model_dump(), transaction)
+                rules = s.exec(select(CategorizationRuleModel)).all()
+                self.assertEqual([r.model_dump() for r in rules if r.id == rule['id']], [rule])
+                self.assertTrue(any(r.origin == 'system' and r.keyword == 'supermercado' for r in rules))
+                self.assertFalse(any(r.keyword == 'giro en cajero' for r in rules))
+                codes = {row.code for row in s.exec(select(CategoryModel)).all()}
+                self.assertIn('cash_withdrawal', codes)
+                self.assertIn('cash_deposit', codes)
+                self.assertNotIn('rental_income', codes)
+                self.assertTrue({'travel', 'tickets', 'lodging', 'tours'}.isdisjoint(codes))
+            with Session(self.engine) as s:
+                self.assertEqual(s.get(UserModel, owner).rule_catalog_version, RULE_CATALOG_VERSION)
+
+    def test_default_rules_are_not_restored_after_user_deletes_or_pauses_them(self):
+        with Session(self.engine) as s:
+            user = s.get(UserModel, A)
+            user.category_catalog_version = 0
+            user.rule_catalog_version = 0
+            s.add(user)
+            s.commit()
+        self.assertEqual(self.client.get('/api/v1/categories').status_code, 200)
+        with TenantSession(self.engine, user_id=A) as s:
+            rules = s.exec(select(CategorizationRuleModel)).all()
+            deleted = next(rule for rule in rules if rule.keyword == 'supermercado')
+            paused = next(rule for rule in rules if rule.keyword == 'farmacia')
+            deleted_id, paused_id, count = deleted.id, paused.id, len(rules)
+            paused.is_active = False
+            s.add(paused)
+            s.delete(deleted)
+            s.commit()
+        self.assertEqual(self.client.get('/api/v1/categories').status_code, 200)
+        with TenantSession(self.engine, user_id=A) as s:
+            self.assertIsNone(s.get(CategorizationRuleModel, deleted_id))
+            self.assertFalse(s.get(CategorizationRuleModel, paused_id).is_active)
+            self.assertEqual(len(s.exec(select(CategorizationRuleModel)).all()), count - 1)
+
+    def test_streaming_default_is_folded_into_existing_service_subscriptions(self):
+        with Session(self.engine) as s:
+            user = s.get(UserModel, A)
+            user.category_catalog_version = 1
+            user.rule_catalog_version = 2
+            s.add(user)
+            s.commit()
+        with TenantSession(self.engine, user_id=A) as s:
+            bills = CategoryModel(name='Cuentas y servicios', type='expense', code='bills')
+            leisure = CategoryModel(name='Entretenimiento', type='expense', code='leisure')
+            s.add_all([bills, leisure]); s.flush()
+            subscriptions = CategoryModel(name='Suscripciones', type='expense', parent_id=bills.id,
+                                          is_default=False)
+            streaming = CategoryModel(name='Streaming y contenido digital', type='expense',
+                                      parent_id=leisure.id, code='streaming', icon='music')
+            s.add_all([subscriptions, streaming]); s.flush()
+            rule = CategorizationRuleModel(keyword='netflix', category_id=streaming.id,
+                                           origin='user', priority=70, transaction_type='expense')
+            s.add(rule); s.flush()
+            transaction = s.get(TransactionModel, self.records[A][3])
+            transaction.category_id = streaming.id
+            transaction.category_source = 'rule'
+            transaction.rule_id_applied = rule.id
+            s.add(transaction)
+            s.add(CategoryFeedbackModel(transaction_id=transaction.id,
+                                        previous_category_id=self.records[A][1],
+                                        category_id=streaming.id, version=0,
+                                        is_active=True))
+            s.commit()
+            source_id, target_id, rule_id = streaming.id, subscriptions.id, rule.id
+
+        self.assertEqual(self.client.get('/api/v1/categories').status_code, 200)
+        with TenantSession(self.engine, user_id=A) as s:
+            self.assertIsNone(s.get(CategoryModel, source_id))
+            target = s.get(CategoryModel, target_id)
+            self.assertEqual(target.code, 'subscriptions')
+            self.assertEqual(target.icon, 'music')
+            self.assertEqual(s.get(CategorizationRuleModel, rule_id).category_id, target_id)
+            transaction = s.get(TransactionModel, self.records[A][3])
+            self.assertEqual(transaction.category_id, target_id)
+            self.assertEqual(transaction.category_version, 1)
+            self.assertEqual(transaction.rule_id_applied, rule_id)
+            feedback = s.exec(select(CategoryFeedbackModel)).one()
+            self.assertEqual((feedback.category_id, feedback.version), (target_id, 1))
+            self.assertFalse(any(category.code == 'streaming' for category in s.exec(select(CategoryModel)).all()))
+        with Session(self.engine) as s:
+            user = s.get(UserModel, A)
+            self.assertEqual((user.category_catalog_version, user.rule_catalog_version),
+                             (CATEGORY_CATALOG_VERSION, RULE_CATALOG_VERSION))
+        self.assertEqual(self.client.get('/api/v1/categories').status_code, 200)
+        with TenantSession(self.engine, user_id=A) as s:
+            self.assertEqual(s.get(TransactionModel, self.records[A][3]).category_version, 1)
+
+    def test_catalog_is_not_reinstalled_after_user_customization(self):
+        with Session(self.engine) as s:
+            user = s.get(UserModel, A)
+            user.category_catalog_version = 0
+            s.add(user); s.commit()
+        self.assertEqual(self.client.get('/api/v1/categories').status_code, 200)
+        with TenantSession(self.engine, user_id=A) as s:
+            food = s.exec(select(CategoryModel).where(CategoryModel.code == 'food')).one()
+            food.name = 'Mis comidas'
+            cafes = s.exec(select(CategoryModel).where(CategoryModel.code == 'cafes')).one()
+            cafes.is_active = False
+            delivery = s.exec(select(CategoryModel).where(CategoryModel.code == 'delivery')).one()
+            s.add_all([food, cafes]); s.delete(delivery); s.commit()
+            expected = {row.id: row.model_dump() for row in s.exec(select(CategoryModel)).all()}
+        with patch.object(database, 'catalog_changes', side_effect=AssertionError('Catalog must run once')):
+            self.assertEqual(self.client.get('/api/v1/categories').status_code, 200)
+        with TenantSession(self.engine, user_id=A) as s:
+            self.assertEqual({row.id: row.model_dump() for row in s.exec(select(CategoryModel)).all()}, expected)
+
+    def test_catalog_and_version_commit_atomically_and_retry_on_failure(self):
+        with Session(self.engine) as s:
+            user = s.get(UserModel, A)
+            user.category_catalog_version = 0
+            s.add(user); s.commit()
+
+        def fail_version_write(mapper, connection, user):
+            if user.id == A and user.category_catalog_version == CATEGORY_CATALOG_VERSION:
+                raise RuntimeError('Simulated version write failure')
+
+        event.listen(UserModel, 'before_update', fail_version_write)
+        try:
+            with self.assertRaisesRegex(RuntimeError, 'Simulated version'):
+                self.client.get('/api/v1/categories')
+        finally:
+            event.remove(UserModel, 'before_update', fail_version_write)
+        with Session(self.engine) as s:
+            self.assertEqual(s.get(UserModel, A).category_catalog_version, 0)
+        with TenantSession(self.engine, user_id=A) as s:
+            self.assertEqual(len(s.exec(select(CategoryModel)).all()), 1)
+        self.assertEqual(self.client.get('/api/v1/categories').status_code, 200)
+        with Session(self.engine) as s:
+            self.assertEqual(s.get(UserModel, A).category_catalog_version, CATEGORY_CATALOG_VERSION)
+
+    def test_catalog_does_not_recreate_data_for_pending_deletion(self):
+        with Session(self.engine) as s:
+            user = s.get(UserModel, A)
+            user.category_catalog_version = 0
+            user.deletion_pending = True
+            s.add(user); s.commit()
+        self.assertEqual(self.client.get('/api/v1/me').status_code, 200)
+        self.assertEqual(self.client.get('/api/v1/categories').status_code, 403)
+        with Session(self.engine) as s:
+            self.assertEqual(s.get(UserModel, A).category_catalog_version, 0)
+        with TenantSession(self.engine, user_id=A) as s:
+            self.assertEqual(len(s.exec(select(CategoryModel)).all()), 1)
 
     def test_concurrent_duplicate_imports_commit_once(self):
         from concurrent.futures import ThreadPoolExecutor
@@ -312,6 +501,10 @@ class TenancyTests(unittest.TestCase):
         import time
         import httpx
         from app.core.config import settings
+        from app.services.transactions import update_transaction_category
+        for owner in (A, B):
+            with TenantSession(self.engine, user_id=owner) as s:
+                update_transaction_category(s, self.records[owner][3], self.records[owner][1], action="confirm", remember=True)
         identity = Identity(A, 'demo@example.test', 'Demo', {'amr': [{'method': 'oauth', 'timestamp': int(time.time())}]})
         app.dependency_overrides[get_identity] = lambda: identity
         with patch.object(settings, 'supabase_service_role_key', 'test-secret'), patch('app.api.routes.profile.httpx.delete', side_effect=httpx.ConnectError('offline')):
@@ -322,8 +515,29 @@ class TenancyTests(unittest.TestCase):
             self.assertEqual(self.client.delete('/api/v1/me').status_code, 204)
         with TenantSession(self.engine, user_id=A) as s:
             self.assertEqual(s.exec(select(TransactionModel)).all(), [])
+            self.assertEqual(s.exec(select(CategoryFeedbackModel)).all(), [])
         with TenantSession(self.engine, user_id=B) as s:
             self.assertEqual(len(s.exec(select(TransactionModel)).all()), 1)
+            self.assertEqual(len(s.exec(select(CategoryFeedbackModel)).all()), 1)
+
+    def test_memory_api_and_export_are_scoped_and_foreign_undo_is_rejected(self):
+        from app.services.transactions import update_transaction_category
+        with TenantSession(self.engine, user_id=B) as s:
+            saved = update_transaction_category(s, self.records[B][3], self.records[B][1],
+                                                action="confirm", remember=True)
+        self.assertEqual(self.client.get('/api/v1/categorization-rules/memory').json(), [])
+        self.assertEqual(self.client.get('/api/v1/me/export').json()['category_feedback'], [])
+        response = self.client.post(f'/api/v1/transactions/{saved.id}/category/undo',
+            json={'event_id': saved.category_event_id, 'expected_version': saved.category_version})
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(self.client.post('/api/v1/categorization-rules/memory/forget',
+            json={'pattern': 'demo', 'transaction_type': 'expense'}).json()['forgotten_count'], 0)
+        with TenantSession(self.engine, user_id=B) as s:
+            self.assertTrue(s.exec(select(CategoryFeedbackModel)).one().remembered)
+        app.dependency_overrides[get_identity] = lambda: Identity(B, 'other@example.test', 'Other', {})
+        self.assertEqual(len(self.client.get('/api/v1/categorization-rules/memory').json()), 1)
+        events = self.client.get('/api/v1/me/export').json()['category_feedback']
+        self.assertEqual([event['transaction_id'] for event in events], [saved.id])
 
     def test_modern_supabase_secret_key_is_used_for_auth_deletion(self):
         import time
