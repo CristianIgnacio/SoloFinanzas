@@ -33,6 +33,7 @@ const OrganizationIcon = organizationItem.icon;
 
 export function RootLayout() {
   const location = useLocation();
+  const headerRef = useRef<HTMLElement>(null);
   const { session } = useAuth();
   const [moreOpen, setMoreOpen] = useState(false);
   const moreButtonRef = useRef<HTMLButtonElement>(null);
@@ -41,6 +42,16 @@ export function RootLayout() {
   const moreIsActive = ["/app/categories", "/app/import", "/app/profile"].some((path) =>
     location.pathname.startsWith(path),
   );
+
+  useLayoutEffect(() => {
+    const header = headerRef.current;
+    if (!header) return;
+    const update = () => header.parentElement?.style.setProperty("--app-header-height", `${header.getBoundingClientRect().height}px`);
+    update();
+    const observer = new ResizeObserver(update);
+    observer.observe(header);
+    return () => observer.disconnect();
+  }, []);
 
   useLayoutEffect(() => {
     if (location.hash) return;
@@ -171,7 +182,7 @@ export function RootLayout() {
       </aside>
 
       <div className="flex min-h-screen min-w-0 flex-col">
-        <header className="subtle-divider sticky top-0 z-20 bg-paper/90 backdrop-blur-sm">
+        <header ref={headerRef} className="subtle-divider sticky top-0 z-20 bg-paper/90 backdrop-blur-sm">
           <div className="mx-auto flex max-w-[1280px] items-center justify-between gap-4 px-4 py-4 sm:px-6 lg:px-10 xl:px-12">
             <div className="flex items-center gap-4">
               <span className="text-primary lg:hidden"><LogoMark className="h-11 w-11" /></span>

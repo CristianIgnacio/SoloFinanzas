@@ -20,6 +20,7 @@ import {
   faEllipsisVertical,
   faFilePdf,
   faFloppyDisk,
+  faFilter,
   faGear,
   faHouse,
   faLock,
@@ -110,6 +111,10 @@ export function CalendarIcon(props: IconProps) {
 
 export function SettingsIcon(props: IconProps) {
   return <FontAwesomeIcon icon={faGear} {...iconProps(props)} />;
+}
+
+export function FilterIcon(props: IconProps) {
+  return <FontAwesomeIcon icon={faFilter} {...iconProps(props)} />;
 }
 
 export function BellIcon(props: IconProps) {
