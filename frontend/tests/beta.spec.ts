@@ -1647,3 +1647,71 @@ test("retiro importado se vincula con Efectivo y se puede deshacer", async ({ pa
   await expect(page.getByText("Retiro desde Cuenta demo A")).toHaveCount(0);
   await expect(page.getByText("Giro en cajero")).toBeVisible();
 });
+
+test("tablas de cuentas adaptan columnas y paginación al móvil", async ({ page }, info) => {
+  await mockApi(page);
+  await page.route("**/api/v1/statements?account_id=1", route => route.fulfill({ json: [{
+    id: 7, account_id: 1, file_name: "cartola_cuenta_principal_octubre_2026.pdf", file_type: "application/pdf", file_checksum: null,
+    period_month: "2026-10", status: "processed", raw_path: null, uploaded_at: "2026-10-22T10:00:00Z",
+  }] }));
+  await page.route("**/api/v1/transaction-pages**", route => {
+    const params = new URL(route.request().url()).searchParams;
+    const offset = Number(params.get("offset") ?? 0);
+    const limit = Number(params.get("limit") ?? 50);
+    const accountId = Number(params.get("account_id"));
+    return route.fulfill({ json: { total: 125, offset, limit, items: Array.from({ length: Math.min(limit, 125 - offset) }, (_, index) => ({
+      id: offset + index + 1, account_id: accountId, category_id: null, date: "2026-10-01", description: `Compra ${offset + index + 1}`,
+      amount_clp: -12000, transaction_type: "expense", origin: "manual",
+    })) } });
+  });
+  await page.addInitScript(value => localStorage.setItem("sb-demo-auth-token", JSON.stringify(value)), session(ownerA));
+  const widths = info.project.name === "mobile" ? [320, 390] : [1280];
+  for (const width of widths) {
+    await page.setViewportSize({ width, height: 850 });
+    await page.goto("/app/accounts?account_id=1");
+    const statements = page.getByRole("region", { name: "Cartolas de la cuenta", exact: true });
+    await expect(statements.getByRole("columnheader", { name: "Nombre", exact: true })).toBeVisible();
+    await statements.scrollIntoViewIfNeeded();
+    const period = statements.getByRole("cell", { name: "octubre de 2026", exact: true });
+    const periodBounds = await period.boundingBox();
+    expect(periodBounds!.x + periodBounds!.width).toBeLessThanOrEqual(width);
+    expect(await statements.locator("table").evaluate(element => getComputedStyle(element).display)).toBe("table");
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
+    await page.screenshot({ path: info.outputPath(`statements-table-${width}.png`) });
+    await statements.evaluate(element => { element.scrollLeft = element.scrollWidth; });
+    await expect(statements.getByRole("button", { name: /^Deshacer importacion/ })).toBeInViewport();
+    await statements.getByRole("button", { name: "Ver movimientos", exact: true }).click();
+    await expect(page).toHaveURL(/statement_id=7/);
+    for (const accountId of [1, 3]) {
+      await page.goto(`/app/accounts?account_id=${accountId}`);
+      if (accountId === 1) await page.getByRole("button", { name: "Movimientos (125)", exact: true }).click();
+      const movements = page.getByRole("region", { name: "Movimientos de la cuenta", exact: true });
+      await expect(movements.getByRole("cell", { name: "Compra 1", exact: true })).toBeVisible();
+      await movements.scrollIntoViewIfNeeded();
+      const amountBounds = await movements.getByRole("cell", { name: "$-12.000", exact: true }).first().boundingBox();
+      expect(amountBounds!.x + amountBounds!.width).toBeLessThanOrEqual(width);
+      await page.screenshot({ path: info.outputPath(`movements-account-${accountId}-${width}.png`) });
+      const pagination = page.getByRole("navigation", { name: "Paginación de movimientos de la cuenta", exact: true });
+      await expect(pagination.getByRole("button", { name: "Anterior", exact: true })).toBeDisabled();
+      await pagination.getByRole("button", { name: "Siguiente", exact: true }).click();
+      await expect(movements.getByRole("cell", { name: "Compra 51", exact: true })).toBeVisible();
+      await pagination.getByRole("button", { name: "Anterior", exact: true }).click();
+      await expect(movements.getByRole("cell", { name: "Compra 1", exact: true })).toBeVisible();
+      await pagination.getByRole("combobox", { name: "Ir a la página" }).selectOption("3");
+      await expect(movements.locator("tbody tr")).toHaveCount(25);
+      await expect(pagination.getByRole("button", { name: "Siguiente", exact: true })).toBeDisabled();
+      await pagination.scrollIntoViewIfNeeded();
+      const controls = await pagination.locator("button, select").evaluateAll(elements => elements.map(element => {
+        const rect = element.getBoundingClientRect();
+        return { center: rect.y + rect.height / 2, height: rect.height, right: rect.right };
+      }));
+      controls.forEach(control => {
+        expect(control.center).toBeCloseTo(controls[0].center, 0);
+        expect(control.height).toBeGreaterThanOrEqual(44);
+        expect(control.right).toBeLessThanOrEqual(width);
+      });
+      expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
+      await page.screenshot({ path: info.outputPath(`account-pagination-${accountId}-${width}.png`) });
+    }
+  }
+});

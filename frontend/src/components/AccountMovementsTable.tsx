@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import "./AccountTables.css";
 import { getCategoryPath, parseLocalDate } from "../lib";
 import type { Category, Transaction } from "../types";
 import { cn } from "./ui";
@@ -12,31 +13,34 @@ type Props = {
 
 export function AccountMovementsTable({ transactions, categoryMap, formatCurrency, renderActions }: Props) {
   return (
-    <div className="md:overflow-x-auto">
-      <table role="table" className="block w-full border-collapse md:table md:min-w-[720px]">
-        <thead role="rowgroup" className="sr-only text-left text-sm text-muted md:not-sr-only md:table-header-group">
-          <tr className="border-b border-outline">
-            <th className="px-4 py-3 font-medium">Fecha</th>
-            <th className="px-4 py-3 font-medium">Descripción</th>
-            <th className="px-4 py-3 font-medium">Categoría</th>
-            <th className="px-4 py-3 text-right font-medium">Monto</th>
-            {renderActions ? <th className="px-4 py-3 text-right font-medium">Acciones</th> : null}
-          </tr>
-        </thead>
-        <tbody role="rowgroup" className="block md:table-row-group">
-          {transactions.map((transaction) => (
-            <tr role="row" key={transaction.id} className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] gap-x-2 gap-y-2 border-b border-outline/60 py-4 first:pt-0 last:border-0 md:table-row md:py-0">
-              <td role="cell" className="col-span-2 block text-sm text-muted md:table-cell md:whitespace-nowrap md:px-4 md:py-4 md:text-base">{parseLocalDate(transaction.date).toLocaleDateString("es-CL", { day: "2-digit", month: "short", year: "numeric" })}</td>
-              <td role="cell" className="col-span-2 block min-w-0 text-sm font-medium [overflow-wrap:anywhere] md:table-cell md:px-4 md:py-4 md:text-base">{transaction.description}</td>
-              <td role="cell" className="col-span-2 block min-w-0 md:table-cell md:px-4 md:py-4">
-                <span className="inline-block max-w-full rounded-xl bg-paper-soft px-2 py-1 text-sm text-muted [overflow-wrap:anywhere] md:rounded-full md:px-3">{getCategoryPath(transaction.category_id, categoryMap)}</span>
-              </td>
-              <td role="cell" className={cn("block min-w-0 self-center font-semibold tabular-nums [overflow-wrap:anywhere] md:table-cell md:whitespace-nowrap md:px-4 md:py-4 md:text-right", transaction.amount_clp >= 0 ? "text-primary" : "text-ink")}>{formatCurrency(transaction.amount_clp)}</td>
-              {renderActions ? <td role="cell" className="block self-center text-right md:table-cell md:px-4 md:py-4"><div className="flex justify-end">{renderActions(transaction)}</div></td> : null}
+    <div className="-mx-4 sm:mx-0">
+      <p className="border-b border-outline px-3 py-2 text-xs text-muted sm:hidden">Desliza para ver fecha, categoría y más detalles.</p>
+      <div className="account-table-scroll overflow-x-auto" role="region" aria-label="Movimientos de la cuenta" tabIndex={0}>
+        <table className={cn("account-data-table account-movements-table w-full min-w-[720px] table-fixed border-collapse text-sm", renderActions && "account-movements-table-actions")}>
+          <thead className="text-left text-sm text-muted">
+            <tr className="border-b border-outline">
+              <th className="w-56 px-4 py-3 font-medium">Descripción</th>
+              <th className="w-32 px-4 py-3 text-right font-medium">Monto</th>
+              <th className="w-36 px-4 py-3 font-medium">Fecha</th>
+              <th className="w-48 px-4 py-3 font-medium">Categoría</th>
+              {renderActions ? <th className="w-40 px-4 py-3 text-right font-medium">Acciones</th> : null}
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {transactions.map((transaction) => (
+              <tr key={transaction.id} className="border-b border-outline/60 last:border-0">
+                <td className="px-4 py-4 font-medium [overflow-wrap:anywhere]">{transaction.description}</td>
+                <td className={cn("whitespace-nowrap px-4 py-4 text-right font-semibold tabular-nums", transaction.amount_clp >= 0 ? "text-primary" : "text-danger")}>{formatCurrency(transaction.amount_clp)}</td>
+                <td className="whitespace-nowrap px-4 py-4 text-muted">{parseLocalDate(transaction.date).toLocaleDateString("es-CL", { day: "2-digit", month: "short", year: "numeric" })}</td>
+                <td className="px-4 py-4">
+                  <span className="inline-block max-w-full rounded-xl bg-paper-soft px-2 py-1 text-xs text-muted [overflow-wrap:anywhere] sm:rounded-full sm:px-3 sm:text-sm">{getCategoryPath(transaction.category_id, categoryMap)}</span>
+                </td>
+                {renderActions ? <td className="px-4 py-4 text-right"><div className="flex justify-end">{renderActions(transaction)}</div></td> : null}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }

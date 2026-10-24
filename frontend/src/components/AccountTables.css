@@ -1,0 +1,21 @@
+@media (max-width: 639px) {
+  .account-table-scroll { position: relative; container-type: inline-size; overscroll-behavior-x: contain; }
+  .account-table-scroll .account-data-table { min-width: 0; font-size: .8125rem; }
+  .account-table-scroll .account-data-table thead { background: #f8f7f3; font-size: .75rem; }
+  .account-table-scroll .account-data-table th, .account-table-scroll .account-data-table td { padding: .75rem; vertical-align: middle; }
+  .account-table-scroll .account-data-table button { min-width: 44px; min-height: 44px; }
+  .account-table-scroll .account-movements-table { width: calc(100cqw + 304px); }
+  .account-table-scroll .account-movements-table-actions { width: calc(100cqw + 464px); }
+  .account-table-scroll .account-movements-table th:nth-child(1) { width: calc(100cqw - 112px); }
+  .account-table-scroll .account-movements-table th:nth-child(2) { width: 112px; }
+  .account-table-scroll .account-movements-table th:nth-child(3) { width: 128px; }
+  .account-table-scroll .account-movements-table th:nth-child(4) { width: 176px; }
+  .account-table-scroll .account-movements-table th:nth-child(5) { width: 160px; }
+  .account-table-scroll .account-movements-table td:nth-child(2) { font-size: .75rem; }
+  .account-table-scroll .account-statements-table { width: calc(100cqw + 400px); }
+  .account-table-scroll .account-statements-table th:nth-child(1) { width: calc(100cqw - 112px); }
+  .account-table-scroll .account-statements-table th:nth-child(2) { width: 112px; }
+  .account-table-scroll .account-statements-table th:nth-child(3) { width: 112px; }
+  .account-table-scroll .account-statements-table th:nth-child(4) { width: 128px; }
+  .account-table-scroll .account-statements-table th:nth-child(5) { width: 160px; }
+}
