@@ -34,6 +34,7 @@ from app.schemas.transaction import (
     TransactionPreviewCandidate,
 )
 from app.services.internal_transfers import refresh_internal_transfer_matches
+from app.services.category_feedback import memory_suggestion, delete_feedback_for_transactions, record_decision, _effective_evidence
 
 
 logger = logging.getLogger(__name__)
@@ -169,6 +170,7 @@ def delete_statement(
             session.delete(counterpart)
         session.flush()
 
+        delete_feedback_for_transactions(session, [*transaction_ids, *[row.id for row in cash_counterparts if row.id]])
         for transaction in transactions:
             session.delete(transaction)
         session.flush()
@@ -287,6 +289,7 @@ def import_pdf_transactions(
     period_month: str,
     candidates: list[TransactionCandidate],
     category_overrides: dict[str, int | None] | None = None,
+    review_decisions: dict[str, TransactionCandidateReview] | None = None,
 ) -> PdfImportResponse:
     """Importa candidatos PDF creando cartola, movimientos y deduplicaciones."""
     account = session.get(AccountModel, account_id)
@@ -325,6 +328,8 @@ def import_pdf_transactions(
         if row
     )
     consumed_existing: Counter[str] = Counter()
+    evidence = list(_effective_evidence(session))
+    rules = _ordered_rules(session)
 
     statement = StatementModel(
         account_id=account_id,
@@ -347,7 +352,12 @@ def import_pdf_transactions(
             continue
 
         candidate_key = _candidate_source_key(candidate)
-        if category_overrides is not None and candidate_key in category_overrides:
+        decision = review_decisions.get(candidate_key) if review_decisions else None
+        if decision is not None and decision.action in ("unchanged", "set", "confirm"):
+            category_id, category_source, rule_id = _categorize(
+                session, candidate.normalized_description, candidate.transaction_type.value,
+                evidence=evidence, rules=rules)
+        elif category_overrides is not None and candidate_key in category_overrides:
             category_id = category_overrides[candidate_key]
             if category_id is not None:
                 _validate_category_for_type(session, category_id, candidate.transaction_type)
@@ -358,9 +368,10 @@ def import_pdf_transactions(
                 session,
                 candidate.normalized_description,
                 candidate.transaction_type.value,
+                evidence=evidence,
+                rules=rules,
             )
-        session.add(
-            TransactionModel(
+        transaction = TransactionModel(
                 account_id=account_id,
                 statement_id=statement.id,
                 source_row=source_row,
@@ -375,7 +386,14 @@ def import_pdf_transactions(
                 fingerprint=fingerprint,
                 raw_data=candidate.raw_data,
             )
-        )
+        session.add(transaction)
+        session.flush()
+        if decision is not None and decision.action in ("set", "confirm"):
+            if decision.action == "confirm" and category_id != decision.category_id:
+                raise ValueError("La categoría confirmada ya no coincide con la vista previa.")
+            record_decision(session, transaction, decision.category_id, remember=decision.remember,
+                            pattern=decision.pattern, match_type=decision.match_type,
+                            decision_kind="import_" + decision.action)
         inserted += 1
 
     statement.status = StatementStatus.PROCESSED
@@ -400,12 +418,17 @@ def build_transaction_previews(
 ) -> list[TransactionPreviewCandidate]:
     """Agrega la categoria sugerida a cada candidato sin persistirlo."""
     previews: list[TransactionPreviewCandidate] = []
+    evidence = list(_effective_evidence(session))
+    rules = _ordered_rules(session)
     for candidate in candidates:
         category_id, category_source, rule_id = _categorize(
             session,
             candidate.normalized_description,
             candidate.transaction_type.value,
+            evidence=evidence,
+            rules=rules,
         )
+        memory = memory_suggestion(session, candidate.normalized_description, candidate.transaction_type, evidence)
         previews.append(
             TransactionPreviewCandidate(
                 **candidate.model_dump(
@@ -413,9 +436,15 @@ def build_transaction_previews(
                         "suggested_category_id",
                         "category_source",
                         "rule_id_applied",
+                        "personalized_category_id",
+                        "suggestion_reason",
+                        "suggestion_conflict",
                     }
                 ),
                 suggested_category_id=category_id,
+                personalized_category_id=memory.get("category_id") if memory else None,
+                suggestion_reason=memory.get("reason") if memory else ("Regla automática" if category_id else None),
+                suggestion_conflict=bool(memory and memory.get("conflict")),
                 category_source=category_source,
                 rule_id_applied=rule_id,
             )
@@ -445,9 +474,12 @@ def apply_transaction_reviews(
         if review_key in reviewed_sources:
             raise ValueError("La revision contiene movimientos duplicados.")
         reviewed_sources.add(review_key)
-        if review.category_id is not None:
+        if review.action != "unchanged" and review.category_id is not None:
             _validate_category_for_type(session, review.category_id, review.transaction_type)
-        category_overrides[review_key] = review.category_id
+        if review.action not in (None, "unchanged", "set", "confirm"):
+            raise ValueError("La acción de revisión no es válida.")
+        if review.action != "unchanged":
+            category_overrides[review_key] = review.category_id
 
     reviewed_candidates: list[TransactionCandidate] = []
     for candidate in candidates:
@@ -519,8 +551,24 @@ def _review_source_key(review: TransactionCandidateReview) -> str:
     return review.source_id or review.source_line.strip()
 
 
+def _ordered_rules(session: Session) -> list[CategorizationRuleModel]:
+    rules = session.exec(
+        select(CategorizationRuleModel).order_by(
+            CategorizationRuleModel.priority.desc(),
+            func.length(CategorizationRuleModel.keyword).desc(),
+            CategorizationRuleModel.id.asc(),
+        )
+    ).all()
+    rules.sort(key=lambda rule: (
+        0 if rule.origin in ("user", "accepted") else 1,
+        -rule.priority, -len(rule.keyword), rule.id or 0,
+    ))
+    return rules
+
+
 def _categorize(
-    session: Session, description: str, transaction_type: str
+    session: Session, description: str, transaction_type: str,
+    *, evidence=None, rules=None,
 ) -> tuple[int | None, CategorySource | None, int | None]:
     """Asigna categoria solo cuando una regla vigente calza con confianza."""
     desired_type = {
@@ -530,22 +578,20 @@ def _categorize(
     if desired_type is None:
         raise ValueError(f"Tipo de transaccion no soportado: {transaction_type}")
 
-    rules = session.exec(
-        select(CategorizationRuleModel).order_by(
-            CategorizationRuleModel.priority.desc(),
-            func.length(CategorizationRuleModel.keyword).desc(),
-            CategorizationRuleModel.id.asc(),
-        )
-    ).all()
+    memory = memory_suggestion(session, description, TransactionType(transaction_type), evidence)
+    rules = rules if rules is not None else _ordered_rules(session)
     normalized_description = normalize_description(description)
     for rule in rules:
+        if not rule.is_active or (rule.transaction_type and rule.transaction_type != transaction_type) or (memory and memory.get("conflict") and rule.origin not in ("user", "accepted")):
+            continue
         try:
             keyword = normalize_description(rule.keyword)
         except ValueError:
             continue
         if not keyword:
             continue
-        if f" {keyword} " in f" {normalized_description} ":
+        matches = keyword == normalized_description if rule.match_type == "exact" else f" {keyword} " in f" {normalized_description} "
+        if matches:
             category = session.get(CategoryModel, rule.category_id)
             if (
                 category

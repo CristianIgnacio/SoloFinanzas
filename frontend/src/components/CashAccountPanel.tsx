@@ -1,3 +1,4 @@
+import { AccountTablePagination } from "./AccountTablePagination";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Link } from "react-router-dom";
@@ -274,11 +275,7 @@ export function CashAccountPanel({ account, categories, onBalanceChange }: {
             ) : null
           )} /> : null}
           {transactions.length === 0 ? <p className="py-2 text-sm text-muted">Todavía no hay movimientos en Efectivo.</p> : null}
-          <div className="grid grid-cols-2 items-center gap-2 border-t border-outline/60 pt-4 sm:flex sm:justify-center sm:gap-3 sm:border-0 sm:py-4">
-            <Button compactOnMobile tone="secondary" disabled={pageOffset === 0} onClick={() => setPageOffset(Math.max(0, pageOffset - PAGE_SIZE))}>Anterior</Button>
-            <span className="order-first col-span-2 text-center text-sm text-muted sm:order-none">{count} movimientos · página {Math.floor(pageOffset / PAGE_SIZE) + 1}</span>
-            <Button compactOnMobile tone="secondary" disabled={pageOffset + PAGE_SIZE >= count} onClick={() => setPageOffset(pageOffset + PAGE_SIZE)}>Siguiente</Button>
-          </div>
+          <AccountTablePagination total={count} pageSize={PAGE_SIZE} offset={pageOffset} onOffsetChange={setPageOffset} />
         </div>
       </Panel>
       {formOpen ? (

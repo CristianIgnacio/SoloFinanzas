@@ -21,6 +21,9 @@ class TransactionCandidate(SQLModel):
 
 class TransactionPreviewCandidate(TransactionCandidate):
     suggested_category_id: int | None = None
+    personalized_category_id: int | None = None
+    suggestion_reason: str | None = None
+    suggestion_conflict: bool = False
     category_source: CategorySource | None = None
     rule_id_applied: int | None = None
 
@@ -30,6 +33,10 @@ class TransactionCandidateReview(SQLModel):
     source_line: str
     transaction_type: TransactionType
     category_id: int | None = None
+    action: str | None = None
+    remember: bool = False
+    pattern: str | None = None
+    match_type: str = "exact"
 
 
 class TransactionBase(SQLModel):
@@ -63,6 +70,11 @@ class ManualTransactionInput(SQLModel):
 class TransactionCategoryUpdate(SQLModel):
     category_id: int | None
     category_source: CategorySource | None = None
+    action: str = "set"
+    remember: bool = False
+    pattern: str | None = None
+    match_type: str = "exact"
+    expected_version: int | None = None
 
 
 class Transaction(TransactionBase):
@@ -72,3 +84,9 @@ class Transaction(TransactionBase):
     updated_at: datetime | None = None
     is_internal_transfer: bool = False
     cash_transfer_linked: bool = False
+    category_reviewed: bool = False
+    category_version: int = 0
+    category_event_id: int | None = None
+    personalized_category_id: int | None = None
+    suggestion_reason: str | None = None
+    suggestion_conflict: bool = False

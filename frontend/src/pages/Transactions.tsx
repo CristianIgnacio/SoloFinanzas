@@ -12,13 +12,10 @@ import {
   ExportIcon,
   InstitutionLogo,
   LoadingState,
-  MoneyIcon,
   WalletIcon,
   Panel,
-  QuestionIcon,
   StatusNotice,
   cn,
-  UtensilsIcon,
 } from "../components";
 import {
   createCategoryMap,
@@ -28,8 +25,11 @@ import {
 } from "../lib";
 import { AccountService, CategoryService, TransactionService } from "../services";
 import { CashLinkModal } from "../components/CashLinkModal";
+import { CategoryIcon } from "../components/CategoryIcon";
 import { CategoryPicker } from "../components/CategoryPicker";
-import { CategorySource, CategoryType } from "../types";
+import { CategoryProposalModal } from "../components/CategoryProposalModal";
+import type { CategoryPattern } from "../services/categoryService";
+import { CategoryType } from "../types";
 import type { Account, CashAccount, Category, Transaction } from "../types";
 
 type FilterMode = "all" | "expense" | "income";
@@ -37,7 +37,7 @@ type CategoryNotice = {
   id: number;
   tone: "saving" | "success" | "error";
   message: string;
-  undo?: { transaction: Transaction; categoryId: number | null; categorySource: CategorySource | null };
+  undo?: { transactionId: number; eventId: number; version: number };
 };
 
 const ALL_PERIODS = "all";
@@ -75,32 +75,8 @@ function formatDateLabel(date: string) {
   });
 }
 
-function MovementIcon({ transaction }: { transaction: Transaction }) {
-  if (transaction.amount_clp > 0) {
-    return (
-      <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary text-white sm:h-12 sm:w-12">
-        <MoneyIcon className="h-5 w-5 sm:h-6 sm:w-6" />
-      </span>
-    );
-  }
-
-  if (transaction.description.toLowerCase().includes("cafe")) {
-    return (
-      <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#dbe7ff] text-secondary sm:h-12 sm:w-12">
-        <UtensilsIcon className="h-5 w-5 sm:h-6 sm:w-6" />
-      </span>
-    );
-  }
-
-  return (
-    <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#ffd7c2] text-clay sm:h-12 sm:w-12">
-      <QuestionIcon />
-    </span>
-  );
-}
-
 export function TransactionsPage() {
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const location = useLocation();
   const statementId = searchParams.get("statement_id")
     ? Number(searchParams.get("statement_id"))
@@ -116,6 +92,35 @@ export function TransactionsPage() {
   const [linkError, setLinkError] = useState<string | null>(null);
   const [categories, setCategories] = useState<Category[]>([]);
   const [savingCategoryIds, setSavingCategoryIds] = useState<Set<number>>(() => new Set());
+  const [proposals, setProposals] = useState<CategoryPattern[]>([]);
+  const [proposalQueue, setProposalQueue] = useState<CategoryPattern[]>([]);
+  const shownProposals = useRef(new Set<number>());
+  const changedForProposals = useRef(new Map<number, Transaction>());
+  const proposalRequest = useRef(0);
+  const refreshProposals = async (changed?: Transaction) => {
+    if (changed) changedForProposals.current.set(changed.id, changed);
+    const request = ++proposalRequest.current;
+    try {
+      const items = await CategoryService.ruleProposals();
+      if (request !== proposalRequest.current) return;
+      setProposals(items);
+      // Only interrupt for patterns related to the user's saved changes, not
+      // unrelated proposals that happened to be waiting when this page opened.
+      const relevant = items.filter(item => !shownProposals.current.has(item.id) &&
+        [...changedForProposals.current.values()].some(tx => {
+          const description = tx.normalized_description;
+          return item.category_id === tx.category_id && item.transaction_type === tx.transaction_type &&
+            (item.match_type === "exact" ? item.pattern === description : ` ${description} `.includes(` ${item.pattern} `));
+        }));
+      relevant.forEach(item => shownProposals.current.add(item.id));
+      changedForProposals.current.clear();
+      setProposalQueue(current => [...current.flatMap(queued => {
+        const updated = items.find(item => item.id === queued.id);
+        return updated ? [updated] : [];
+      }), ...relevant.filter(item => !current.some(queued => queued.id === item.id))]);
+    } catch { /* A proposal fetch failure must never undo a saved category. */ }
+  };
+  useEffect(() => { void refreshProposals(); }, []);
   const [categoryNotice, setCategoryNotice] = useState<CategoryNotice | null>(null);
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [filter, setFilter] = useState<FilterMode>("all");
@@ -145,6 +150,15 @@ export function TransactionsPage() {
   const latestCategoryActionRef = useRef(0);
   const latestCategoryRefreshRef = useRef(0);
 
+  useEffect(() => {
+    if (searchParams.get("new_movement") !== "1" || !cashAccount) return;
+    setEditingCashTransaction(null);
+    setCashFormOpen(true);
+    const nextParams = new URLSearchParams(searchParams);
+    nextParams.delete("new_movement");
+    setSearchParams(nextParams, { replace: true });
+  }, [searchParams, setSearchParams, cashAccount]);
+
   const toggleTransactionDetails = (id: number) => {
     setExpandedTransactionIds((current) => {
       const next = new Set(current);
@@ -155,12 +169,12 @@ export function TransactionsPage() {
   };
 
   useEffect(() => {
-    if (!categoryNotice || categoryNotice.tone === "saving") return;
+    if (!categoryNotice || categoryNotice.tone === "saving" || proposalQueue.length > 0) return;
     const timeout = window.setTimeout(() => {
       setCategoryNotice(current => current?.id === categoryNotice.id ? null : current);
     }, 8000);
     return () => window.clearTimeout(timeout);
-  }, [categoryNotice]);
+  }, [categoryNotice, proposalQueue.length]);
 
   const showCategoryNotice = (notice: Omit<CategoryNotice, "id">) => {
     noticeSequenceRef.current += 1;
@@ -371,36 +385,38 @@ export function TransactionsPage() {
   };
 
   const changeCategory = async (transaction: Transaction, categoryId: number | null,
-    categorySource: CategorySource | null = CategorySource.MANUAL, undoing = false) => {
+    confirming = false) => {
     const previousCategoryId = transaction.category_id;
-    if (categoryId === previousCategoryId || savingCategoryIdsRef.current.has(transaction.id)) return;
-
+    if ((categoryId === previousCategoryId && !confirming) || savingCategoryIdsRef.current.has(transaction.id)) return;
     latestCategoryActionRef.current += 1;
     const actionId = latestCategoryActionRef.current;
     savingCategoryIdsRef.current.add(transaction.id);
     setSavingCategoryIds(current => new Set(current).add(transaction.id));
     categoryOverridesRef.current.set(transaction.id, categoryId);
     setTransactions(current => current.map(item => item.id === transaction.id
-      ? { ...item, category_id: categoryId, category_source: categorySource }
+      ? { ...item, category_id: categoryId }
       : item));
-    showCategoryNotice({ tone: "saving", message: undoing ? "Deshaciendo cambio…" : "Guardando categoría…" });
+    showCategoryNotice({ tone: "saving", message: "Guardando categoría…" });
 
     try {
-      const saved = await TransactionService.updateCategory(transaction.id, categoryId, categorySource);
+      const saved = await TransactionService.updateCategory(transaction.id, categoryId, {
+        action: confirming ? "confirm" : "set",
+        expected_version: transaction.category_version,
+      });
       setTransactions(current => current.map(item => item.id === transaction.id
         ? { ...item, ...(saved && saved.id === transaction.id ? saved : {}), category_id: categoryId }
         : item));
       void refreshVisibleTransactions();
+      void refreshProposals(saved);
       const categoryName = categoryId === null ? "Sin categoría" : categoryMap.get(categoryId)?.name ?? "la categoría seleccionada";
       if (latestCategoryActionRef.current === actionId) {
         showCategoryNotice({
           tone: "success",
-          message: undoing ? "Cambio deshecho." : `Categoría cambiada a ${categoryName}.`,
-          undo: undoing ? undefined : {
-            transaction: { ...transaction, category_id: categoryId, category_source: categorySource },
-            categoryId: previousCategoryId,
-            categorySource: transaction.category_source,
-          },
+          message: confirming ? "Categoría confirmada." : `Categoría cambiada a ${categoryName}.`,
+          undo: saved.category_event_id ? {
+            transactionId: transaction.id, eventId: saved.category_event_id,
+            version: saved.category_version,
+          } : undefined,
         });
       }
     } catch (cause) {
@@ -424,11 +440,20 @@ export function TransactionsPage() {
     }
   };
 
-  const undoCategoryChange = () => {
+  const undoCategoryChange = async () => {
     const undo = categoryNotice?.undo;
     if (!undo) return;
-    const transaction = transactions.find(item => item.id === undo.transaction.id) ?? undo.transaction;
-    void changeCategory(transaction, undo.categoryId, undo.categorySource, true);
+    try {
+      const restored = await TransactionService.undoCategory(undo.transactionId, undo.eventId, undo.version);
+      categoryOverridesRef.current.set(restored.id, restored.category_id);
+      setTransactions(current => current.map(item => item.id === restored.id ? restored : item));
+      showCategoryNotice({ tone: "success", message: "Cambio deshecho." });
+      void refreshVisibleTransactions();
+      changedForProposals.current.delete(restored.id);
+      void refreshProposals();
+    } catch (cause) {
+      showCategoryNotice({ tone: "error", message: cause instanceof Error ? cause.message : "No se pudo deshacer." });
+    }
   };
 
   const confirmCashLink = async () => {
@@ -628,15 +653,15 @@ export function TransactionsPage() {
                       }}
                     >
                       <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_minmax(0,0.75fr)] items-center gap-x-4 gap-y-3 sm:grid-cols-[minmax(0,1fr)_minmax(14rem,0.7fr)] sm:gap-x-6 lg:grid-cols-[3rem_minmax(0,1fr)_max-content_12rem] lg:gap-x-4 lg:gap-y-1 xl:grid-cols-[3rem_minmax(0,1fr)_max-content_14rem] 2xl:grid-cols-[3rem_minmax(0,1fr)_max-content_16rem]">
-                        <span className="hidden lg:col-start-1 lg:row-span-2 lg:row-start-1 lg:flex lg:items-center"><MovementIcon transaction={transaction} /></span>
-                        <div className={cn("min-w-0", (transaction.is_internal_transfer || transaction.origin === "cash_transfer") && "pl-5 sm:pl-0")}>
+                        <span className="hidden lg:col-start-1 lg:row-span-2 lg:row-start-1 lg:flex lg:items-center"><CategoryIcon category={categoryMap.get(transaction.category_id ?? -1)} categoryMap={categoryMap} /></span>
+                        <div className="min-w-0">
                           {transaction.is_internal_transfer || transaction.origin === "cash_transfer" ? (
-                            <span role="img" aria-label="Transferencia interna" className="pointer-events-none absolute left-0 top-0 h-11 w-11 bg-primary [clip-path:polygon(0_0,100%_0,0_100%)] sm:hidden">
+                            <span role="img" aria-label="Transferencia interna" className="pointer-events-none absolute left-0 top-0 z-10 h-11 w-11 bg-primary [clip-path:polygon(0_0,100%_0,0_100%)] sm:hidden">
                               <span aria-hidden="true" className="absolute left-2 top-2 text-sm font-bold leading-none text-white">↔</span>
                             </span>
                           ) : null}
                           <div className="flex min-h-6 min-w-0 items-center gap-3">
-                            <span className="hidden shrink-0 sm:block lg:hidden"><MovementIcon transaction={transaction} /></span>
+                            <span className="block shrink-0 lg:hidden"><CategoryIcon category={categoryMap.get(transaction.category_id ?? -1)} categoryMap={categoryMap} /></span>
                             <button
                               type="button"
                               aria-label={`${detailsOpen ? "Ocultar" : "Mostrar"} detalles de ${transaction.description}`}
@@ -663,6 +688,7 @@ export function TransactionsPage() {
                             style: "currency",
                             currency: "CLP",
                             maximumFractionDigits: 0,
+                            signDisplay: "exceptZero",
                           }).format(transaction.amount_clp)}
                           </p>
                         </div>
@@ -730,6 +756,23 @@ export function TransactionsPage() {
                               <dd className="mt-1 font-medium text-ink">{transaction.is_internal_transfer || transaction.origin === "cash_transfer" ? "Sí" : "No"}</dd>
                             </div>
                           </dl>
+                          {transaction.personalized_category_id && transaction.personalized_category_id !== transaction.category_id ? (
+                            <div className="rounded-xl border border-primary/20 bg-primary-mist/40 p-3 text-sm">
+                              <p>{transaction.suggestion_reason}: {categoryMap.get(transaction.personalized_category_id)?.name}</p>
+                              <button type="button" className="mt-1 text-primary underline"
+                                onClick={() => void changeCategory(transaction, transaction.personalized_category_id)}>
+                                Usar sugerencia
+                              </button>
+                            </div>
+                          ) : null}
+                          {transaction.suggestion_conflict ? (
+                            <p className="text-sm text-muted">Tus decisiones anteriores tienen categorías diferentes para este movimiento.</p>
+                          ) : null}
+                          {transaction.category_id === null ? (
+                            <p className="text-sm text-muted">
+                              {transaction.category_reviewed ? "Sin categoría por decisión explícita." : "Pendiente de categorizar."}
+                            </p>
+                          ) : null}
                           {transaction.origin === "manual" ? (
                             <Button compactOnMobile tone="ghost" disabled={savingCategoryIds.has(transaction.id)} onClick={() => { setEditingCashTransaction(transaction); setCashFormOpen(true); }}>
                               Editar
@@ -761,6 +804,22 @@ export function TransactionsPage() {
           description={selectedCategory === UNCATEGORIZED_CATEGORY ? "No quedan movimientos sin categoría con los filtros actuales." : "Prueba cambiando el periodo o el criterio de revision."}
         />
       ) : null}
+      {proposals.length > 0 ? <div role="status" className="rounded-xl border border-primary/20 bg-primary-mist/40 p-3 text-sm">
+        Tienes {proposals.length} {proposals.length === 1 ? "propuesta de regla" : "propuestas de reglas"} basadas en tus decisiones. <button type="button" className="text-primary underline" onClick={() => {
+          proposals.forEach(item => shownProposals.current.add(item.id));
+          setProposalQueue(proposals);
+        }}>Revisar propuestas</button>
+      </div> : null}
+      {proposalQueue[0] ? <CategoryProposalModal key={proposalQueue[0].id} proposal={proposalQueue[0]} categories={categories}
+        onClose={() => { setProposalQueue(current => current.slice(1)); void refreshProposals(); }}
+        onDecided={message => {
+          const decidedId = proposalQueue[0].id;
+          setProposalQueue(current => current.filter(item => item.id !== decidedId));
+          setProposals(current => current.filter(item => item.id !== decidedId));
+          const noticeId = ++noticeSequenceRef.current;
+          setCategoryNotice(current => ({ id: noticeId, tone: "success", message, undo: current?.undo }));
+          void refreshProposals();
+        }} /> : null}
       {categoryNotice ? (
         <div role={categoryNotice.tone === "error" ? "alert" : "status"} aria-live={categoryNotice.tone === "error" ? "assertive" : "polite"}
           className={cn("fixed inset-x-4 bottom-[calc(5rem+env(safe-area-inset-bottom))] z-40 flex min-h-12 items-center justify-between gap-3 rounded-xl border px-4 py-2 text-sm shadow-lg sm:bottom-6 sm:left-auto sm:right-6 sm:w-auto sm:max-w-md",

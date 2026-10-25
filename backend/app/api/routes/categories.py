@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlmodel import Session
 
 from app.core.database import get_session
+from app.core.seeding import catalog_changes
 from app.schemas.category import (
     Category,
     CategoryCreate,
@@ -24,6 +25,22 @@ from app.services.categories import (
 
 router = APIRouter()
 SessionDep = Annotated[Session, Depends(get_session)]
+
+
+@router.get("/categories/catalog-preview")
+def preview_catalog(session: SessionDep) -> list[dict]:
+    return catalog_changes(session)
+
+
+@router.post("/categories/catalog-apply")
+def apply_catalog(session: SessionDep) -> list[dict]:
+    try:
+        result = catalog_changes(session, apply=True)
+        session.commit()
+        return result
+    except Exception:
+        session.rollback()
+        raise
 
 
 def _category_error(error: ValueError) -> HTTPException:

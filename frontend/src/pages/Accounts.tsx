@@ -1,3 +1,4 @@
+import { AccountTablePagination } from "../components/AccountTablePagination";
 import { ReportService, type AccountTotal } from '../services/reportService';
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
@@ -14,6 +15,7 @@ import {
   ChevronRightIcon,
   DeleteStatementModal,
   EmptyState,
+  EyeIcon,
   ErrorState,
   InstitutionLogo,
   LoadingState,
@@ -688,7 +690,7 @@ export function AccountsPage() {
 
           <AccountActivitySummary
             compactOnDesktop
-            description="Resumen de todo el historial importado. Ingresos y gastos excluyen transferencias internas; la variación registrada incluye todos los movimientos y no es el saldo disponible del banco."
+            description="" //Resumen de todo el historial importado. Ingresos y gastos excluyen transferencias internas; la variación registrada incluye todos los movimientos y no es el saldo disponible del banco."
             firstLabel="Variación registrada"
             firstValue={detailsReady ? formatCurrency(summary.net) : "—"}
             firstIcon={<BankIcon className="h-5 w-5" />}
@@ -809,32 +811,33 @@ export function AccountsPage() {
               ) : null}
 
               {detailsReady && activeTab === "statements" && statements.length > 0 ? (
-                <div className="md:overflow-x-auto">
-                  <table role="table" className="block w-full border-collapse md:table md:min-w-[840px] lg:min-w-0 lg:text-sm">
-                    <thead role="rowgroup" className="sr-only text-left text-sm text-muted md:not-sr-only md:table-header-group">
+                <div className="-mx-4 sm:mx-0">
+                  <p className="border-b border-outline px-3 py-2 text-xs text-muted sm:hidden">Desliza para ver estado, importación y acciones.</p>
+                  <div className="account-table-scroll overflow-x-auto" role="region" aria-label="Cartolas de la cuenta" tabIndex={0}>
+                  <table role="table" className="account-data-table account-statements-table w-full min-w-[840px] table-fixed border-collapse text-sm lg:min-w-0">
+                    <thead role="rowgroup" className="text-left text-sm text-muted">
                       <tr className="border-b border-outline">
                         <th className="px-4 lg:px-2 py-3 font-medium">Nombre</th>
                         <th className="px-4 lg:px-2 py-3 font-medium">Periodo</th>
-                        <th className="px-4 lg:px-2 py-3 font-medium">Importada</th>
                         <th className="px-4 lg:px-2 py-3 font-medium">Estado</th>
+                        <th className="px-4 lg:px-2 py-3 font-medium">Importada</th>
                         <th className="px-4 lg:px-2 py-3 text-right font-medium">Acciones</th>
                       </tr>
                     </thead>
-                    <tbody role="rowgroup" className="block space-y-3 md:table-row-group md:space-y-0">
+                    <tbody role="rowgroup" >
                       {statements.map((statement) => (
-                        <tr role="row" key={statement.id} className="grid min-w-0 grid-cols-2 gap-3 rounded-2xl border border-outline/70 p-3 md:table-row md:rounded-none md:border-x-0 md:border-t-0 md:p-0 md:last:border-0">
-                          <td role="cell" className="col-span-2 block min-w-0 text-sm font-medium md:table-cell md:px-4 md:py-4 md:text-base lg:px-2 lg:text-sm">
-                            <span className="flex items-center gap-2 [overflow-wrap:anywhere] md:inline-flex md:gap-3 lg:max-w-[220px] lg:break-all">
-                              <PdfIcon className="h-5 w-5 shrink-0 text-primary" />
+                        <tr role="row" key={statement.id} className="border-b border-outline/60 last:border-0">
+                          <td role="cell" className="px-4 py-4 font-medium lg:px-2">
+                            <span className="flex items-start gap-2 [overflow-wrap:anywhere]">
+                              <PdfIcon className="hidden h-5 w-5 shrink-0 text-primary sm:block" />
                               <span className="min-w-0">{statement.file_name}</span>
                             </span>
                           </td>
-                          <td role="cell" className="block text-sm capitalize text-muted md:table-cell md:px-4 md:py-4 md:text-base lg:px-2 lg:text-sm"><span className="mb-1 block text-xs font-semibold uppercase tracking-wide md:hidden">Período</span>{formatPeriod(statement.period_month)}</td>
-                          <td role="cell" className="block text-sm text-muted md:table-cell md:px-4 md:py-4 md:text-base lg:px-2 lg:text-sm"><span className="mb-1 block text-xs font-semibold uppercase tracking-wide md:hidden">Importada</span>{formatDate(statement.uploaded_at)}</td>
-                          <td role="cell" className="col-span-2 block md:table-cell md:px-4 md:py-4 lg:px-2">
+                          <td role="cell" className="px-4 py-4 capitalize text-muted lg:px-2">{formatPeriod(statement.period_month)}</td>
+                          <td role="cell" className="px-4 py-4 lg:px-2">
                             <span
                               className={cn(
-                                "rounded-full px-3 py-1 text-sm font-semibold",
+                                "inline-block rounded-full px-2 py-1 text-xs font-semibold sm:px-3 sm:text-sm",
                                 statement.status === StatementStatus.PROCESSED
                                   ? "bg-primary-mist text-primary"
                                   : statement.status === StatementStatus.FAILED
@@ -845,15 +848,18 @@ export function AccountsPage() {
                               {statusLabels[statement.status]}
                             </span>
                           </td>
-                          <td role="cell" className="col-span-2 block border-t border-outline/60 pt-2 md:table-cell md:border-0 md:px-4 md:py-4 md:text-right lg:px-2">
-                            <div className="flex flex-wrap items-center justify-between gap-1 md:justify-end md:gap-2">
+                          <td role="cell" className="px-4 py-4 text-muted lg:px-2">{formatDate(statement.uploaded_at)}</td>
+                          <td role="cell" className="px-4 py-4 text-right lg:px-2">
+                            <div className="flex items-center justify-end gap-2">
                               <Button
                                 compactOnMobile
                                 className="px-2 py-2 text-sm"
                                 tone="ghost"
+                                aria-label="Ver movimientos"
+                                title={`Ver movimientos de ${statement.file_name}`}
                                 onClick={() => navigate(`/app/transactions?statement_id=${statement.id}`)}
                               >
-                                Ver movimientos
+                                <EyeIcon className="h-4 w-4 sm:hidden" /><span className="hidden sm:inline">Ver movimientos</span>
                               </Button>
                               <Button
                                 aria-label={`Deshacer importacion de ${statement.file_name}`}
@@ -865,7 +871,7 @@ export function AccountsPage() {
                                 tone="ghost"
                               >
                                 <TrashIcon className="h-4 w-4" />
-                                <span className="lg:sr-only">{deletingStatementId === statement.id ? "Eliminando..." : "Deshacer"}</span>
+                                <span className="sr-only sm:not-sr-only lg:sr-only">{deletingStatementId === statement.id ? "Eliminando..." : "Deshacer"}</span>
                               </Button>
                             </div>
                           </td>
@@ -873,6 +879,7 @@ export function AccountsPage() {
                       ))}
                     </tbody>
                   </table>
+                  </div>
                 </div>
               ) : null}
 
@@ -880,11 +887,9 @@ export function AccountsPage() {
                 <AccountMovementsTable transactions={transactions} categoryMap={categoryMap} formatCurrency={formatCurrency} />
               ) : null}
 
-              {activeTab === 'transactions' && detailsReady && <div className="grid grid-cols-2 items-center gap-2 border-t border-outline/60 pt-4 sm:flex sm:justify-center sm:gap-3 sm:border-0 sm:py-4">
-                <Button compactOnMobile tone="secondary" disabled={loadingDetails || pageOffset === 0} onClick={() => setPageOffset(Math.max(0, pageOffset - PAGE_SIZE))}>Anterior</Button>
-                <span className="order-first col-span-2 text-center text-sm text-muted sm:order-none">{transactionTotal} movimientos · página {Math.floor(pageOffset / PAGE_SIZE) + 1}</span>
-                <Button compactOnMobile tone="secondary" disabled={loadingDetails || pageOffset + PAGE_SIZE >= transactionTotal} onClick={() => setPageOffset(pageOffset + PAGE_SIZE)}>Siguiente</Button>
-              </div>}
+              {activeTab === "transactions" && detailsReady ? (
+                <AccountTablePagination total={transactionTotal} pageSize={PAGE_SIZE} offset={pageOffset} disabled={loadingDetails} onOffsetChange={setPageOffset} />
+              ) : null}
               {detailsReady && activeTab === "statements" && statements.length === 0 ? (
                 <EmptyState
                   title="No hay cartolas importadas"

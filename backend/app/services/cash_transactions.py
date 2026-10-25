@@ -11,6 +11,7 @@ from app.models.category import CategoryModel
 from app.models.transaction import TransactionModel
 from app.schemas.transaction import ManualTransactionInput, Transaction
 from app.services.internal_transfers import refresh_internal_transfer_matches
+from app.domain.normalizer import normalize_description
 from app.services.transactions import _matched_transaction_ids, _to_transaction
 
 
@@ -70,11 +71,18 @@ def create_manual_transaction(session: Session, payload: ManualTransactionInput)
         amount_clp=0, transaction_type=payload.transaction_type,
     )
     _apply_payload(transaction, payload, category_id)
+    transaction.category_id = None
+    transaction.category_source = None
     session.add(transaction)
+    session.flush()
+    if category_id is not None:
+        from app.services.category_feedback import record_decision
+        record_decision(session, transaction, category_id, decision_kind="manual_create")
     refresh_internal_transfer_matches(session)
     session.commit()
     session.refresh(transaction)
-    return _to_transaction(transaction, _matched_transaction_ids(session))
+    from app.services.category_feedback import _effective_evidence
+    return _to_transaction(transaction, _matched_transaction_ids(session), evidence=list(_effective_evidence(session)))
 
 
 def _editable_manual_transaction(session: Session, transaction_id: int) -> TransactionModel:
@@ -92,17 +100,30 @@ def update_manual_transaction(
 ) -> Transaction:
     transaction = _editable_manual_transaction(session, transaction_id)
     category_id = _validated_category(session, payload)
+    previous_category = transaction.category_id
+    previous_source, previous_rule = transaction.category_source, transaction.rule_id_applied
+    changed = (previous_category != category_id
+               or normalize_description(transaction.description) != normalize_description(payload.description)
+               or transaction.transaction_type != payload.transaction_type)
     _apply_payload(transaction, payload, category_id)
+    if changed:
+        transaction.category_id = previous_category
+        transaction.category_source, transaction.rule_id_applied = previous_source, previous_rule
+        from app.services.category_feedback import record_decision
+        record_decision(session, transaction, category_id, decision_kind="manual_edit")
     transaction.updated_at = datetime.now(timezone.utc)
     session.add(transaction)
     refresh_internal_transfer_matches(session)
     session.commit()
     session.refresh(transaction)
-    return _to_transaction(transaction, _matched_transaction_ids(session))
+    from app.services.category_feedback import _effective_evidence
+    return _to_transaction(transaction, _matched_transaction_ids(session), evidence=list(_effective_evidence(session)))
 
 
 def delete_manual_transaction(session: Session, transaction_id: int) -> None:
     transaction = _editable_manual_transaction(session, transaction_id)
+    from app.services.category_feedback import delete_feedback_for_transactions
+    delete_feedback_for_transactions(session, [transaction_id])
     session.delete(transaction)
     refresh_internal_transfer_matches(session)
     session.commit()

@@ -144,6 +144,10 @@ export function supportsPdfImport(institution: InstitutionCode): boolean {
 export type Category = {
   id: number;
   name: string;
+  code: string | null;
+  description: string;
+  icon?: string | null;
+  color?: string | null;
   type: CategoryType;
   parent_id: number | null;
   is_default: boolean;
@@ -155,11 +159,11 @@ export type Category = {
 
 export type CategoryCreate = Omit<
   Category,
-  "id" | "transaction_count" | "rule_count"
+  "id" | "transaction_count" | "rule_count" | "code" | "description"
 >;
 
 export type CategoryUpdate = Partial<
-  Pick<Category, "name" | "type" | "parent_id" | "is_active" | "sort_order">
+  Pick<Category, "name" | "type" | "parent_id" | "is_active" | "sort_order" | "icon" | "color">
 >;
 
 // Statement types
@@ -205,6 +209,9 @@ export type TransactionCandidate = {
 
 export type TransactionPreviewCandidate = TransactionCandidate & {
   suggested_category_id: number | null;
+  personalized_category_id: number | null;
+  suggestion_reason: string | null;
+  suggestion_conflict: boolean;
   category_source: CategorySource | null;
   rule_id_applied: number | null;
 };
@@ -214,6 +221,10 @@ export type TransactionCandidateReview = {
   source_line: string;
   transaction_type: TransactionType;
   category_id: number | null;
+  action?: "unchanged" | "set" | "confirm";
+  remember?: boolean;
+  pattern?: string | null;
+  match_type?: "exact" | "contains";
 };
 
 export type PdfPreview = {
@@ -255,6 +266,12 @@ export type Transaction = {
   transaction_type: TransactionType;
   category_id: number | null;
   category_source: CategorySource | null;
+  category_reviewed: boolean;
+  category_version: number;
+  category_event_id: number | null;
+  personalized_category_id: number | null;
+  suggestion_reason: string | null;
+  suggestion_conflict: boolean;
   rule_id_applied: number | null;
   fingerprint: string | null;
   raw_data: Record<string, unknown> | null;
@@ -283,10 +300,14 @@ export type CategorizationRule = {
   keyword: string;
   category_id: number;
   priority: number;
+  match_type: "exact" | "contains";
+  origin: string;
+  is_active: boolean;
+  transaction_type: string | null;
   created_at: string;
 };
 
-export type CategorizationRuleCreate = Omit<CategorizationRule, "id" | "created_at">;
+export type CategorizationRuleCreate = Omit<CategorizationRule, "id" | "created_at" | "origin" | "is_active" | "transaction_type">;
 
 // API Response wrapper (for future error handling)
 export type ApiResponse<T> = {

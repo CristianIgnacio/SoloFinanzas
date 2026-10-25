@@ -10,8 +10,9 @@ from app.core.auth import Identity, get_identity
 from app.core.config import settings
 from app.core.database import get_session
 from app.core.tenancy import OWNED_MODELS, TenantSession
-from app.models import AccountModel, CategoryModel, CategorizationRuleModel, StatementModel, TransactionModel, InternalTransferMatchModel
+from app.models import AccountModel, CategoryModel, CategorizationRuleModel, StatementModel, TransactionModel, InternalTransferMatchModel, CategoryFeedbackModel
 from app.models.user import UserModel
+from app.models import CategoryPatternModel
 
 router = APIRouter()
 
@@ -71,7 +72,7 @@ def delete_me(identity: Identity = Depends(get_identity), session: TenantSession
         user.display_name = ""
         identities.add(user)
         identities.commit()
-    for model in (InternalTransferMatchModel, TransactionModel, CategorizationRuleModel,
+    for model in (InternalTransferMatchModel, CategoryPatternModel, CategoryFeedbackModel, TransactionModel, CategorizationRuleModel,
                   StatementModel, AccountModel):
         for row in session.exec(select(model)).all():
             session.delete(row)

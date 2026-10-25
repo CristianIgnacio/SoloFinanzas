@@ -7,6 +7,7 @@ from app.domain.enums import CategoryType, TransactionType
 from app.models.category import CategoryModel
 from app.models.categorization_rule import CategorizationRuleModel
 from app.models.transaction import TransactionModel
+from app.models.category_feedback import CategoryFeedbackModel
 from app.schemas.category import Category, CategoryCreate, CategoryUpdate
 
 
@@ -125,6 +126,8 @@ def create_category(session: Session, payload: CategoryCreate) -> Category:
         is_default=payload.is_default,
         is_active=payload.is_active,
         sort_order=payload.sort_order,
+        icon=payload.icon,
+        color=payload.color,
     )
     session.add(category)
     session.commit()
@@ -238,6 +241,9 @@ def update_category(
     category.name = name
     category.type = category_type
     category.parent_id = parent_id
+    for field in ("icon", "color"):
+        if field in payload.model_fields_set:
+            setattr(category, field, getattr(payload, field))
     if payload.sort_order is not None:
         category.sort_order = payload.sort_order
     if payload.is_active is not None:
@@ -285,6 +291,12 @@ def delete_category(session: Session, category_id: int) -> bool:
         raise CategoryInUseError(
             "La categoria tiene movimientos, reglas o subcategorias; archivala en su lugar."
         )
+    feedback_count = session.exec(select(CategoryFeedbackModel.id).where(
+        (CategoryFeedbackModel.category_id == category_id)
+        | (CategoryFeedbackModel.previous_category_id == category_id)
+    )).first()
+    if feedback_count is not None:
+        raise CategoryInUseError("La categoría tiene historial de correcciones; archívala en su lugar.")
 
     session.delete(category)
     session.commit()
@@ -321,6 +333,7 @@ def merge_category(
         select(TransactionModel).where(TransactionModel.category_id == source.id)
     ).all():
         transaction.category_id = target.id
+        transaction.category_version += 1
         session.add(transaction)
     for rule in session.exec(
         select(CategorizationRuleModel).where(
@@ -329,6 +342,24 @@ def merge_category(
     ).all():
         rule.category_id = target.id or rule.category_id
         session.add(rule)
+    for feedback in session.exec(select(CategoryFeedbackModel).where(
+        (CategoryFeedbackModel.category_id == source.id)
+        | (CategoryFeedbackModel.previous_category_id == source.id)
+    )).all():
+        if feedback.category_id == source.id:
+            feedback.category_id = target.id
+        if feedback.previous_category_id == source.id:
+            feedback.previous_category_id = target.id
+        if feedback.is_active:
+            transaction = session.get(TransactionModel, feedback.transaction_id)
+            if transaction:
+                feedback.version = transaction.category_version
+        session.add(feedback)
+    from app.models import CategoryPatternModel
+    for pattern in session.exec(select(CategoryPatternModel).where(CategoryPatternModel.category_id == source.id)).all():
+        pattern.category_id = target.id
+        pattern.version += 1
+        session.add(pattern)
     session.delete(source)
     session.commit()
     return get_category(session, target_category_id)

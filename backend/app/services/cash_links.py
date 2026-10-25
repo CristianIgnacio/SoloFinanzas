@@ -101,6 +101,8 @@ def unlink_cash_transaction(session: Session, transaction_id: int) -> Transactio
     try:
         session.delete(match)
         session.flush()
+        from app.services.category_feedback import delete_feedback_for_transactions
+        delete_feedback_for_transactions(session, [cash_transaction.id])
         session.delete(cash_transaction)
         session.flush()
         refresh_internal_transfer_matches(session)

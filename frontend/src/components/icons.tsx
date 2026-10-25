@@ -17,8 +17,10 @@ import {
   faEye,
   faEyeSlash,
   faEllipsis,
+  faEllipsisVertical,
   faFilePdf,
   faFloppyDisk,
+  faFilter,
   faGear,
   faHouse,
   faLock,
@@ -111,6 +113,10 @@ export function SettingsIcon(props: IconProps) {
   return <FontAwesomeIcon icon={faGear} {...iconProps(props)} />;
 }
 
+export function FilterIcon(props: IconProps) {
+  return <FontAwesomeIcon icon={faFilter} {...iconProps(props)} />;
+}
+
 export function BellIcon(props: IconProps) {
   return <FontAwesomeIcon icon={faBell} {...iconProps(props)} />;
 }
@@ -189,6 +195,10 @@ export function QuestionIcon(props: IconProps) {
 
 export function MoreIcon(props: IconProps) {
   return <FontAwesomeIcon icon={faEllipsis} {...iconProps(props)} />;
+}
+
+export function MoreVerticalIcon(props: IconProps) {
+  return <FontAwesomeIcon icon={faEllipsisVertical} {...iconProps(props)} />;
 }
 
 export function SignOutIcon(props: IconProps) {

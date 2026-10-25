@@ -13,12 +13,12 @@ from sqlmodel import Session, select
 from app.domain.enums import AccountKind, TransactionOrigin
 from app.models import (
     AccountModel, CategoryModel, CategorizationRuleModel, StatementModel,
-    TransactionModel, InternalTransferMatchModel,
+    TransactionModel, InternalTransferMatchModel, CategoryFeedbackModel, CategoryPatternModel,
 )
 from app.models.user import OwnedModel, UserModel
 
 OWNED_MODELS = (AccountModel, CategoryModel, CategorizationRuleModel,
-                StatementModel, TransactionModel, InternalTransferMatchModel)
+                StatementModel, TransactionModel, InternalTransferMatchModel, CategoryFeedbackModel, CategoryPatternModel)
 
 
 class TenantSession(Session):
@@ -134,3 +134,5 @@ def validate_writes(session, *_):
                     or outgoing.date != incoming.date
                 ):
                     raise HTTPException(400, "El vínculo con Efectivo no es coherente.")
+            elif isinstance(obj, CategoryFeedbackModel):
+                require_reference(session, TransactionModel, obj.transaction_id)

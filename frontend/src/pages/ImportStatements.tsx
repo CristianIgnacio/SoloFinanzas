@@ -49,6 +49,8 @@ const issueTitles: Record<string, string> = {
 
 type EditablePreviewTransaction = TransactionPreviewCandidate & {
   category_id: number | null;
+  action: "unchanged" | "set" | "confirm";
+  original_type: TransactionType;
 };
 
 export function ImportStatementsPage() {
@@ -218,6 +220,8 @@ export function ImportStatementsPage() {
         payload.candidate_transactions.map((transaction) => ({
           ...transaction,
           category_id: transaction.suggested_category_id,
+          action: "unchanged",
+          original_type: transaction.transaction_type,
         })),
       );
     } catch (err) {
@@ -245,6 +249,7 @@ export function ImportStatementsPage() {
           source_line: transaction.source_line,
           transaction_type: transaction.transaction_type,
           category_id: transaction.category_id,
+          action: transaction.action,
         })),
         password || undefined,
         preview.issues.map((issue) => issue.code),
@@ -275,7 +280,7 @@ export function ImportStatementsPage() {
         }
 
         const amount = Math.abs(transaction.amount_clp);
-        const category_id = isCategoryCompatible(
+        const category_id = transaction.action === "unchanged" ? null : isCategoryCompatible(
           transaction.category_id,
           transactionType,
         )
@@ -288,6 +293,7 @@ export function ImportStatementsPage() {
           amount_clp:
             transactionType === TransactionType.INCOME ? amount : -amount,
           category_id,
+          action: transaction.action === "unchanged" ? "unchanged" : "set",
         };
       }),
     );
@@ -300,7 +306,8 @@ export function ImportStatementsPage() {
     setEditableTransactions((transactions) =>
       transactions.map((transaction) =>
         transaction.source_id === sourceId
-          ? { ...transaction, category_id: categoryId }
+          ? { ...transaction, category_id: categoryId,
+              action: categoryId === transaction.suggested_category_id ? "confirm" : "set" }
           : transaction,
       ),
     );
@@ -462,6 +469,25 @@ export function ImportStatementsPage() {
                             </optgroup>)}
                           </select>
                         </label>
+                        {transaction.transaction_type === transaction.original_type && transaction.personalized_category_id && transaction.personalized_category_id !== transaction.category_id ? (
+                          <button type="button" disabled={importing} className="mt-1 text-left text-xs text-primary underline"
+                            onClick={() => updateTransactionCategory(transaction.source_id, transaction.personalized_category_id)}>
+                            Sugerencia personal: {categories.find(item => item.id === transaction.personalized_category_id)?.name}
+                          </button>
+                        ) : null}
+                        {transaction.suggestion_conflict ? <span className="block text-xs text-muted">Hay decisiones anteriores con categorías diferentes; elige la categoría.</span> : null}
+                        {transaction.action === "unchanged" && transaction.transaction_type !== transaction.original_type ? (
+                          <span className="block text-xs text-muted">La categoría se volverá a calcular al importar.</span>
+                        ) : null}
+                        {transaction.category_id !== null && transaction.action === "unchanged" ? (
+                          <button type="button" disabled={importing} className="mt-1 text-xs text-primary underline"
+                            onClick={() => updateTransactionCategory(transaction.source_id, transaction.category_id)}>
+                            Confirmar esta categoría
+                          </button>
+                        ) : null}
+                        {transaction.action !== "unchanged" && transaction.category_id !== null ? (
+                          <p className="mt-1 text-xs text-muted">Esta decisión se incorporará al aprendizaje al importar.</p>
+                        ) : null}
                       </td>
                       <td role="cell" className={cn("col-start-2 row-start-1 block min-w-0 self-center text-right text-sm font-semibold tabular-nums [overflow-wrap:anywhere] xl:table-cell xl:whitespace-nowrap xl:px-3 xl:py-4", transaction.amount_clp >= 0 ? "text-primary" : "text-danger")}>{currencyFormatter.format(transaction.amount_clp)}</td>
                     </tr>

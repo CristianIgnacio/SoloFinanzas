@@ -13,6 +13,10 @@ class CategoryModel(OwnedModel, table=True):
     __tablename__ = "categories"  # type: ignore
 
     id: int | None = Field(default=None, primary_key=True)
+    code: str | None = Field(default=None, index=True)
+    description: str = Field(default="")
+    icon: str | None = None
+    color: str | None = None
     name: str = Field(index=True)
     type: CategoryType = Field(
         sa_column=Column(enum_sql_type(CategoryType), nullable=False),

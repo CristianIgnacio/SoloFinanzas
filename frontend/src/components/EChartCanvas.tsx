@@ -47,7 +47,7 @@ export type AppChartOption = ComposeOption<
 export type EChartProps = {
   className?: string;
   option: AppChartOption;
-  onItemClick?: (index: number) => void;
+  onItemClick?: (index: number, seriesIndex: number) => void;
 };
 
 export function EChart({ className, option, onItemClick }: EChartProps) {
@@ -67,7 +67,7 @@ export function EChart({ className, option, onItemClick }: EChartProps) {
     chart.setOption(option);
     chart.on("click", (event) => {
       if (event.componentType === "series" && typeof event.dataIndex === "number") {
-        onItemClickRef.current?.(event.dataIndex);
+        onItemClickRef.current?.(event.dataIndex, typeof event.seriesIndex === "number" ? event.seriesIndex : 0);
       }
     });
 

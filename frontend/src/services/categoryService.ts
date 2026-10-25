@@ -7,7 +7,41 @@ import type {
   CategorizationRuleCreate,
 } from "../types";
 
+export type CategoryPattern = {
+  id: number; version: number; pattern: string; match_type: "exact" | "contains";
+  transaction_type: string; category_id: number | null; state: string; reason: string;
+  evidence_count: number; decision_count: number; match_count: number; snoozed_until: string | null;
+  examples: { transaction_id: number; description: string; date: string; category_id: number }[];
+  history: { state: string; reason: string; at: string }[];
+};
+
 export class CategoryService {
+  static async patterns(): Promise<CategoryPattern[]> {
+    return apiClient.get("/categorization-rules/patterns");
+  }
+
+  static async decidePattern(id: number, action: string, expectedVersion: number): Promise<void> {
+    await apiClient.post(`/categorization-rules/patterns/${id}/decision`, { action, expected_version: expectedVersion });
+  }
+  static async catalogPreview(): Promise<{ code: string; name: string; parent_code: string | null; status: string; reason?: string }[]> {
+    return apiClient.get("/categories/catalog-preview");
+  }
+
+  static async memory(): Promise<{ pattern: string; match_type: "exact" | "contains"; transaction_type: string; category_id: number; evidence_count: number }[]> {
+    return apiClient.get("/categorization-rules/memory");
+  }
+
+  static async forgetMemory(pattern: string, transactionType: string): Promise<void> {
+    await apiClient.post("/categorization-rules/memory/forget", { pattern, transaction_type: transactionType });
+  }
+
+  static async ruleProposals(): Promise<CategoryPattern[]> {
+    return apiClient.get("/categorization-rules/proposals");
+  }
+
+  static async acceptRuleProposal(proposal: { pattern: string; match_type: "exact" | "contains"; transaction_type: string; category_id: number }): Promise<CategorizationRule> {
+    return apiClient.post("/categorization-rules/proposals", proposal);
+  }
   static async getCategories(includeInactive = true): Promise<Category[]> {
     return apiClient.get<Category[]>("/categories", {
       params: { include_inactive: includeInactive },
@@ -49,9 +83,13 @@ export class CategoryService {
     return apiClient.post<CategorizationRule>("/categorization-rules", data);
   }
 
+  static async previewCategorizationRule(data: CategorizationRuleCreate): Promise<{ match_count: number; examples: string[] }> {
+    return apiClient.post("/categorization-rules/preview", data);
+  }
+
   static async updateCategorizationRule(
     ruleId: number,
-    data: Partial<CategorizationRuleCreate>
+    data: Partial<CategorizationRuleCreate> & { is_active?: boolean }
   ): Promise<CategorizationRule> {
     return apiClient.patch<CategorizationRule>(
       `/categorization-rules/${ruleId}`,

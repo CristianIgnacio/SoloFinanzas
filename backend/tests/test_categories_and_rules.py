@@ -37,6 +37,53 @@ class CategoryAndRuleTests(unittest.TestCase):
         )
         SQLModel.metadata.create_all(self.engine)
 
+    def test_appearance_can_be_updated_reset_and_inherited_without_changing_identity(self):
+        with Session(self.engine) as session:
+            parent = create_category(session, CategoryCreate(name="Mi comida", type=CategoryType.EXPENSE,
+                                                              icon="food", color="orange"))
+            child = create_category(session, CategoryCreate(name="Cafés", type=CategoryType.EXPENSE,
+                                                            parent_id=parent.id))
+            self.assertEqual((parent.icon, parent.color), ("food", "orange"))
+            self.assertEqual((child.icon, child.color), (None, None))
+            updated = update_category(session, parent.id, CategoryUpdate(icon="gifts", color="pink"))
+            self.assertEqual((updated.id, updated.name, updated.type), (parent.id, parent.name, parent.type))
+            self.assertEqual((updated.icon, updated.color), ("gifts", "pink"))
+            renamed = update_category(session, parent.id, CategoryUpdate(name="Comida personal"))
+            self.assertEqual((renamed.icon, renamed.color), ("gifts", "pink"))
+            reset = update_category(session, parent.id, CategoryUpdate(icon=None, color=None))
+            self.assertEqual((reset.icon, reset.color), (None, None))
+            child_override = update_category(session, child.id, CategoryUpdate(icon="coffee", color="red"))
+            self.assertEqual((child_override.icon, child_override.color), ("coffee", "red"))
+            child_reset = update_category(session, child.id, CategoryUpdate(icon=None, color=None))
+            self.assertEqual((child_reset.icon, child_reset.color), (None, None))
+
+    def test_appearance_rejects_unsupported_icons_and_colors(self):
+        from pydantic import ValidationError
+        for values in ({"icon": "unknown"}, {"color": "url(example)"}, {"color": "#fff"}):
+            with self.assertRaises(ValidationError):
+                CategoryUpdate(**values)
+
+    def test_default_category_keeps_its_code_when_customizing_icon_and_color(self):
+        with Session(self.engine) as session:
+            category = CategoryModel(name="Alimentación", code="food", type=CategoryType.EXPENSE,
+                                     is_default=True)
+            session.add(category)
+            session.commit()
+            changed = update_category(session, category.id,
+                                      CategoryUpdate(icon="groceries", color="sky"))
+            self.assertEqual((changed.id, changed.code, changed.is_default),
+                             (category.id, "food", True))
+            self.assertEqual((changed.icon, changed.color), ("groceries", "sky"))
+            self.assertEqual(session.get(CategoryModel, category.id).name, "Alimentación")
+            child = CategoryModel(name="Cafeterías", code="cafes", type=CategoryType.EXPENSE,
+                                  parent_id=category.id, is_default=True)
+            session.add(child)
+            session.commit()
+            child_style = update_category(session, child.id, CategoryUpdate(icon="coffee", color="red"))
+            self.assertEqual((child_style.code, child_style.is_default, child_style.parent_id),
+                             ("cafes", True, category.id))
+            self.assertEqual((child_style.icon, child_style.color), ("coffee", "red"))
+
     def test_rejects_blank_category_name(self) -> None:
         with Session(self.engine) as session:
             with self.assertRaises(InvalidCategoryError):

@@ -2,21 +2,49 @@ import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { Category } from "../types";
 import { ChevronDownIcon } from "./icons";
+import { CategoryIcon } from "./CategoryIcon";
 
 type Props = {
   label: string;
-  value: string;
   disabled: boolean;
   groups: { root: Category; children: Category[] }[];
-  onChange: (value: string) => void;
   purpose?: "edit" | "filter";
-};
+} & ({
+  multiple: true;
+  value: ReadonlySet<string>;
+  onChange: (value: Set<string>) => void;
+} | {
+  multiple?: false;
+  value: string;
+  onChange: (value: string) => void;
+});
 
-export function CategoryPicker({ label, value, disabled, groups, onChange, purpose = "edit" }: Props) {
+export function CategoryPicker(props: Props) {
+  const { label, value, disabled, groups, purpose = "edit" } = props;
   const dialog = useRef<HTMLDialogElement>(null);
+  const trigger = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
   const selected = groups.flatMap(group => [group.root, ...group.children]).find(category => String(category.id) === value);
-  const selectedLabel = purpose === "filter" && value === "all" ? "Todas las categorías" : selected?.name ?? "Sin categoría";
+  const singleLabel = purpose === "filter" && value === "all" ? "Todas las categorías" : selected?.name ?? "Sin categoría";
+  const selectedLabel = props.multiple
+    ? props.value.size === 0 ? "Todas las categorías" : `${props.value.size} ${props.value.size === 1 ? "categoría seleccionada" : "categorías seleccionadas"}`
+    : singleLabel;
+  const isSelected = (id: string) => props.multiple
+    ? id === "all" ? props.value.size === 0 : props.value.has(id)
+    : value === id;
+  const selectOption = (id: string) => {
+    if (props.multiple) {
+      const next = new Set(props.value);
+      if (id === "all") next.clear();
+      else if (next.has(id)) next.delete(id);
+      else next.add(id);
+      props.onChange(next);
+    } else {
+      props.onChange(id);
+      setOpen(false);
+    }
+  };
+  const categoryMap = new Map(groups.flatMap(group => [group.root, ...group.children]).map(category => [category.id, category]));
 
   useEffect(() => {
     if (!open) return;
@@ -26,6 +54,7 @@ export function CategoryPicker({ label, value, disabled, groups, onChange, purpo
     return () => {
       dialog.current?.close();
       document.body.style.overflow = previousOverflow;
+      trigger.current?.focus();
     };
   }, [open]);
 
@@ -33,12 +62,15 @@ export function CategoryPicker({ label, value, disabled, groups, onChange, purpo
     <button
       key={id}
       type="button"
-      aria-pressed={value === id}
-      onClick={() => { onChange(id); setOpen(false); }}
-      className={`flex min-h-11 w-full items-center justify-between gap-3 rounded-lg px-3 py-2 text-left text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary ${child ? "pl-6" : ""} ${value === id ? "bg-primary-mist font-semibold text-primary" : "text-ink hover:bg-paper-soft"}`}
+      aria-pressed={isSelected(id)}
+      onClick={() => selectOption(id)}
+      className={`flex min-h-11 w-full items-center justify-between gap-3 rounded-lg px-3 py-2 text-left text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary ${child ? "pl-6" : ""} ${isSelected(id) ? "bg-primary-mist font-semibold text-primary" : "text-ink hover:bg-paper-soft"}`}
     >
-      <span className="min-w-0 break-words">{name}</span>
-      {value === id ? <span aria-hidden="true" className="shrink-0">✓</span> : null}
+      <span className="flex min-w-0 items-center gap-2">
+        {id !== "all" ? <CategoryIcon category={categoryMap.get(Number(id))} categoryMap={categoryMap} size="sm" /> : null}
+        <span className="min-w-0 break-words">{name}</span>
+      </span>
+      {isSelected(id) ? <span aria-hidden="true" className="shrink-0">✓</span> : null}
     </button>
   );
 
@@ -46,6 +78,7 @@ export function CategoryPicker({ label, value, disabled, groups, onChange, purpo
     <>
       <button
         type="button"
+        ref={trigger}
         aria-label={label}
         aria-haspopup="dialog"
         aria-expanded={open}
@@ -59,16 +92,18 @@ export function CategoryPicker({ label, value, disabled, groups, onChange, purpo
       {open ? createPortal(
         <dialog
           ref={dialog}
-          aria-label="Seleccionar categoría"
+          onKeyDown={event => event.stopPropagation()}
+          aria-label={props.multiple ? "Seleccionar categorías" : "Seleccionar categoría"}
           onClose={() => setOpen(false)}
           onClick={event => { event.stopPropagation(); if (event.target === event.currentTarget) setOpen(false); }}
           className="fixed inset-0 m-auto max-h-[65dvh] w-[calc(100%-2rem)] max-w-sm overflow-hidden rounded-2xl border border-outline bg-white p-0 text-ink shadow-xl backdrop:bg-black/35 sm:max-h-[min(65dvh,30rem)]"
         >
           <div className="flex max-h-[65dvh] flex-col sm:max-h-[min(65dvh,30rem)]">
             <div className="flex shrink-0 items-center justify-between gap-3 border-b border-outline px-4 py-2">
-              <h2 className="text-base font-semibold">Seleccionar categoría</h2>
-              <button type="button" onClick={() => setOpen(false)} className="min-h-11 px-2 text-sm font-medium text-primary">Cerrar</button>
+              <h2 className="text-base font-semibold">{props.multiple ? "Seleccionar categorías" : "Seleccionar categoría"}</h2>
+              <button type="button" onClick={() => setOpen(false)} className="min-h-11 px-2 text-sm font-medium text-primary">{props.multiple ? "Listo" : "Cerrar"}</button>
             </div>
+            {props.multiple && <p className="border-b border-outline bg-paper-soft px-4 py-3 text-sm text-muted">Puedes combinar varias categorías. Elegir una principal incluye sus subcategorías.</p>}
             <div className="min-h-0 overflow-y-auto overscroll-contain p-2">
               {purpose === "filter" ? option("all", "Todas las categorías") : null}
               {option(purpose === "filter" ? "uncategorized" : "", "Sin categoría")}

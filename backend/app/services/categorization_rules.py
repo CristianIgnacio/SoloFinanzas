@@ -36,14 +36,21 @@ def _validate_target_category(session: Session, category_id: int) -> None:
 
 
 def create_categorization_rule(
-    session: Session, payload: CategorizationRuleCreate
+    session: Session, payload: CategorizationRuleCreate,
+    *, origin: str = "user", transaction_type: str | None = None,
 ) -> CategorizationRule:
     """Crea una regla para asignar categorias por palabra clave."""
     _validate_target_category(session, payload.category_id)
+    if payload.match_type not in ("exact", "contains"):
+        raise InvalidCategorizationRuleError("El tipo de coincidencia no es válido.")
     rule = CategorizationRuleModel(
         keyword=_normalize_keyword(payload.keyword),
         category_id=payload.category_id,
         priority=payload.priority,
+        match_type=payload.match_type,
+        origin=origin,
+        is_active=True,
+        transaction_type=transaction_type,
     )
     session.add(rule)
     session.commit()
@@ -83,6 +90,8 @@ def update_categorization_rule(
     keyword: str | None = None,
     category_id: int | None = None,
     priority: int | None = None,
+    match_type: str | None = None,
+    is_active: bool | None = None,
 ) -> CategorizationRule | None:
     """Actualiza campos opcionales de una regla existente."""
     rule = session.exec(
@@ -96,6 +105,14 @@ def update_categorization_rule(
             rule.category_id = category_id
         if priority is not None:
             rule.priority = priority
+        if match_type is not None:
+            if match_type not in ("exact", "contains"):
+                raise InvalidCategorizationRuleError("El tipo de coincidencia no es válido.")
+            rule.match_type = match_type
+        if is_active is not None:
+            rule.is_active = is_active
+        if any(value is not None for value in (keyword, category_id, priority, match_type)):
+            rule.origin = "user"
         session.add(rule)
         session.commit()
         session.refresh(rule)
@@ -110,6 +127,8 @@ def delete_categorization_rule(session: Session, rule_id: int) -> bool:
     ).first()
     if rule:
         try:
+            from app.services.category_patterns import suppress_deleted_rule
+            suppress_deleted_rule(session, rule)
             applied_transactions = session.exec(
                 select(TransactionModel).where(
                     TransactionModel.rule_id_applied == rule_id

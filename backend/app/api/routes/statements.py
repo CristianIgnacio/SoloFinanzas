@@ -272,6 +272,7 @@ async def import_reviewed_pdf_statement(
             period_month=preview.period_month,
             candidates=reviewed_candidates,
             category_overrides=category_overrides,
+            review_decisions={item.source_id or item.source_line.strip(): item for item in reviews},
         )
     except DuplicateStatementError as error:
         raise HTTPException(status_code=409, detail={"code": "DUPLICATE_STATEMENT", "message": str(error), "action": "Revisa los movimientos ya importados en esta cuenta."}) from error
