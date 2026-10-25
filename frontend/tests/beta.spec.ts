@@ -1715,3 +1715,73 @@ test("tablas de cuentas adaptan columnas y paginación al móvil", async ({ page
     }
   }
 });
+
+test("barra móvil prioriza agregar cartolas y abre el registro de movimientos", async ({ page }, info) => {
+  await mockApi(page);
+  let savedDescription = "";
+  await page.route("**/api/v1/cash-transactions", route => {
+    const payload = route.request().postDataJSON();
+    savedDescription = payload.description;
+    return route.fulfill({ status: 201, json: { ...payload, id: 99, account_id: 3, origin: "manual", amount_clp: -payload.amount_clp } });
+  });
+  await page.addInitScript(value => localStorage.setItem("sb-demo-auth-token", JSON.stringify(value)), session(ownerA));
+  await page.goto("/app/accounts");
+  if (info.project.name === "desktop") {
+    await expect(page.getByRole("navigation", { name: "Navegación móvil", exact: true })).not.toBeVisible();
+    await expect(page.getByRole("navigation", { name: "Navegación principal", exact: true }).getByRole("link")).toHaveText(["Inicio", "Movimientos", "Análisis", "Cuentas"]);
+    await expect(page.getByRole("link", { name: "Importar cartola", exact: true })).toBeVisible();
+    return;
+  }
+  for (const width of [320, 390]) {
+    await page.setViewportSize({ width, height: 740 });
+    const nav = page.getByRole("navigation", { name: "Navegación móvil", exact: true });
+    await expect(nav.locator("a, button")).toHaveText(["Inicio", "Movs.", "Agregar", "Análisis", "Más"]);
+    const add = nav.getByRole("button", { name: "Agregar", exact: true });
+    await add.click();
+    const sheet = page.getByRole("dialog", { name: "¿Qué quieres agregar?", exact: true });
+    await expect(sheet).toBeVisible();
+    await expect(add).toHaveAttribute("aria-expanded", "true");
+    await expect(sheet.getByRole("button", { name: "Cerrar" })).toBeFocused();
+    await page.keyboard.press("Shift+Tab");
+    await expect(sheet.getByRole("link", { name: /^Agregar movimiento/ })).toBeFocused();
+    await page.keyboard.press("Tab");
+    await expect(sheet.getByRole("button", { name: "Cerrar" })).toBeFocused();
+    for (const option of await sheet.getByRole("link").all()) {
+      await expect(option).toBeInViewport();
+      expect((await option.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+    }
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
+    await page.screenshot({ path: info.outputPath(`add-menu-${width}.png`) });
+    await page.keyboard.press("Escape");
+    await expect(sheet).toHaveCount(0);
+    await expect(add).toBeFocused();
+    await add.click();
+    await page.mouse.click(5, 5);
+    await expect(sheet).toHaveCount(0);
+    await nav.getByRole("button", { name: "Más", exact: true }).click();
+    const more = page.getByRole("dialog", { name: "Más opciones", exact: true });
+    await more.getByRole("link", { name: "Cuentas", exact: true }).click();
+    await expect(page).toHaveURL(/\/app\/accounts$/);
+    await expect(more).toHaveCount(0);
+    await add.click();
+    await sheet.getByRole("link", { name: /^Agregar cartola/ }).click();
+    await expect(page).toHaveURL(/\/app\/import$/);
+    await expect(sheet).toHaveCount(0);
+    await add.click();
+    await sheet.getByRole("link", { name: /^Agregar movimiento/ }).click();
+    const form = page.getByRole("dialog", { name: "Registrar movimiento", exact: true });
+    await expect(form).toBeVisible();
+    await expect(page).toHaveURL(/\/app\/transactions$/);
+    await form.getByRole("button", { name: "Cancelar", exact: true }).click();
+    await add.click();
+    await sheet.getByRole("link", { name: /^Agregar movimiento/ }).click();
+    await expect(form).toBeVisible();
+    await form.getByLabel("Monto en pesos").fill("3500");
+    await form.getByLabel("Descripción").fill(`Desde agregar ${width}`);
+    await form.getByRole("button", { name: "Registrar", exact: true }).click();
+    await expect(form).toHaveCount(0);
+    expect(savedDescription).toBe(`Desde agregar ${width}`);
+    await page.reload();
+    await expect(form).toHaveCount(0);
+  }
+});

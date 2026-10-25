@@ -76,7 +76,7 @@ function formatDateLabel(date: string) {
 }
 
 export function TransactionsPage() {
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const location = useLocation();
   const statementId = searchParams.get("statement_id")
     ? Number(searchParams.get("statement_id"))
@@ -149,6 +149,15 @@ export function TransactionsPage() {
   const noticeSequenceRef = useRef(0);
   const latestCategoryActionRef = useRef(0);
   const latestCategoryRefreshRef = useRef(0);
+
+  useEffect(() => {
+    if (searchParams.get("new_movement") !== "1" || !cashAccount) return;
+    setEditingCashTransaction(null);
+    setCashFormOpen(true);
+    const nextParams = new URLSearchParams(searchParams);
+    nextParams.delete("new_movement");
+    setSearchParams(nextParams, { replace: true });
+  }, [searchParams, setSearchParams, cashAccount]);
 
   const toggleTransactionDetails = (id: number) => {
     setExpandedTransactionIds((current) => {

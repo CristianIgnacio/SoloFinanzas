@@ -1,7 +1,7 @@
 import { useAuth } from "../auth/AuthProvider";
 import { supabase } from "../lib/supabase";
 import { NavLink, Link, Outlet, useLocation } from "react-router-dom";
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import {
   BankIcon,
@@ -10,6 +10,8 @@ import {
   LogoMark,
   MoreIcon,
   PdfIcon,
+  PlusIcon,
+  WalletIcon,
   ReportIcon,
   SignOutIcon,
   TrendLineIcon,
@@ -35,11 +37,13 @@ export function RootLayout() {
   const location = useLocation();
   const headerRef = useRef<HTMLElement>(null);
   const { session } = useAuth();
-  const [moreOpen, setMoreOpen] = useState(false);
+  const [mobileMenu, setMobileMenu] = useState<"more" | "add" | null>(null);
+  const moreOpen = mobileMenu === "more";
+  const addButtonRef = useRef<HTMLButtonElement>(null);
   const moreButtonRef = useRef<HTMLButtonElement>(null);
-  const moreDialogRef = useRef<HTMLDivElement>(null);
+  const mobileDialogRef = useRef<HTMLDivElement>(null);
   const name = session?.user.user_metadata.full_name || session?.user.email || "Mi espacio";
-  const moreIsActive = ["/app/categories", "/app/import", "/app/profile"].some((path) =>
+  const moreIsActive = ["/app/accounts", "/app/categories", "/app/profile"].some((path) =>
     location.pathname.startsWith(path),
   );
 
@@ -86,14 +90,18 @@ export function RootLayout() {
     );
 
   useEffect(() => {
-    setMoreOpen(false);
-  }, [location.pathname]);
+    setMobileMenu(null);
+  }, [location.key]);
 
   useEffect(() => {
-    if (!moreOpen) return;
+    if (!mobileMenu) return;
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
-    const dialog = moreDialogRef.current;
+    const dialog = mobileDialogRef.current;
+    const trigger = mobileMenu === "add" ? addButtonRef.current : moreButtonRef.current;
+    const desktop = window.matchMedia("(min-width: 1024px)");
+    const closeOnDesktop = () => { if (desktop.matches) setMobileMenu(null); };
+    desktop.addEventListener("change", closeOnDesktop);
     const focusable = () => Array.from(
       dialog?.querySelectorAll<HTMLElement>('a[href], button:not([disabled])') ?? [],
     );
@@ -102,7 +110,7 @@ export function RootLayout() {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         event.preventDefault();
-        setMoreOpen(false);
+        setMobileMenu(null);
         return;
       }
       if (event.key !== "Tab") return;
@@ -122,9 +130,10 @@ export function RootLayout() {
     return () => {
       document.body.style.overflow = previousOverflow;
       document.removeEventListener("keydown", handleKeyDown);
-      moreButtonRef.current?.focus();
+      desktop.removeEventListener("change", closeOnDesktop);
+      trigger?.focus();
     };
-  }, [moreOpen]);
+  }, [mobileMenu]);
 
   return (
     <div className="min-h-screen bg-paper text-ink lg:grid lg:grid-cols-[17.5rem_minmax(0,1fr)]">
@@ -219,7 +228,15 @@ export function RootLayout() {
 
       <nav aria-label="Navegación móvil" className="fixed inset-x-0 bottom-0 z-40 border-t border-outline/80 bg-white/95 pb-[env(safe-area-inset-bottom)] shadow-[0_-8px_24px_rgba(21,35,33,0.08)] backdrop-blur lg:hidden">
         <div className="mx-auto grid min-h-16 max-w-[1280px] grid-cols-5 items-stretch px-1">
-          {navItems.map(({ to, label, icon: Icon }) => (
+          {navItems.filter(item => item.to !== "/app/accounts").map(({ to, label, icon: Icon }, index) => (
+            <Fragment key={to}>
+              {index === 2 ? (
+                <button ref={addButtonRef} type="button" aria-haspopup="dialog" aria-expanded={mobileMenu === "add"} aria-controls="mobile-menu" onClick={() => setMobileMenu("add")}
+                  className="flex min-h-16 min-w-0 flex-col items-center justify-center gap-0.5 text-xs font-semibold text-primary focus-visible:z-10">
+                  <span className="flex h-9 w-12 items-center justify-center rounded-xl bg-primary text-white shadow-sm"><PlusIcon className="h-5 w-5" /></span>
+                  <span>Agregar</span>
+                </button>
+              ) : null}
             <NavLink
               key={to}
               to={to}
@@ -235,13 +252,15 @@ export function RootLayout() {
                 <span className="max-w-full truncate">{label === "Movimientos" ? "Movs." : label}</span>
               </>}
             </NavLink>
+            </Fragment>
           ))}
           <button
             ref={moreButtonRef}
             type="button"
             aria-expanded={moreOpen}
+            aria-controls="mobile-menu"
             aria-haspopup="dialog"
-            onClick={() => setMoreOpen(true)}
+            onClick={() => setMobileMenu("more")}
             className={cn(
               "flex min-h-16 w-full min-w-0 flex-col items-center justify-center gap-1 px-0 text-xs font-medium transition-colors focus-visible:z-10",
               moreIsActive || moreOpen ? "text-primary" : "text-muted hover:text-ink",
@@ -253,35 +272,52 @@ export function RootLayout() {
         </div>
       </nav>
 
-      {moreOpen ? (
+      {mobileMenu ? (
         <div
           className="fixed inset-0 z-50 flex items-end bg-ink/40 backdrop-blur-[2px] lg:hidden"
           onMouseDown={(event) => {
-            if (event.target === event.currentTarget) setMoreOpen(false);
+            if (event.target === event.currentTarget) setMobileMenu(null);
           }}
         >
           <div
-            ref={moreDialogRef}
+            ref={mobileDialogRef}
+            id="mobile-menu"
             role="dialog"
             aria-modal="true"
-            aria-labelledby="mobile-more-title"
-            className="surface-card w-full rounded-b-none rounded-t-[1.75rem] p-5 pb-[calc(1.25rem+env(safe-area-inset-bottom))]"
+            aria-labelledby="mobile-menu-title"
+            className="surface-card max-h-[90dvh] w-full overflow-y-auto rounded-b-none rounded-t-[1.75rem] p-5 pb-[calc(1.25rem+env(safe-area-inset-bottom))]"
           >
             <div className="mx-auto mb-4 h-1 w-10 rounded-full bg-outline" />
             <div className="mb-4 flex items-center justify-between">
-              <h2 id="mobile-more-title" className="text-xl font-semibold">Más opciones</h2>
+              <h2 id="mobile-menu-title" className="text-xl font-semibold">{mobileMenu === "add" ? "¿Qué quieres agregar?" : "Más opciones"}</h2>
               <button
                 type="button"
-                onClick={() => setMoreOpen(false)}
-                className="rounded-full px-3 py-2 text-sm font-medium text-muted hover:bg-paper-soft hover:text-ink"
+                onClick={() => setMobileMenu(null)}
+                className="min-h-11 shrink-0 rounded-full px-3 py-2 text-sm font-medium text-muted hover:bg-paper-soft hover:text-ink"
               >
                 Cerrar
               </button>
             </div>
+            {mobileMenu === "add" ? (
+              <div className="space-y-3">
+                <Link to="/app/import" onClick={() => setMobileMenu(null)} className="flex items-center gap-4 rounded-2xl border border-primary/20 bg-primary-mist p-4 transition hover:border-primary/40">
+                  <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-primary text-white"><PdfIcon className="h-5 w-5" /></span>
+                  <span className="min-w-0"><span className="block font-semibold text-primary">Agregar cartola</span><span className="mt-1 block text-sm text-muted">Importa los movimientos de tu cuenta.</span></span>
+                </Link>
+                <Link to="/app/transactions?new_movement=1" onClick={() => setMobileMenu(null)} className="flex items-center gap-4 rounded-2xl border border-outline p-4 transition hover:bg-paper-soft">
+                  <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-paper-soft text-primary"><WalletIcon className="h-5 w-5" /></span>
+                  <span className="min-w-0"><span className="block font-semibold">Agregar movimiento</span><span className="mt-1 block text-sm text-muted">Registra un ingreso o gasto en efectivo.</span></span>
+                </Link>
+              </div>
+            ) : (
             <div className="space-y-1">
+              <NavLink to="/app/accounts" onClick={() => setMobileMenu(null)} className={({ isActive }) => cn(
+                "flex min-h-12 items-center gap-3 rounded-xl px-3 font-medium",
+                isActive ? "bg-primary-mist text-primary" : "text-ink hover:bg-paper-soft",
+              )}><BankIcon className="h-5 w-5" /> Cuentas</NavLink>
               <NavLink
                 to={organizationItem.to}
-                onClick={() => setMoreOpen(false)}
+                onClick={() => setMobileMenu(null)}
                 className={({ isActive }) => cn(
                   "flex min-h-12 items-center gap-3 rounded-xl px-3 font-medium",
                   isActive ? "bg-primary-mist text-primary" : "text-ink hover:bg-paper-soft",
@@ -290,18 +326,8 @@ export function RootLayout() {
                 <OrganizationIcon className="h-5 w-5" /> Categorías
               </NavLink>
               <NavLink
-                to="/app/import"
-                onClick={() => setMoreOpen(false)}
-                className={({ isActive }) => cn(
-                  "flex min-h-12 items-center gap-3 rounded-xl px-3 font-medium",
-                  isActive ? "bg-primary-mist text-primary" : "text-ink hover:bg-paper-soft",
-                )}
-              >
-                <PdfIcon className="h-5 w-5" /> Importar cartola
-              </NavLink>
-              <NavLink
                 to="/app/profile"
-                onClick={() => setMoreOpen(false)}
+                onClick={() => setMobileMenu(null)}
                 className={({ isActive }) => cn(
                   "flex min-h-12 items-center gap-3 rounded-xl px-3 font-medium",
                   isActive ? "bg-primary-mist text-primary" : "text-ink hover:bg-paper-soft",
@@ -317,6 +343,7 @@ export function RootLayout() {
                 <SignOutIcon className="h-5 w-5" /> Salir
               </button>
             </div>
+            )}
           </div>
         </div>
       ) : null}
