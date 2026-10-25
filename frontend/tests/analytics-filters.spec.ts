@@ -469,6 +469,8 @@ test("el análisis se adapta a 320 y 390 píxeles sin ocultar acciones móviles"
     await page.getByRole("checkbox", { name: "Seleccionar movimiento Compra semanal", exact: true }).check();
     await bulk.getByRole("button", { name: "Incluir en el análisis", exact: true }).click();
     await expect(page.getByRole("button", { name: "Omitir Compra semanal del análisis", exact: true })).toBeVisible();
+    // Sorting can move this row below the viewport after the bulk action.
+    await page.getByRole("cell", { name: "Compra semanal", exact: true }).locator("..").scrollIntoViewIfNeeded();
     await scrollRegion.evaluate(element => { element.scrollLeft = element.scrollWidth; });
     const omitButton = page.getByRole("button", { name: "Omitir Compra semanal del análisis", exact: true });
     await expect(omitButton).toBeInViewport();
