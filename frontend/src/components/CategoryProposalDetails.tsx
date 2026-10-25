@@ -11,7 +11,7 @@ export function CategoryProposalDetails({ proposal, categories, expanded = false
     <details className="text-muted" open={expanded || undefined}>
       <summary className="cursor-pointer text-primary">Ver ejemplos y alcance</summary>
       <p className="mt-2">{proposal.match_type === "exact" ? "Descripción exacta" : "Contiene"}: «{proposal.pattern}» · {proposal.transaction_type === "expense" ? "Salidas" : "Entradas"} de dinero.</p>
-      <p>{proposal.decision_count} decisiones independientes. {proposal.match_count} movimientos actuales coinciden; no se modificarán.</p>
+      <p>{proposal.match_count} movimientos actuales coinciden; no se modificarán.</p>
       <ul className="mt-2 space-y-1">{proposal.examples.map(example => <li key={example.transaction_id}>{example.date} · {example.description} → {name(example.category_id)}</li>)}</ul>
     </details>
   </div>;

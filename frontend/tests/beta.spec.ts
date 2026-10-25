@@ -339,7 +339,7 @@ for (const action of ["snooze", "reject"] as const) {
     // The unrelated older proposal is first in this mocked response.
     await modal.getByRole("button", { name: "Cerrar propuesta" }).click();
     await expect(modal.getByText(/3 movimientos de «comercio barrio»/)).toBeVisible();
-    await modal.getByRole("button", { name: action === "snooze" ? "Más adelante" : "No proponer este patrón", exact: true }).click();
+    await modal.getByRole("button", { name: action === "snooze" ? "Más adelante" : "No volver a sugerir", exact: true }).click();
     await expect(modal).toHaveCount(0);
     expect(state.actions).toEqual([action]);
     await page.reload();
@@ -500,7 +500,7 @@ test("subcategorías se ordenan con flechas en móvil y arrastre en escritorio",
   await expect.poll(listNames).toEqual(["Cafeterías", "Almacén", "Restaurantes y comidas fuera de casa"]);
 });
 
-test("categorías en móvil abre reglas e historial sin perder la posición del catálogo", async ({ page }, info) => {
+test("categorías en móvil abre reglas y propuestas sin perder la posición del catálogo", async ({ page }, info) => {
   test.skip(info.project.name !== "mobile", "Navegación del panel móvil");
   await mockApi(page);
   const base = { type: "expense", parent_id: null as number | null, is_default: true,
@@ -512,7 +512,7 @@ test("categorías en móvil abre reglas e historial sin perder la posición del 
   ];
   let rules = [{ id: 1, category_id: 1, keyword: "SUPERMERCADO", match_type: "contains", priority: 100, is_active: true, origin: "personal" }];
   const pattern = (id: number, category_id: number, name: string) => ({ id, category_id, pattern: name,
-    version: 1, state: "accepted", match_type: "exact", transaction_type: "expense", evidence_count: 3,
+    version: 1, state: "pending", match_type: "exact", transaction_type: "expense", evidence_count: 3,
     decision_count: 3, match_count: 3, reason: "Regla aceptada", examples: [],
     history: [{ state: "accepted", reason: "Decisión guardada", at: "2026-10-17T12:00:00Z" }] });
   await page.route("**/api/v1/categories?*", route => route.fulfill({ json: categories }));
@@ -544,12 +544,12 @@ test("categorías en móvil abre reglas e historial sin perder la posición del 
   await page.getByRole("heading", { name: "Alimentación", exact: true }).click();
   await expect(page.getByRole("dialog")).toHaveCount(0);
   await expect(page.getByRole("button", { name: /^Alimentación Gasto/ })).toHaveCount(0);
-  await expect(page.getByRole("button", { name: "Ver reglas e historial de Alimentación" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Ver reglas y propuestas de Alimentación" })).toHaveCount(0);
   const trigger = page.getByRole("button", { name: "Más acciones de Alimentación" });
   await trigger.scrollIntoViewIfNeeded();
   const scrollBefore = await page.evaluate(() => scrollY);
   await trigger.click();
-  await page.getByRole("menu", { name: "Acciones de Alimentación" }).getByRole("menuitem", { name: "Ver reglas e historial" }).click();
+  await page.getByRole("menu", { name: "Acciones de Alimentación" }).getByRole("menuitem", { name: "Ver reglas y propuestas" }).click();
   const dialog = page.getByRole("dialog", { name: "Alimentación", exact: true });
   await expect(dialog).toBeVisible();
   await expect(dialog.getByText("SUPERMERCADO", { exact: true })).toBeVisible();
@@ -557,39 +557,44 @@ test("categorías en móvil abre reglas e historial sin perder la posición del 
   await dialog.getByRole("button", { name: "Agregar regla", exact: true }).click();
   await expect(dialog.getByText("Regla creada correctamente.")).toBeVisible();
   await expect(dialog.getByText("FERIA", { exact: true })).toBeVisible();
-  await dialog.getByRole("tab", { name: "Historial", exact: true }).click();
-  await expect(dialog.getByText("Supermercado del barrio · Regla aceptada", { exact: true })).toBeVisible();
-  await expect(dialog.getByText("Restaurante del centro · Regla aceptada", { exact: true })).toHaveCount(0);
-  await dialog.getByText("Ver historial", { exact: true }).click();
-  await expect(dialog.getByText(/Decisión guardada/)).toBeVisible();
-  await dialog.screenshot({ path: info.outputPath("categoria-historial-mobile.png") });
+  await dialog.getByRole("tab", { name: "Propuestas", exact: true }).click();
+  await expect(dialog.getByText(/3 movimientos de «Supermercado del barrio»/)).toBeVisible();
+  await expect(dialog.getByText(/3 movimientos de «Restaurante del centro»/)).toHaveCount(0);
+  await expect(dialog.getByText("Ver historial", { exact: true })).toHaveCount(0);
+  await expect(dialog.getByText(/Decisión guardada/)).toHaveCount(0);
+  await dialog.getByRole("tab", { name: "Propuestas", exact: true }).focus();
+  await page.keyboard.press("ArrowLeft");
+  await expect(dialog.getByRole("tab", { name: "Reglas", exact: true })).toBeFocused();
+  await page.keyboard.press("ArrowRight");
+  await expect(dialog.getByRole("tab", { name: "Propuestas", exact: true })).toBeFocused();
+  await dialog.screenshot({ path: info.outputPath("categoria-propuestas-mobile.png") });
   await page.keyboard.press("Escape");
   await expect(dialog).not.toBeVisible();
   await expect(trigger).toBeFocused();
   expect(Math.abs(await page.evaluate(() => scrollY) - scrollBefore)).toBeLessThan(2);
   await trigger.click();
-  await page.getByRole("menu", { name: "Acciones de Alimentación" }).getByRole("menuitem", { name: "Ver reglas e historial" }).click();
+  await page.getByRole("menu", { name: "Acciones de Alimentación" }).getByRole("menuitem", { name: "Ver reglas y propuestas" }).click();
   await expect(dialog.getByRole("tab", { name: "Reglas", exact: true })).toHaveAttribute("aria-selected", "true");
   await dialog.getByRole("button", { name: "Cerrar", exact: true }).click();
   await page.getByText("Restaurantes", { exact: true }).click();
   await expect(page.getByRole("dialog")).toHaveCount(0);
   await expect(page.getByRole("button", { name: /^Restaurantes 24 movimientos/ })).toHaveCount(0);
   await page.getByRole("button", { name: "Más acciones de Restaurantes" }).click();
-  await page.getByRole("menu", { name: "Acciones de Restaurantes" }).getByRole("menuitem", { name: "Ver reglas e historial" }).click();
+  await page.getByRole("menu", { name: "Acciones de Restaurantes" }).getByRole("menuitem", { name: "Ver reglas y propuestas" }).click();
   const childDialog = page.getByRole("dialog", { name: "Alimentación > Restaurantes", exact: true });
   await expect(childDialog).toBeVisible();
   await expect(childDialog.getByText("Sin reglas asociadas.")).toBeVisible();
   await expect(childDialog.getByPlaceholder("Palabra o comercio")).toHaveValue("");
   await childDialog.getByRole("button", { name: "Cerrar", exact: true }).click();
-  await page.getByRole("button", { name: "Historial general", exact: true }).click();
-  const general = page.getByRole("dialog", { name: "Historial y aprendizaje", exact: true });
-  await expect(general.getByText("Supermercado del barrio · Regla aceptada", { exact: true })).toBeVisible();
-  await expect(general.getByText("Restaurante del centro · Regla aceptada", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Propuestas", exact: true }).click();
+  const general = page.getByRole("dialog", { name: "Propuestas de reglas", exact: true });
+  await expect(general.getByText(/3 movimientos de «Supermercado del barrio»/)).toBeVisible();
+  await expect(general.getByText(/3 movimientos de «Restaurante del centro»/)).toBeVisible();
   await general.getByRole("button", { name: "Cerrar", exact: true }).click();
   await page.screenshot({ path: info.outputPath("categoria-acciones-mobile.png") });
 });
 
-test("aprendizaje permite posponer, reactivar, rechazar y aceptar sin cambiar el historial", async ({ page }, info) => {
+test("propuestas permite posponer, recuperar, descartar y aceptar sin mostrar registros internos", async ({ page }, info) => {
   await mockApi(page);
   let state = "pending";
   let version = 1;
@@ -602,7 +607,13 @@ test("aprendizaje permite posponer, reactivar, rechazar y aceptar sin cambiar el
   await page.route("**/api/v1/categories?*", route => route.fulfill({ json: [
     { id: 1, name: "Compras", type: "expense", parent_id: null, is_active: true, sort_order: 1 },
   ] }));
-  await page.route("**/api/v1/categorization-rules/patterns", route => route.fulfill({ json: [pattern()] }));
+  const internalPatterns = ["observing", "conflict", "inactive", "covered", "accepted"].map((state, index) => ({
+    ...pattern(), id: index + 20, state, pattern: `registro interno ${state}`, reason: "Detalle técnico interno",
+  }));
+  await page.route("**/api/v1/categorization-rules/patterns", route => route.fulfill({ json: [pattern(), ...internalPatterns] }));
+  await page.route("**/api/v1/categorization-rules", route => route.fulfill({ json: state === "accepted" ? [
+    { id: 17, category_id: 1, keyword: "comercio barrio", match_type: "exact", priority: 100, is_active: true, origin: "accepted" },
+  ] : [] }));
   await page.route("**/api/v1/categorization-rules/patterns/7/decision", route => {
     const body = route.request().postDataJSON();
     expect(body.expected_version).toBe(version);
@@ -613,22 +624,27 @@ test("aprendizaje permite posponer, reactivar, rechazar y aceptar sin cambiar el
   });
   await page.addInitScript(value => localStorage.setItem("sb-demo-auth-token", JSON.stringify(value)), session(ownerA));
   await page.goto("/app/categories");
-  if (info.project.name === "mobile") await page.getByRole("button", { name: "Historial general" }).click();
+  if (info.project.name === "mobile") await page.getByRole("button", { name: "Propuestas" }).click();
   await expect(page.getByRole("button", { name: "Crear regla", exact: true })).toBeVisible();
   expect(actions).toEqual([]);
+  await expect(page.getByText(/registro interno|Detalle técnico interno|Decisión guardada|Patrones e historial/)).toHaveCount(0);
+  await expect(page.getByText("Sugerencias descartadas y pospuestas", { exact: true })).toHaveCount(0);
   await page.getByText("Ver ejemplos y alcance", { exact: true }).click();
   await expect(page.getByText(/7 movimientos actuales coinciden; no se modificarán/)).toBeVisible();
   await page.getByRole("button", { name: "Más adelante" }).click();
   await expect(page.getByRole("button", { name: "Crear regla", exact: true })).toHaveCount(0);
-  if (info.project.name !== "mobile") await page.getByText("Patrones e historial (1)", { exact: true }).click();
-  await page.getByRole("button", { name: "Volver a evaluar" }).click();
-  await page.getByRole("button", { name: "No proponer este patrón", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Recuperar sugerencia" })).not.toBeVisible();
+  await page.getByText("Sugerencias descartadas y pospuestas", { exact: true }).click();
+  await page.getByRole("button", { name: "Recuperar sugerencia" }).click();
+  await page.getByRole("button", { name: "No volver a sugerir", exact: true }).click();
   await page.reload();
-  if (info.project.name === "mobile") await page.getByRole("button", { name: "Historial general" }).click();
+  if (info.project.name === "mobile") await page.getByRole("button", { name: "Propuestas" }).click();
   await expect(page.getByRole("button", { name: "Crear regla", exact: true })).toHaveCount(0);
-  if (info.project.name !== "mobile") await page.getByText("Patrones e historial (1)", { exact: true }).click();
-  await expect(page.getByText("comercio barrio · Rechazada", { exact: true })).toBeVisible();
-  await page.getByRole("button", { name: "Volver a evaluar" }).click();
+  await expect(page.getByRole("button", { name: "Recuperar sugerencia" })).not.toBeVisible();
+  await page.getByText("Sugerencias descartadas y pospuestas", { exact: true }).click();
+  await expect(page.getByText("Compras · Salidas · Descartada", { exact: true })).toBeVisible();
+  await page.locator("#personalizacion").screenshot({ path: info.outputPath("dismissed-suggestions.png") });
+  await page.getByRole("button", { name: "Recuperar sugerencia" }).click();
   await page.getByText("Ver ejemplos y alcance", { exact: true }).click();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   await page.locator("#personalizacion").screenshot({ path: info.outputPath("automatic-learning.png") });
@@ -636,6 +652,19 @@ test("aprendizaje permite posponer, reactivar, rechazar y aceptar sin cambiar el
   await expect(page.getByText("Regla creada para futuras importaciones.", { exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "Crear regla", exact: true })).toHaveCount(0);
   expect(actions).toEqual(["snooze", "reactivate", "reject", "reactivate", "accept"]);
+  await expect(page.getByText("Sugerencias descartadas y pospuestas", { exact: true })).toHaveCount(0);
+  await expect(page.getByText(/registro interno|Detalle técnico interno|Decisión guardada/)).toHaveCount(0);
+  if (info.project.name === "mobile") {
+    await page.getByRole("button", { name: "Cerrar", exact: true }).click();
+    await page.getByRole("button", { name: "Más acciones de Compras", exact: true }).click();
+    await page.getByRole("menuitem", { name: "Ver reglas y propuestas", exact: true }).click();
+  } else {
+    await page.getByRole("button", { name: /^Compras Gasto/ }).click();
+  }
+  await expect(page.getByText("comercio barrio", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Pausar", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Editar", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Eliminar regla comercio barrio", exact: true })).toBeVisible();
 });
 
 test("inicio abre pendientes del periodo y permite categorizar y deshacer", async ({ page }) => {
@@ -1648,6 +1677,7 @@ test("retiro importado se vincula con Efectivo y se puede deshacer", async ({ pa
   await expect(page.getByText("Giro en cajero")).toBeVisible();
 });
 
+
 test("tablas de cuentas adaptan columnas y paginación al móvil", async ({ page }, info) => {
   await mockApi(page);
   await page.route("**/api/v1/statements?account_id=1", route => route.fulfill({ json: [{
@@ -1715,6 +1745,7 @@ test("tablas de cuentas adaptan columnas y paginación al móvil", async ({ page
     }
   }
 });
+
 
 test("barra móvil prioriza agregar cartolas y abre el registro de movimientos", async ({ page }, info) => {
   await mockApi(page);

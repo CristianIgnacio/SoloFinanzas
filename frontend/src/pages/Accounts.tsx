@@ -690,7 +690,7 @@ export function AccountsPage() {
 
           <AccountActivitySummary
             compactOnDesktop
-            description="Resumen de todo el historial importado. Ingresos y gastos excluyen transferencias internas; la variación registrada incluye todos los movimientos y no es el saldo disponible del banco."
+            description="" //Resumen de todo el historial importado. Ingresos y gastos excluyen transferencias internas; la variación registrada incluye todos los movimientos y no es el saldo disponible del banco."
             firstLabel="Variación registrada"
             firstValue={detailsReady ? formatCurrency(summary.net) : "—"}
             firstIcon={<BankIcon className="h-5 w-5" />}

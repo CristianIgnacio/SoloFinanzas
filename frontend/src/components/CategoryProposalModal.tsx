@@ -35,7 +35,7 @@ export function CategoryProposalModal({ proposal, categories, onClose, onDecided
     try {
       await CategoryService.decidePattern(currentProposal.id, action, currentProposal.version);
       onDecided({ accept: "Regla creada para futuras importaciones.",
-        snooze: "Propuesta pospuesta durante 30 días.", reject: "No volveremos a proponer este patrón." }[action]);
+        snooze: "Propuesta pospuesta durante 30 días.", reject: "No volveremos a mostrar esta sugerencia." }[action]);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "No se pudo guardar la decisión. Puedes volver a intentarlo.");
       // Recheck a stale proposal before allowing another explicit decision.
@@ -81,8 +81,8 @@ export function CategoryProposalModal({ proposal, categories, onClose, onDecided
       <Button disabled={busy} onClick={() => void decide("accept")}>{busy ? "Guardando…" : "Crear regla"}</Button>
       <Button tone="secondary" disabled={busy} onClick={() => void decide("snooze")}>Más adelante</Button>
       <button type="button" disabled={busy} onClick={() => void decide("reject")}
-        className="min-h-11 text-sm text-muted underline disabled:opacity-50">No proponer este patrón</button>
-      <p className="w-full text-xs text-muted">«Más adelante» pospone la propuesta durante 30 días. Si la rechazas, podrás reactivarla en Personalización.</p>
+        className="min-h-11 text-sm text-muted underline disabled:opacity-50">No volver a sugerir</button>
+      <p className="w-full text-xs text-muted">«Más adelante» pospone la propuesta durante 30 días. Puedes recuperar las sugerencias descartadas o pospuestas en Categorías → Propuestas.</p>
     </div> : null}
   </dialog>, document.body);
 }

@@ -149,7 +149,7 @@ function CategoryActions({ category, canMerge, onCreateSubcategory, onViewRules,
               triggerRef.current?.focus({ preventScroll: true });
               onViewRules(category);
             }} className="block w-full rounded-lg px-3 py-2 text-left text-sm text-ink hover:bg-paper-soft">
-              Ver reglas e historial
+              Ver reglas y propuestas
             </button>
           ) : null}
           {onReorder ? (
@@ -939,8 +939,8 @@ export function CategoriesPage() {
         <div className="flex items-center gap-3">
           <h2 className="section-title">Catalogo</h2>
           <button type="button" className="min-h-11 rounded-xl border border-outline bg-white px-3 text-sm font-medium text-primary xl:hidden"
-            onClick={() => { setSelectedCategoryId(null); setDetailsView("history"); }}>
-            Historial general
+            onClick={() => { setSelectedCategoryId(null); setDetailsView("proposals"); }}>
+            Propuestas
           </button>
         </div>
         <div className="flex items-center gap-4">
@@ -1263,8 +1263,8 @@ export function CategoriesPage() {
             </Panel>
 
           }
-            history={<CategoryLearning categories={categories} onRuleCreated={() => void loadData()}
-              categoryId={compactDetails ? selectedCategoryId : null} expandHistory={compactDetails && detailsView === "history"} />}
+            proposals={<CategoryLearning categories={categories} onRuleCreated={() => void loadData()}
+              categoryId={compactDetails ? selectedCategoryId : null} />}
           />
         </div>
       ) : null}
