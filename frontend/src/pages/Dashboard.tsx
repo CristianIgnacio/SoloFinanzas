@@ -14,9 +14,6 @@ import {
   EChart,
   EmptyState,
   ErrorState,
-  HouseIcon,
-  InvestmentIcon,
-  LightningIcon,
   LoadingState,
   LockIcon,
   WalletIcon,
@@ -27,6 +24,8 @@ import {
   ReceiptIcon,
   StatCard,
 } from "../components";
+import { CategoryIcon } from "../components/CategoryIcon";
+import { DashboardCategorySummary } from "../components/DashboardCategorySummary";
 import { useDashboard, useFormatCurrency } from "../hooks";
 import { accountProductName, useAccountProducts } from "../hooks/useAccountProducts";
 import {
@@ -57,7 +56,6 @@ type DashboardSupportState = {
 
 type MovementFilter = "all" | "income" | "expense";
 
-const movementIcons = [HouseIcon, MoneyIcon, LightningIcon];
 const expenseChartColors = ["#344b2e", "#6e875f", "#a8b89a", "#d5b98f", "#d77b68", "#8a9387"];
 const TRANSACTION_PAGE_SIZE = 1000;
 const periodFormatter = new Intl.DateTimeFormat("es-CL", {
@@ -501,30 +499,6 @@ export function DashboardPage() {
   const selectedExpense = expenseBreakdown.find((item) => item.id === selectedExpenseCategory);
   const expenseTotal = expenseBreakdown.reduce((sum, item) => sum + item.value, 0);
 
-  const cardGains = useMemo(() => {
-    const cardGainCategoryIds = new Set(
-      support.categories
-        .filter((category) =>
-          category.name.trim().localeCompare("Ganancias tarjetas", "es", { sensitivity: "base" }) === 0,
-        )
-        .map((category) => category.id),
-    );
-
-    const transactions = support.periodTransactions.filter(
-      (transaction) =>
-        transaction.transaction_type === "income" &&
-        !transaction.is_internal_transfer &&
-        transaction.origin !== "cash_transfer" &&
-        transaction.category_id !== null &&
-        cardGainCategoryIds.has(transaction.category_id),
-    );
-
-    return {
-      total: transactions.reduce((sum, transaction) => sum + transaction.amount_clp, 0),
-      count: transactions.length,
-    };
-  }, [support.categories, support.periodTransactions]);
-
   const dailyExpenseHeatmap = useMemo(() => {
     const periodMonth = data?.period_month ?? getCurrentPeriodMonth();
     const totals = new Map<string, number>();
@@ -776,13 +750,12 @@ export function DashboardPage() {
   return (
     <div className="space-y-5 sm:space-y-8">
       <PageIntro
-        eyebrow={showFirstAccountWelcome ? "Primeros pasos" : "Dashboard"}
-        title={showFirstAccountWelcome ? "Bienvenido a SoloFinanzas" : "Dashboard"}
+        title={showFirstAccountWelcome ? "Bienvenido a SoloFinanzas" : "Inicio"}
         description={showFirstAccountWelcome ? "Elige cómo quieres comenzar." : undefined}
         period={
           !showFirstAccountWelcome && data && data.available_periods.length > 0 ? (
             <label className="relative inline-flex items-center">
-              <span className="sr-only">Seleccionar periodo del dashboard</span>
+              <span className="sr-only">Seleccionar período de inicio</span>
               <select
                 value={selectedPeriod ?? data.period_month}
                 onChange={(event) => {
@@ -806,7 +779,7 @@ export function DashboardPage() {
         }
       />
 
-      {loading ? <LoadingState message="Cargando dashboard..." /> : null}
+      {loading ? <LoadingState message="Cargando inicio..." /> : null}
       {error ? <ErrorState message={error} /> : null}
       {support.error ? <ErrorState message={support.error} /> : null}
 
@@ -946,27 +919,7 @@ export function DashboardPage() {
           </section>
 
           <section className="grid min-w-0 gap-4 sm:gap-6 xl:grid-cols-[320px_minmax(0,1fr)]">
-            <Panel compactOnMobile className="metric-container flex aspect-[1.25] w-full max-w-[22rem] min-w-0 flex-col items-center justify-center gap-3 justify-self-center text-center sm:aspect-auto sm:min-h-[240px] sm:max-w-none sm:gap-4">
-              <span className="flex h-14 w-14 items-center justify-center rounded-2xl border border-primary/20 bg-primary-mist text-primary shadow-sm sm:h-20 sm:w-20">
-                <InvestmentIcon className="h-7 w-7 sm:h-9 sm:w-9" />
-              </span>
-              <div className="space-y-2">
-                <p className="text-sm font-semibold uppercase tracking-[0.16em] text-primary/80">
-                  Ganancias tarjetas
-                </p>
-                <strong className="metric-value text-ink">
-                  {formatCurrency(cardGains.total)}
-                </strong>
-              </div>
-              <div className="flex flex-wrap items-center justify-center gap-2">
-                <span className="rounded-full bg-primary-mist px-3 py-1.5 text-sm font-semibold text-primary">
-                  {cardGains.count} movimientos
-                </span>
-                <span className="rounded-full bg-paper-soft px-3 py-1.5 text-sm font-semibold text-muted">
-                  {dashboardPeriod}
-                </span>
-              </div>
-            </Panel>
+            <DashboardCategorySummary categories={support.categories} transactions={support.periodTransactions} period={dashboardPeriod} />
 
             <Panel compactOnMobile className="min-w-0 space-y-4 sm:space-y-5">
               <div className="flex flex-wrap items-end justify-between gap-3">
@@ -1123,17 +1076,13 @@ export function DashboardPage() {
                 <LoadingState message="Preparando movimientos..." />
               ) : topTransactions.length > 0 ? (
                 <div className="space-y-2">
-                  {topTransactions.map((transaction, index) => {
-                    const Icon = movementIcons[index % movementIcons.length];
-
+                  {topTransactions.map((transaction) => {
                     return (
                       <article
                         key={transaction.id}
                         className="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-x-3 gap-y-1 rounded-2xl border border-transparent px-2 py-3 transition hover:border-outline hover:bg-paper-soft/60 sm:grid-cols-[auto_minmax(0,1fr)_auto] sm:gap-4 sm:px-3 sm:py-4"
                       >
-                        <span className="flex h-10 w-10 items-center justify-center rounded-full bg-paper-soft text-muted sm:h-12 sm:w-12">
-                          <Icon className="h-5 w-5" />
-                        </span>
+                        <CategoryIcon category={categoryMap.get(transaction.category_id ?? -1)} categoryMap={categoryMap} />
                         <div className="min-w-0">
                           <p className="truncate text-base font-medium tracking-[-0.02em] sm:text-xl">
                             {transaction.description}
