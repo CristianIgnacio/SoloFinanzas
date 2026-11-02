@@ -36,9 +36,16 @@ export function SubcategoryOrderModal({ parent, items, categoryMap, saving, erro
     const nextIndex = index + direction;
     if (saving || nextIndex < 0 || nextIndex >= order.length) return;
     const next = [...order];
+    const focusedButton = document.activeElement;
     [next[index], next[nextIndex]] = [next[nextIndex], next[index]];
     setOrder(next);
     setAnnouncement(`${categoryMap.get(order[index])?.name}: posición ${nextIndex + 1} de ${order.length}.`);
+    window.requestAnimationFrame(() => {
+      if (!focusedButton?.isConnected || (document.activeElement !== focusedButton && document.activeElement !== document.body)) return;
+      const buttons = dialogRef.current?.querySelectorAll<HTMLButtonElement>(`[data-order-id="${order[index]}"]`);
+      const preferred = buttons?.[direction === -1 ? 0 : 1];
+      (preferred && !preferred.disabled ? preferred : Array.from(buttons ?? []).find(button => !button.disabled))?.focus();
+    });
   };
   const changed = order.some((id, index) => id !== initialOrder.current[index]);
 
@@ -46,12 +53,12 @@ export function SubcategoryOrderModal({ parent, items, categoryMap, saving, erro
     <dialog ref={dialogRef} aria-labelledby="subcategory-order-title" aria-describedby="subcategory-order-help"
       onCancel={event => { event.preventDefault(); if (!saving) onClose(); }}
       onClick={event => { if (event.target === event.currentTarget && !saving) onClose(); }}
-      className="m-0 mt-auto w-full max-w-none overflow-hidden rounded-t-3xl border border-outline bg-white text-ink shadow-xl backdrop:bg-ink/45 sm:mx-auto sm:mb-4 sm:max-w-xl sm:rounded-3xl">
+      className="m-0 mt-auto w-full max-w-none overflow-hidden rounded-t-3xl border border-outline bg-white text-ink shadow-xl backdrop:bg-ink/45 sm:mx-auto sm:mb-4 sm:max-w-xl sm:rounded-3xl xl:my-auto">
       <div className="flex max-h-[90dvh] flex-col">
         <div className="shrink-0 border-b border-outline p-4">
           <h2 id="subcategory-order-title" className="text-xl font-semibold">Ordenar subcategorías</h2>
           <p className="mt-1 font-medium text-primary [overflow-wrap:anywhere]">{parent.name}</p>
-          <p id="subcategory-order-help" className="mt-2 text-sm text-muted">Usa las flechas para cambiar el orden. Se guardará al tocar «Listo».</p>
+          <p id="subcategory-order-help" className="mt-2 text-sm text-muted">Usa las flechas para cambiar el orden. Con teclado, navega con Tab y activa con Enter. Se guardará al pulsar «Listo».</p>
         </div>
         <div className="min-h-0 overflow-y-auto overscroll-contain p-3">
           <ol aria-label={`Subcategorías de ${parent.name}`} className="space-y-2">
@@ -65,14 +72,14 @@ export function SubcategoryOrderModal({ parent, items, categoryMap, saving, erro
                   <p className="mt-1 text-xs text-muted">Posición {index + 1}{!category.is_active ? " · Archivada" : ""}</p>
                 </div>
                 <div className="flex shrink-0 gap-1">
-                  <button type="button" aria-label={`Subir ${category.name}`} disabled={saving || index === 0}
+                  <button type="button" data-order-id={id} aria-label={`Subir ${category.name}`} disabled={saving || index === 0}
                     onClick={() => move(index, -1)}
-                    className="flex h-11 w-11 items-center justify-center rounded-xl border border-outline bg-white text-primary disabled:opacity-35">
+                    className="flex h-11 w-11 items-center justify-center rounded-xl border border-outline bg-white text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary disabled:opacity-35">
                     <ArrowUpIcon className="h-4 w-4" />
                   </button>
-                  <button type="button" aria-label={`Bajar ${category.name}`} disabled={saving || index === order.length - 1}
+                  <button type="button" data-order-id={id} aria-label={`Bajar ${category.name}`} disabled={saving || index === order.length - 1}
                     onClick={() => move(index, 1)}
-                    className="flex h-11 w-11 items-center justify-center rounded-xl border border-outline bg-white text-primary disabled:opacity-35">
+                    className="flex h-11 w-11 items-center justify-center rounded-xl border border-outline bg-white text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary disabled:opacity-35">
                     <ArrowDownIcon className="h-4 w-4" />
                   </button>
                 </div>
