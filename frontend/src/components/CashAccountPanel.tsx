@@ -64,8 +64,8 @@ function MovementActions({ transaction, onEdit, onDelete }: {
       </button>
       {open ? createPortal(
         <div ref={menuRef} role="menu" style={position} className="fixed z-50 min-w-36 rounded-xl border border-outline bg-white p-1.5 shadow-paper">
-          <button type="button" role="menuitem" onClick={() => { setOpen(false); onEdit(); }} className="block w-full rounded-lg px-3 py-2 text-left text-sm text-ink hover:bg-paper-soft">Editar</button>
-          <button type="button" role="menuitem" onClick={() => { setOpen(false); onDelete(); }} className="block w-full rounded-lg px-3 py-2 text-left text-sm text-danger hover:bg-danger hover:text-white">Eliminar</button>
+          <button type="button" role="menuitem" onClick={() => { buttonRef.current?.focus({ preventScroll: true }); setOpen(false); onEdit(); }} className="block w-full rounded-lg px-3 py-2 text-left text-sm text-ink hover:bg-paper-soft">Editar</button>
+          <button type="button" role="menuitem" onClick={() => { buttonRef.current?.focus({ preventScroll: true }); setOpen(false); onDelete(); }} className="block w-full rounded-lg px-3 py-2 text-left text-sm text-danger hover:bg-danger hover:text-white">Eliminar</button>
         </div>, document.body,
       ) : null}
     </>
@@ -210,17 +210,11 @@ export function CashAccountPanel({ account, categories, onBalanceChange }: {
             <div className="min-w-0">
               <p className="m-0 text-sm font-medium text-muted">Información de la cuenta</p>
               <h2 className="mt-1 section-title sm:mt-2">{account.name}</h2>
-              <p className="mt-1 text-sm text-muted sm:text-base">Cuenta manual</p>
+              <p className="mt-1 text-sm text-muted sm:text-base">Cuenta manual · CLP</p>
             </div>
           </div>
           <Button compactOnMobile onClick={() => { setEditing(null); setInitialDelete(false); setFormOpen(true); }}>Registrar movimiento</Button>
         </div>
-        <div className="subtle-divider" />
-        <dl className="grid grid-cols-2 gap-y-3 rounded-2xl bg-paper-soft/70 p-3 sm:grid-cols-3 sm:gap-0 sm:divide-x sm:divide-outline/70 sm:bg-transparent sm:p-0">
-          <div className="col-span-2 border-b border-outline/70 pb-3 sm:col-span-1 sm:border-0 sm:py-3 sm:pr-5"><dt className="text-sm text-muted">Producto</dt><dd className="mt-1 font-semibold">Efectivo</dd></div>
-          <div className="min-w-0 pr-3 sm:px-5 sm:py-3"><dt className="text-sm text-muted">Saldo inicial</dt><dd className="mt-1 font-semibold tabular-nums [overflow-wrap:anywhere]">{balance?.opening_balance_date ? pesos.format(balance.opening_balance_clp ?? 0) : "No configurado"}</dd></div>
-          <div className="border-l border-outline/70 pl-3 sm:border-0 sm:py-3 sm:pl-5"><dt className="text-sm text-muted">Moneda</dt><dd className="mt-1 font-semibold">CLP</dd></div>
-        </dl>
         <div className="subtle-divider" />
         <div>
           <p className="eyebrow m-0 text-primary">Saldo según tus registros</p>
@@ -251,8 +245,10 @@ export function CashAccountPanel({ account, categories, onBalanceChange }: {
       </Panel>
       {error ? <p role="alert" className="text-sm text-danger">{error}</p> : null}
       <AccountActivitySummary
+        compactOnDesktop
         description="Resumen de tus movimientos registrados. Los ingresos y gastos excluyen los traspasos vinculados con cuentas financieras; el saldo incluye el saldo inicial configurado."
         firstLabel="Saldo registrado"
+        firstHelper="Incluye saldo inicial y traspasos"
         firstValue={balance ? formatCurrency(balance.balance_clp) : "—"}
         firstIcon={<WalletIcon className="h-5 w-5" />}
         summary={summary ?? { account_id: account.id, count, net: 0, income: 0, expenses: 0 }}

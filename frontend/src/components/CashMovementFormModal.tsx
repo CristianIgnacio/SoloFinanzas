@@ -3,6 +3,10 @@ import { TransactionService } from "../services";
 import { CategoryType, TransactionType } from "../types";
 import type { Category, ManualTransactionInput, Transaction } from "../types";
 import { Button } from "./ui";
+import { ModalDialog } from "./ModalDialog";
+import { parseLocalDate } from "../lib";
+
+const pesos = new Intl.NumberFormat("es-CL", { style: "currency", currency: "CLP", maximumFractionDigits: 0 });
 
 function localToday(): string {
   const today = new Date();
@@ -32,6 +36,7 @@ export function CashMovementFormModal({ categories, transaction, initialDelete =
 
   const save = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    if (saving) return;
     const parsedAmount = Number(amount);
     if (!Number.isSafeInteger(parsedAmount) || parsedAmount < 1 || parsedAmount > 2_147_483_647) {
       setError("Ingresa un monto positivo en pesos enteros.");
@@ -63,7 +68,7 @@ export function CashMovementFormModal({ categories, transaction, initialDelete =
   };
 
   const remove = async () => {
-    if (!transaction) return;
+    if (!transaction || saving) return;
     setSaving(true);
     setError(null);
     try {
@@ -78,27 +83,40 @@ export function CashMovementFormModal({ categories, transaction, initialDelete =
   };
 
   return (
-    <div role="dialog" aria-modal="true" aria-labelledby="cash-movement-title" className="fixed inset-0 z-50 flex items-center justify-center bg-ink/50 px-3 py-4 backdrop-blur-sm">
-      <div className="surface-card max-h-[calc(100vh-2rem)] w-full max-w-xl overflow-y-auto p-6 sm:p-8">
+    <ModalDialog labelledBy="cash-movement-title" busy={saving} onClose={onClose}
+      initialFocus={confirmDelete ? "[data-modal-cancel]" : undefined} className="max-w-xl !overflow-hidden">
+      <div className="shrink-0 border-b border-outline/70 px-4 py-3 sm:px-6 sm:py-4">
         <p className="eyebrow m-0 text-primary">Cuenta Efectivo</p>
         <h2 id="cash-movement-title" className="mt-2 dialog-title">
           {confirmDelete ? "Eliminar movimiento" : transaction ? "Editar movimiento" : "Registrar movimiento"}
         </h2>
-        <p className="mt-2 text-sm text-muted">Registra dinero que entra o sale de tu efectivo. No necesitas una cartola.</p>
+        {!confirmDelete ? <p className="mt-2 text-sm text-muted">Registra dinero que entra o sale de tu efectivo.</p> : null}
+      </div>
 
         {confirmDelete ? (
-          <div className="mt-7 space-y-5">
+          <div className="space-y-4 overflow-y-auto overscroll-contain p-4 sm:p-6">
             <p className="text-ink">¿Eliminar este movimiento manual? Esta acción actualizará los totales de Efectivo.</p>
+            {transaction ? <div className="rounded-2xl border border-outline bg-paper-soft p-4">
+              <p className="break-words font-semibold text-ink">{transaction.description}</p>
+              <dl className="mt-3 space-y-2 text-sm">
+                <div className="flex justify-between gap-3"><dt className="text-muted">Fecha</dt><dd>{parseLocalDate(transaction.date).toLocaleDateString("es-CL", { day: "2-digit", month: "short", year: "numeric" })}</dd></div>
+                <div className="flex justify-between gap-3"><dt className="text-muted">{transaction.transaction_type === TransactionType.INCOME ? "Ingreso" : "Gasto"}</dt><dd className="font-semibold">{pesos.format(Math.abs(transaction.amount_clp))}</dd></div>
+              </dl>
+            </div> : null}
             {error ? <p role="alert" className="text-sm text-danger">{error}</p> : null}
             <div className="flex flex-wrap justify-end gap-3">
-              <Button tone="secondary" disabled={saving} onClick={initialDelete ? onClose : () => setConfirmDelete(false)}>Cancelar</Button>
-              <Button className="border-danger bg-danger text-white hover:bg-danger/90" disabled={saving} onClick={() => void remove()}>
+              <Button compactOnMobile data-modal-cancel tone="secondary" disabled={saving} onClick={initialDelete ? onClose : () => setConfirmDelete(false)}>Cancelar</Button>
+              <Button compactOnMobile className="!border-danger !bg-danger text-white hover:!bg-danger/90" disabled={saving} onClick={() => void remove()}>
                 {saving ? "Eliminando..." : "Eliminar movimiento"}
               </Button>
             </div>
           </div>
         ) : (
-          <form className="mt-7 space-y-5" onSubmit={(event) => void save(event)}>
+          <form className="flex min-h-0 flex-col" onSubmit={(event) => void save(event)}
+            onFocusCapture={event => {
+              if (event.target.matches("input, select")) event.target.scrollIntoView({ block: "nearest" });
+            }}>
+            <div className="min-h-0 space-y-4 overflow-y-auto overscroll-contain p-4 [scroll-padding-block:12px] sm:p-6">
             <div className="grid gap-4 sm:grid-cols-2">
               <label className="space-y-2 text-sm font-medium text-ink">Tipo
                 <select value={type} onChange={(event) => { setType(event.target.value as TransactionType); setCategoryId(""); }} className="w-full rounded-2xl border border-outline bg-white px-4 py-3 text-base outline-none sm:text-sm focus:border-primary">
@@ -107,7 +125,7 @@ export function CashMovementFormModal({ categories, transaction, initialDelete =
                 </select>
               </label>
               <label className="space-y-2 text-sm font-medium text-ink">Monto en pesos
-                <input type="number" min="1" max="2147483647" step="1" required value={amount} onChange={(event) => setAmount(event.target.value)} className="w-full rounded-2xl border border-outline bg-white px-4 py-3 text-base outline-none sm:text-sm focus:border-primary" />
+                <input type="number" inputMode="numeric" min="1" max="2147483647" step="1" required value={amount} onChange={(event) => setAmount(event.target.value)} className="w-full rounded-2xl border border-outline bg-white px-4 py-3 text-base outline-none sm:text-sm focus:border-primary" />
               </label>
             </div>
             <div className="grid gap-4 sm:grid-cols-2">
@@ -125,16 +143,16 @@ export function CashMovementFormModal({ categories, transaction, initialDelete =
               <input type="text" maxLength={240} required value={description} onChange={(event) => setDescription(event.target.value)} placeholder="Ej. Almuerzo" className="w-full rounded-2xl border border-outline bg-white px-4 py-3 text-base outline-none sm:text-sm focus:border-primary" />
             </label>
             {error ? <p role="alert" className="text-sm text-danger">{error}</p> : null}
-            <div className="flex flex-wrap items-center justify-between gap-3 border-t border-outline pt-5">
-              {transaction ? <Button tone="ghost" className="text-danger hover:text-danger" disabled={saving} onClick={() => setConfirmDelete(true)}>Eliminar</Button> : <span />}
+            </div>
+            <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-t border-outline p-3 sm:px-6 sm:py-4">
+              {transaction ? <Button compactOnMobile tone="ghost" className="text-danger hover:text-danger" disabled={saving} onClick={() => setConfirmDelete(true)}>Eliminar</Button> : <span />}
               <div className="flex gap-3">
-                <Button tone="secondary" disabled={saving} onClick={onClose}>Cancelar</Button>
-                <Button type="submit" disabled={saving}>{saving ? "Guardando..." : transaction ? "Guardar cambios" : "Registrar"}</Button>
+                <Button compactOnMobile tone="secondary" disabled={saving} onClick={onClose}>Cancelar</Button>
+                <Button compactOnMobile type="submit" disabled={saving}>{saving ? "Guardando..." : transaction ? "Guardar cambios" : "Registrar"}</Button>
               </div>
             </div>
           </form>
         )}
-      </div>
-    </div>
+    </ModalDialog>
   );
 }

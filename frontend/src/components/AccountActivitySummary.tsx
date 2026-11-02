@@ -7,6 +7,7 @@ type Props = {
   description: string;
   compactOnDesktop?: boolean;
   firstLabel: string;
+  firstHelper?: string;
   firstValue: string;
   firstIcon: ReactNode;
   summary: AccountTotal;
@@ -14,7 +15,7 @@ type Props = {
   formatCurrency: (value: number) => string;
 };
 
-export function AccountActivitySummary({ compactOnDesktop = false, description, firstLabel, firstValue, firstIcon, summary, ready, formatCurrency }: Props) {
+export function AccountActivitySummary({ compactOnDesktop = false, description, firstLabel, firstHelper, firstValue, firstIcon, summary, ready, formatCurrency }: Props) {
   const metrics = [
     { label: firstLabel, value: firstValue, icon: firstIcon, tone: "neutral" },
     { label: "Ingresos", value: ready ? formatCurrency(summary.income) : "—", icon: <ArrowUpIcon className="h-5 w-5" />, tone: "income" },
@@ -29,6 +30,11 @@ export function AccountActivitySummary({ compactOnDesktop = false, description, 
           <p className="mb-3 text-sm font-semibold uppercase tracking-wider text-muted">Todo el historial</p>
           <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,12rem),1fr))] gap-4">
             <div className="metric-container">
+              <p className="text-sm text-muted">{firstLabel}</p>
+              <p className="metric-value mt-1 text-ink" title={firstHelper ?? "Incluye todos los movimientos, también las transferencias internas."}>{firstValue}</p>
+              <p className="mt-1 text-sm text-muted">{firstHelper ?? "No corresponde al saldo bancario"}</p>
+            </div>
+            <div className="metric-container">
               <p className="text-sm text-muted">Ingresos</p>
               <p className="metric-value mt-1 text-primary">{ready ? formatCurrency(summary.income) : "—"}</p>
               <p className="mt-1 text-sm text-muted">Sin transferencias internas</p>
@@ -37,11 +43,6 @@ export function AccountActivitySummary({ compactOnDesktop = false, description, 
               <p className="text-sm text-muted">Gastos</p>
               <p className="metric-value mt-1 text-ink">{ready ? formatCurrency(summary.expenses) : "—"}</p>
               <p className="mt-1 text-sm text-muted">Sin transferencias internas</p>
-            </div>
-            <div className="metric-container">
-              <p className="text-sm text-muted">{firstLabel}</p>
-              <p className="metric-value mt-1 text-ink" title="Incluye todos los movimientos, también las transferencias internas.">{firstValue}</p>
-              <p className="mt-1 text-sm text-muted">No corresponde al saldo bancario</p>
             </div>
           </div>
         </section>

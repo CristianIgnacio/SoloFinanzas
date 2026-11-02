@@ -1,3 +1,4 @@
+import { DeleteAccountModal } from "../components/DeleteAccountModal";
 import { AccountTablePagination } from "../components/AccountTablePagination";
 import { ReportService, type AccountTotal } from '../services/reportService';
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -73,31 +74,6 @@ function toAccountFormValues(account: Account): AccountFormValues {
     name: account.name,
     product_code: account.product_code ?? "",
   };
-}
-
-function DeleteAccountModal({ account, deleting, onCancel, onConfirm }: {
-  account: Account;
-  deleting: boolean;
-  onCancel: () => void;
-  onConfirm: () => void;
-}) {
-  return (
-    <div role="dialog" aria-modal="true" aria-labelledby="delete-account-title" className="fixed inset-0 z-50 flex items-center justify-center bg-ink/30 px-4 py-8 backdrop-blur-sm">
-      <div className="surface-card w-full max-w-xl p-6 md:p-8">
-        <div className="space-y-3">
-          <p className="eyebrow m-0 text-danger">Eliminar cuenta</p>
-          <h2 id="delete-account-title" className="dialog-title">¿Eliminar {account.name}?</h2>
-          <p className="text-muted">Si esta cuenta tiene cartolas o movimientos asociados, el sistema protegerá esos datos y no permitirá eliminarla.</p>
-        </div>
-        <div className="mt-8 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
-          <Button tone="secondary" onClick={onCancel} disabled={deleting}>Cancelar</Button>
-          <Button className="border-danger bg-danger text-white hover:bg-[#9d4337]" onClick={onConfirm} disabled={deleting}>
-            <TrashIcon className="h-5 w-5" />{deleting ? "Eliminando..." : "Eliminar cuenta"}
-          </Button>
-        </div>
-      </div>
-    </div>
-  );
 }
 
 const statusLabels: Record<StatementStatus, string> = {
@@ -194,12 +170,14 @@ export function AccountsPage() {
   const [loadingDeletionImpact, setLoadingDeletionImpact] = useState(false);
   const [deletingStatementId, setDeletingStatementId] = useState<number | null>(null);
   const [deletionError, setDeletionError] = useState<string | null>(null);
+  const deletionRequestRef = useRef(0);
   const [modalMode, setModalMode] = useState<"create" | "edit">("create");
   const [isAccountModalOpen, setIsAccountModalOpen] = useState(false);
   const [modalAccountId, setModalAccountId] = useState<number | null>(null);
   const [accountFormError, setAccountFormError] = useState<string | null>(null);
   const [accountForm, setAccountForm] = useState<AccountFormValues>(createEmptyAccountForm);
   const [isSavingAccount, setIsSavingAccount] = useState(false);
+  const [accountDeletionError, setAccountDeletionError] = useState<string | null>(null);
   const [accountPendingDelete, setAccountPendingDelete] = useState<Account | null>(null);
   const [deletingAccountId, setDeletingAccountId] = useState<number | null>(null);
   const accountSelectorRef = useRef<HTMLDivElement>(null);
@@ -419,6 +397,7 @@ export function AccountsPage() {
     if (!accountPendingDelete) return;
     const target = accountPendingDelete;
     setDeletingAccountId(target.id);
+    setAccountDeletionError(null);
     setError(null);
     try {
       await AccountService.deleteAccount(target.id);
@@ -433,13 +412,13 @@ export function AccountsPage() {
       setSearchParams(nextSelectedId === null ? {} : { account_id: String(nextSelectedId) }, { replace: true });
       setFeedback("Cuenta eliminada correctamente.");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "No fue posible eliminar la cuenta.");
-      setAccountPendingDelete(null);
+      setAccountDeletionError(err instanceof Error ? err.message : "No fue posible eliminar la cuenta.");
     } finally {
       setDeletingAccountId(null);
     }
   };
   const openDeleteStatementModal = async (statement: Statement) => {
+    const request = ++deletionRequestRef.current;
     setStatementPendingDelete(statement);
     setDeletionImpact(null);
     setDeletionError(null);
@@ -448,20 +427,23 @@ export function AccountsPage() {
 
     try {
       const impact = await StatementService.getDeletionImpact(statement.id);
-      setDeletionImpact(impact);
+      if (request === deletionRequestRef.current) setDeletionImpact(impact);
     } catch (err) {
+      if (request !== deletionRequestRef.current) return;
       setDeletionError(
         err instanceof Error
           ? err.message
           : "No fue posible calcular el impacto de esta eliminacion.",
       );
     } finally {
-      setLoadingDeletionImpact(false);
+      if (request === deletionRequestRef.current) setLoadingDeletionImpact(false);
     }
   };
 
   const closeDeleteStatementModal = () => {
-    if (loadingDeletionImpact || deletingStatementId !== null) return;
+    if (deletingStatementId !== null) return;
+    deletionRequestRef.current += 1;
+    setLoadingDeletionImpact(false);
     setStatementPendingDelete(null);
     setDeletionImpact(null);
     setDeletionError(null);
@@ -524,8 +506,7 @@ export function AccountsPage() {
     <div className="space-y-5 sm:space-y-8">
       <PageIntro
         compactOnMobile
-        eyebrow="Cuentas"
-        title="Mis cuentas"
+        title="Cuentas"
         description="Tus cuentas, cartolas y movimientos en un solo lugar."
         actions={
           <div className="flex flex-wrap gap-3">
@@ -659,7 +640,10 @@ export function AccountsPage() {
                   <summary aria-label="Más acciones de la cuenta" className="flex h-11 w-11 cursor-pointer list-none items-center justify-center rounded-xl border border-outline text-xl text-muted hover:bg-paper-soft focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary [&::-webkit-details-marker]:hidden">⋯</summary>
                   <div className="absolute right-0 top-full z-20 mt-2 w-48 rounded-xl border border-outline bg-white p-1 shadow-lg">
                     <button type="button" className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm text-danger hover:bg-danger-soft" onClick={(event) => {
-                      event.currentTarget.closest("details")?.removeAttribute("open");
+                      const menu = event.currentTarget.closest("details");
+                      menu?.removeAttribute("open");
+                      menu?.querySelector("summary")?.focus({ preventScroll: true });
+                      setAccountDeletionError(null);
                       setAccountPendingDelete(account);
                     }}>
                       <TrashIcon className="h-4 w-4" />Eliminar cuenta
@@ -711,7 +695,7 @@ export function AccountsPage() {
                     : "border-transparent text-muted hover:text-ink",
                 )}
               >
-                <span className="sm:hidden">Cartolas</span><span className="hidden sm:inline">Cartolas importadas</span> ({detailsReady ? statements.length : "…"})
+                <span className="sm:hidden">Cartolas</span><span className="hidden sm:inline">Cartolas</span> ({detailsReady ? statements.length : "…"})
               </button>
               <button
                 type="button"
@@ -940,6 +924,7 @@ export function AccountsPage() {
       {accountPendingDelete ? (
         <DeleteAccountModal
           account={accountPendingDelete}
+          error={accountDeletionError}
           deleting={deletingAccountId === accountPendingDelete.id}
           onCancel={() => { if (deletingAccountId === null) setAccountPendingDelete(null); }}
           onConfirm={() => void confirmDeleteAccount()}
