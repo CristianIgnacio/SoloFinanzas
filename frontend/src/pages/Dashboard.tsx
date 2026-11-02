@@ -4,12 +4,14 @@ import { Link, useNavigate } from "react-router-dom";
 import {
   AccountFormModal,
   AccountVisualCard,
-  ArrowDownIcon,
-  ArrowUpIcon,
+  ArrowRightIcon,
+  ArrowTrendDownIcon,
+  ArrowTrendUpIcon,
   BalanceIcon,
   BankIcon,
   Button,
   CalendarIcon,
+  CategoriesIcon,
   ChevronDownIcon,
   EChart,
   EmptyState,
@@ -26,6 +28,7 @@ import {
 } from "../components";
 import { CategoryIcon } from "../components/CategoryIcon";
 import { DashboardCategorySummary } from "../components/DashboardCategorySummary";
+import { DashboardAccountCarousel } from "../components/DashboardAccountCarousel";
 import { useDashboard, useFormatCurrency } from "../hooks";
 import { accountProductName, useAccountProducts } from "../hooks/useAccountProducts";
 import {
@@ -790,7 +793,43 @@ export function DashboardPage() {
 
       {data && !support.loading && !showFirstAccountWelcome ? (
         <>
-          <section className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,17rem),1fr))] items-stretch gap-4">
+          <section aria-label="Resumen financiero" className="space-y-3 sm:hidden">
+            {data.cards[0] && <article className="relative isolate overflow-hidden rounded-[1.5rem] border border-white/20 bg-gradient-to-br from-[#3e6040] via-[#29472f] to-[#1e3927] px-5 py-5 text-white shadow-[0_12px_28px_-12px_rgba(22,48,28,0.65)]">
+              <div aria-hidden="true" className="pointer-events-none absolute inset-y-0 right-0 -z-10 w-1/3 border-l border-white/5 bg-white/[0.04]" />
+              <div aria-hidden="true" className="pointer-events-none absolute -right-10 -top-14 -z-10 h-44 w-44 rounded-full border border-white/10 bg-white/5" />
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-white/85">{data.cards[0].label}</p>
+                  <strong className="mt-1 block break-words text-[clamp(1.9rem,9vw,2.5rem)] font-semibold leading-tight tracking-tight">{data.cards[0].value}</strong>
+                </div>
+                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white/15"><BalanceIcon className="h-5 w-5" /></span>
+              </div>
+              {data.cards[0].trend && <p className="mt-4 inline-flex max-w-[calc(100%-2.5rem)] items-center gap-1 rounded-full bg-white/85 px-2.5 py-1 text-xs font-semibold text-primary">
+                {getTrendDirection(data.cards[0].trend) === "up" ? <ArrowTrendUpIcon className="h-3 w-3 shrink-0" /> : getTrendDirection(data.cards[0].trend) === "down" ? <ArrowTrendDownIcon className="h-3 w-3 shrink-0" /> : null}
+                <span>{data.cards[0].trend}</span>
+              </p>}
+              <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" className="absolute bottom-5 right-5 h-6 w-6 text-white/65" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                <path d="M5 10a3 3 0 0 1 0 4" />
+                <path d="M9 7a7 7 0 0 1 0 10" />
+                <path d="M13 4a11 11 0 0 1 0 16" />
+              </svg>
+            </article>}
+            <div className="grid grid-cols-2 gap-3">
+              {data.cards.slice(1, 3).map((card, offset) => {
+                const index = offset + 1;
+                const tone = getTrendTone(card.trend, index);
+                return <article key={card.label} className="min-w-0 rounded-[1.25rem] border border-outline/60 bg-white p-3.5 shadow-sm">
+                  <p className="text-xs font-medium text-muted">{card.label.replace(" del mes", "")}</p>
+                  <strong className="mt-1 block break-words text-[clamp(1.1rem,5.5vw,1.5rem)] font-semibold leading-tight tracking-tight text-ink">{card.value}</strong>
+                  {card.trend && <p className={`mt-2 inline-flex max-w-full items-center gap-1 rounded-full px-2 py-1 text-xs font-semibold ${tone === "positive" ? "bg-primary-mist text-primary" : tone === "negative" ? "bg-danger-soft text-danger" : "bg-paper-soft text-muted"}`}>
+                    {getTrendDirection(card.trend) === "up" ? <ArrowTrendUpIcon className="h-3 w-3 shrink-0" /> : getTrendDirection(card.trend) === "down" ? <ArrowTrendDownIcon className="h-3 w-3 shrink-0" /> : null}
+                    <span className="break-words">{card.trend.replace(" vs mes anterior", "")}</span>
+                  </p>}
+                </article>;
+              })}
+            </div>
+          </section>
+          <section className="hidden grid-cols-[repeat(auto-fit,minmax(min(100%,17rem),1fr))] items-stretch gap-4 sm:grid">
             {data.cards.slice(0, 3).map((card, index) => (
               <StatCard
                 compactOnMobile
@@ -800,9 +839,9 @@ export function DashboardPage() {
                 helper={card.trend}
                 helperIcon={
                   getTrendDirection(card.trend) === "up" ? (
-                    <ArrowUpIcon className="h-3.5 w-3.5" />
+                    <ArrowTrendUpIcon className="h-3.5 w-3.5" />
                   ) : getTrendDirection(card.trend) === "down" ? (
-                    <ArrowDownIcon className="h-3.5 w-3.5" />
+                    <ArrowTrendDownIcon className="h-3.5 w-3.5" />
                   ) : null
                 }
                 helperTone={getTrendTone(card.trend, index)}
@@ -822,12 +861,15 @@ export function DashboardPage() {
 
           {uncategorizedSummary?.period === data?.period_month && uncategorizedSummary && uncategorizedSummary.total > 0 ? (
             <Link to={`/app/transactions?month=${uncategorizedSummary.period}&category=uncategorized`}
-              className="flex min-h-14 items-center justify-between gap-3 rounded-xl border border-primary/15 bg-primary-mist/40 px-4 py-3 text-primary transition hover:bg-primary-mist focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary">
-              <span className="min-w-0">
-                <span className="block text-sm font-semibold">{uncategorizedSummary.total} {uncategorizedSummary.total === 1 ? "movimiento por categorizar" : "movimientos por categorizar"}</span>
-                <span className="block text-xs text-muted">De {dashboardPeriod}</span>
+              className="flex min-h-14 items-center justify-between gap-3 rounded-[1.25rem] border border-primary/15 bg-primary-mist/60 px-4 py-3 text-primary transition hover:bg-primary-mist focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary sm:rounded-xl sm:bg-primary-mist/40">
+              <span className="flex min-w-0 items-center gap-2">
+                <CategoriesIcon className="h-5 w-5 shrink-0 sm:hidden" />
+                <span className="min-w-0">
+                  <span className="block text-sm font-semibold">{uncategorizedSummary.total} {uncategorizedSummary.total === 1 ? "movimiento por categorizar" : "movimientos por categorizar"}</span>
+                  <span className="block text-xs text-muted">De {dashboardPeriod}</span>
+                </span>
               </span>
-              <span className="shrink-0 text-sm font-semibold"><span className="hidden sm:inline">Revisar </span><span aria-hidden="true">→</span></span>
+              <span className="inline-flex shrink-0 items-center gap-2 text-sm font-semibold"><span className="hidden sm:inline">Revisar</span><ArrowRightIcon className="h-4 w-4" /></span>
             </Link>
           ) : null}
 
@@ -994,18 +1036,29 @@ export function DashboardPage() {
                 </div>
                 <div className="flex shrink-0 items-center gap-3">
                   <Link to="/app/accounts" className="text-sm font-semibold text-primary transition hover:underline">Ver todas</Link>
-                  <Button className="px-4 py-2.5 text-sm" onClick={openCreateAccountModal}>
+                  <Button className="hidden px-4 py-2.5 text-sm sm:inline-flex" onClick={openCreateAccountModal}>
                     <PlusIcon className="h-4 w-4" />Agregar cuenta
                   </Button>
                 </div>
               </div>
 
               {support.accounts.length > 0 || support.cashAccount ? (
-                <div className="grid gap-4 sm:grid-cols-2">
+                <>
+                <DashboardAccountCarousel onAddAccount={openCreateAccountModal} accounts={[
+                  ...(support.cashAccount ? [{ id: support.cashAccount.id, name: support.cashAccount.name, cash: true,
+                    card: <AccountVisualCard variant="cash" name={support.cashAccount.name} cashBalance={support.cashBalance?.balance_clp ?? null} compact /> }] : []),
+                  ...[...support.accounts]
+                    .sort((left, right) => right.created_at.localeCompare(left.created_at) || right.id - left.id)
+                    .map(account => ({ id: account.id, name: account.name,
+                      card: <AccountVisualCard institution={account.institution} accountType={account.account_type}
+                        productCode={account.product_code} productName={accountProductName(account, products)}
+                        name={account.name} accountLast4={account.account_last4} currency={account.currency} compact /> })),
+                ]} />
+                <div className="hidden grid-cols-2 gap-4 sm:grid">
                   {support.cashAccount ? (
                     <Link to={`/app/accounts?account_id=${support.cashAccount.id}#cash-account`}
                       aria-label="Ver detalle de Efectivo"
-                      className="block min-w-0 rounded-[1.6rem] transition hover:-translate-y-1 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-primary">
+                      className="mx-auto block w-full max-w-[340px] min-w-0 rounded-[1.6rem] transition hover:-translate-y-1 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-primary sm:max-w-none">
                       <AccountVisualCard variant="cash" name={support.cashAccount.name} cashBalance={support.cashBalance?.balance_clp ?? null} compact />
                     </Link>
                   ) : null}
@@ -1017,7 +1070,7 @@ export function DashboardPage() {
                       key={account.id}
                       to={`/app/accounts?account_id=${account.id}`}
                       aria-label={`Ver detalle de ${account.name}`}
-                      className="block min-w-0 rounded-[1.6rem] transition hover:-translate-y-1 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-primary"
+                      className="mx-auto block w-full max-w-[340px] min-w-0 rounded-[1.6rem] transition hover:-translate-y-1 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-primary sm:max-w-none"
                     >
                       <AccountVisualCard
                         institution={account.institution}
@@ -1032,6 +1085,7 @@ export function DashboardPage() {
                     </Link>
                   ))}
                 </div>
+                </>
               ) : (
                 <p className="rounded-2xl border border-dashed border-outline px-5 py-8 text-center text-sm text-muted">
                   Aún no tienes cuentas. Agrega una para verla aquí.

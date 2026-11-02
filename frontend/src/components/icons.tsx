@@ -1,5 +1,8 @@
 import {
   faArrowDown,
+  faArrowRight,
+  faArrowTrendDown,
+  faArrowTrendUp,
   faArrowUp,
   faBell,
   faBolt,
@@ -131,6 +134,18 @@ export function ArrowUpIcon(props: IconProps) {
 
 export function ArrowDownIcon(props: IconProps) {
   return <FontAwesomeIcon icon={faArrowDown} {...iconProps(props)} />;
+}
+
+export function ArrowRightIcon(props: IconProps) {
+  return <FontAwesomeIcon icon={faArrowRight} {...iconProps(props)} />;
+}
+
+export function ArrowTrendUpIcon(props: IconProps) {
+  return <FontAwesomeIcon icon={faArrowTrendUp} {...iconProps(props)} />;
+}
+
+export function ArrowTrendDownIcon(props: IconProps) {
+  return <FontAwesomeIcon icon={faArrowTrendDown} {...iconProps(props)} />;
 }
 
 export function WalletIcon(props: IconProps) {

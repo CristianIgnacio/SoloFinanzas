@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Link, useLocation, useSearchParams } from "react-router-dom";
 import { useRef } from "react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faMagnifyingGlass } from "@fortawesome/free-solid-svg-icons";
+import { faMagnifyingGlass, faSliders } from "@fortawesome/free-solid-svg-icons";
 
 import {
   Button,
@@ -16,6 +16,7 @@ import {
   LoadingState,
   WalletIcon,
   Panel,
+  PlusIcon,
   StatusNotice,
   cn,
 } from "../components";
@@ -542,33 +543,35 @@ export function TransactionsPage() {
             <ChevronDownIcon className="pointer-events-none absolute right-1 h-4 w-4 text-primary" />
           </label>
         </div>
-        <h1 className="page-title">Movimientos</h1>
-        <div className="flex flex-wrap items-center gap-2 sm:gap-3">
-          {cashAccount && !statementId ? (
-            <Button compactOnMobile onClick={() => { setEditingCashTransaction(null); setCashFormOpen(true); }}>
-              <span aria-hidden="true">+</span> Registrar movimiento
-            </Button>
-          ) : null}
-          <div className="hidden sm:block">
-            <Button compactOnMobile tone="secondary" onClick={event => openExport(event.currentTarget)} disabled={exportDisabled}>
-              <ExportIcon className="h-4 w-4" /> Exportar
-            </Button>
-          </div>
-          <details className="relative sm:hidden">
-            <summary aria-label="Más acciones" className="flex h-11 w-11 cursor-pointer list-none items-center justify-center rounded-xl border border-outline bg-white text-xl [&::-webkit-details-marker]:hidden">⋯</summary>
-            <div className="absolute right-0 top-full z-20 mt-2 w-52 rounded-xl border border-outline bg-white p-1 shadow-lg">
-              <button type="button" disabled={exportDisabled}
-                onClick={event => {
-                  const menu = event.currentTarget.closest("details");
-                  const trigger = menu?.querySelector("summary") ?? event.currentTarget;
-                  menu?.removeAttribute("open");
-                  openExport(trigger);
-                }}
-                className="flex min-h-11 w-full items-center gap-2 rounded-lg px-3 text-left text-sm hover:bg-paper-soft disabled:opacity-50">
-                <ExportIcon className="h-4 w-4" /> Exportar movimientos
-              </button>
+        <div className="flex w-full items-center justify-between gap-2 sm:gap-3">
+          <h1 className="page-title min-w-0 text-2xl sm:text-4xl lg:text-[2.5rem]">Movimientos</h1>
+          <div className="flex shrink-0 items-center gap-2 sm:gap-3">
+            {cashAccount && !statementId ? (
+              <Button compactOnMobile aria-label="Registrar movimiento" className="h-11 w-11 !px-0 sm:h-auto sm:w-auto sm:!px-5" onClick={() => { setEditingCashTransaction(null); setCashFormOpen(true); }}>
+                <PlusIcon className="h-4 w-4" /><span className="hidden sm:inline">Registrar movimiento</span>
+              </Button>
+            ) : null}
+            <div className="hidden sm:block">
+              <Button compactOnMobile tone="secondary" onClick={event => openExport(event.currentTarget)} disabled={exportDisabled}>
+                <ExportIcon className="h-4 w-4" /> Exportar
+              </Button>
             </div>
-          </details>
+            <details className="relative sm:hidden">
+              <summary aria-label="Más acciones" className="flex h-11 w-11 cursor-pointer list-none items-center justify-center rounded-xl border border-outline bg-white text-xl [&::-webkit-details-marker]:hidden">⋯</summary>
+              <div className="absolute right-0 top-full z-20 mt-2 w-52 rounded-xl border border-outline bg-white p-1 shadow-lg">
+                <button type="button" disabled={exportDisabled}
+                  onClick={event => {
+                    const menu = event.currentTarget.closest("details");
+                    const trigger = menu?.querySelector("summary") ?? event.currentTarget;
+                    menu?.removeAttribute("open");
+                    openExport(trigger);
+                  }}
+                  className="flex min-h-11 w-full items-center gap-2 rounded-lg px-3 text-left text-sm hover:bg-paper-soft disabled:opacity-50">
+                  <ExportIcon className="h-4 w-4" /> Exportar movimientos
+                </button>
+              </div>
+            </details>
+          </div>
         </div>
         {statementId ? <p className="w-full text-sm text-muted">Revisa los movimientos de la cartola importada.</p> : null}
       </header>
@@ -583,27 +586,27 @@ export function TransactionsPage() {
       ) : null}
 
       <section aria-label="Filtros de movimientos" className="space-y-4">
-        <div className="relative w-full lg:max-w-lg">
-          <FontAwesomeIcon icon={faMagnifyingGlass} aria-hidden="true" className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" />
-          <input type="search" aria-label="Buscar por descripción" placeholder="Buscar por descripción"
-            value={descriptionSearch} maxLength={200} onChange={event => setDescriptionSearch(event.target.value)}
-            className="min-h-11 w-full min-w-0 rounded-xl border border-outline bg-white py-2 pl-10 pr-12 text-base text-ink outline-none transition placeholder:text-muted focus:border-primary focus:ring-1 focus:ring-primary [&::-webkit-search-cancel-button]:appearance-none" />
-          {descriptionSearch ? <button type="button" aria-label="Limpiar búsqueda" onClick={() => setDescriptionSearch("")}
-            className="absolute right-0 top-0 flex h-11 w-11 items-center justify-center rounded-xl text-xl text-muted hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary">
-            <span aria-hidden="true">×</span>
-          </button> : null}
-        </div>
-        <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 lg:grid-cols-[18rem_auto] lg:justify-start">
-          <div role="group" aria-label="Tipo de movimiento" className="grid min-w-0 grid-cols-3 rounded-xl bg-primary-mist/60 p-1">
+        <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 lg:grid-cols-[minmax(0,1fr)_18rem_auto]">
+          <div className="relative col-span-2 min-w-0 lg:col-span-1">
+            <FontAwesomeIcon icon={faMagnifyingGlass} aria-hidden="true" className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" />
+            <input type="search" aria-label="Buscar por descripción" placeholder="Buscar por descripción"
+              value={descriptionSearch} maxLength={200} onChange={event => setDescriptionSearch(event.target.value)}
+              className="min-h-11 w-full min-w-0 rounded-xl border border-outline bg-white py-2 pl-10 pr-12 text-base text-ink outline-none transition placeholder:text-muted focus:border-primary focus:ring-1 focus:ring-primary [&::-webkit-search-cancel-button]:appearance-none" />
+            {descriptionSearch ? <button type="button" aria-label="Limpiar búsqueda" onClick={() => setDescriptionSearch("")}
+              className="absolute right-0 top-0 flex h-11 w-11 items-center justify-center rounded-xl text-xl text-muted hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary">
+              <span aria-hidden="true">×</span>
+            </button> : null}
+          </div>
+          <div role="group" aria-label="Tipo de movimiento" className="grid w-full min-w-0 grid-cols-3 rounded-xl bg-primary-mist/60 p-1">
             {([['all', 'Todos'], ['expense', 'Gastos'], ['income', 'Ingresos']] as const).map(([value, label]) => (
               <button key={value} type="button" aria-pressed={filter === value} onClick={() => setFilter(value)}
-                className={cn("min-h-10 rounded-lg px-2 text-sm font-medium transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary lg:min-h-9", filter === value ? "bg-white text-primary shadow-sm" : "text-muted hover:text-ink")}>{label}</button>
+                className={cn("min-h-10 rounded-lg px-1 text-xs font-medium transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary sm:px-2 sm:text-sm lg:min-h-9", filter === value ? "bg-white text-primary shadow-sm" : "text-muted hover:text-ink")}>{label}</button>
             ))}
           </div>
           <button type="button" aria-expanded={filtersOpen} aria-controls="movement-filters" onClick={() => updateFilters({ filters: filtersOpen ? undefined : "1" })}
             className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-outline bg-white px-3 text-sm font-medium text-ink">
             Filtros{activeFilterCount > 0 ? <span className="rounded-full bg-primary px-1.5 text-sm leading-5 text-white">{activeFilterCount}</span> : null}
-            <ChevronDownIcon className={cn("h-4 w-4 transition", filtersOpen && "rotate-180")} />
+            <FontAwesomeIcon icon={faSliders} aria-hidden="true" className="h-4 w-4" />
           </button>
         </div>
         <div id="movement-filters" hidden={!filtersOpen} className="pt-1">
