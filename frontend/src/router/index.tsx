@@ -8,6 +8,7 @@ import {
 import { ProfilePage } from "../pages/Profile";
 import { createBrowserRouter, Navigate, useLocation } from "react-router-dom";
 import { RootLayout } from "./RootLayout";
+import { RouterErrorPage } from "../pages/RouterError";
 import { NotFoundPage } from "../pages/NotFound";
 import { lazy, Suspense } from "react";
 const DashboardPage = lazy(() =>
@@ -56,7 +57,7 @@ function LegacySettingsRedirect() {
 export const router = createBrowserRouter([
   {
     element: <AuthProvider />,
-    errorElement: <NotFoundPage />,
+    errorElement: <RouterErrorPage />,
     children: [
       { path: "/", element: <HomePage /> },
       { path: "/login", element: <LoginPage /> },

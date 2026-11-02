@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/AuthProvider";
 import { apiClient } from "../lib/apiClient";
+import { createProfileExport } from "../lib/profileExport";
 import { supabase, signInWithGoogle } from "../lib/supabase";
 import { Button, PageIntro, Panel } from "../components";
 
@@ -9,12 +10,17 @@ export function ProfilePage() {
   const { session } = useAuth();
   const navigate = useNavigate();
   const [confirmation, setConfirmation] = useState("");
-  const [message, setMessage] = useState("");
+  const [exportError, setExportError] = useState("");
+  const [deleteError, setDeleteError] = useState("");
+  const [identityError, setIdentityError] = useState("");
+  const [signOutError, setSignOutError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const [exportStatus, setExportStatus] = useState("");
   return (
     <div className="space-y-8">
       <PageIntro
-        title="Tu perfil"
+        title="Perfil"
         description="Tu acceso y el control de tus datos."
       />
       <Panel>
@@ -25,43 +31,60 @@ export function ProfilePage() {
         <Button
           className="mt-5"
           tone="secondary"
-          onClick={() => void supabase?.auth.signOut({ scope: "local" })}
+          onClick={async () => {
+            setSignOutError("");
+            try {
+              const result = await supabase?.auth.signOut({ scope: "local" });
+              if (result?.error) throw result.error;
+            } catch (error) {
+              setSignOutError(error instanceof Error ? error.message : "No se pudo cerrar la sesión. Inténtalo de nuevo.");
+            }
+          }}
         >
           Cerrar sesión
         </Button>
+        {signOutError && <p role="alert" className="mt-3 text-danger">{signOutError}</p>}
       </Panel>
       <Panel>
         <h2 className="text-2xl font-semibold">Descargar mis datos</h2>
         <p className="my-4 text-muted">
           Descarga cuentas, movimientos, categorías y reglas en formato JSON.
-          Los PDFs originales no se conservan.
+          La copia usa referencias propias del archivo en lugar de identificadores internos y omite los dígitos de las cuentas. Conserva nombres, descripciones e importes. Los PDFs originales no se conservan.
         </p>
         <Button
           disabled={busy}
           onClick={async () => {
             setBusy(true);
-            setMessage("");
+            setExporting(true);
+            setExportStatus("");
+            setExportError("");
             try {
-              const data = await apiClient.get("/me/export");
+              const data = await apiClient.get<Record<string, unknown>>("/me/export");
               const url = URL.createObjectURL(
-                new Blob([JSON.stringify(data, null, 2)], {
+                new Blob([JSON.stringify(createProfileExport(data), null, 2)], {
                   type: "application/json",
                 }),
               );
               const a = document.createElement("a");
               a.href = url;
               a.download = "solofinanzas.json";
+              document.body.appendChild(a);
               a.click();
+              a.remove();
+              setExportStatus("Archivo JSON preparado. La descarga se inició en tu navegador.");
               setTimeout(() => URL.revokeObjectURL(url), 1000);
             } catch (err) {
-              setMessage((err as Error).message);
+              setExportError(err instanceof Error ? err.message : "No se pudieron descargar tus datos. Inténtalo de nuevo.");
             } finally {
               setBusy(false);
+              setExporting(false);
             }
           }}
         >
-          Exportar mis datos
+          {exporting ? "Preparando JSON…" : "Exportar mis datos (JSON)"}
         </Button>
+        <p role="status" aria-live="polite" className="mt-3 text-sm text-muted">{exporting ? "Preparando tus cuentas, movimientos, categorías y reglas…" : exportStatus}</p>
+        {exportError && <p role="alert" className="mt-3 text-danger">{exportError}</p>}
       </Panel>
       <Panel>
         <h2 className="text-2xl font-semibold">Eliminar mi cuenta</h2>
@@ -72,14 +95,15 @@ export function ProfilePage() {
         </p>
         <Button
           tone="secondary"
-          onClick={() =>
-            void signInWithGoogle("/app/profile").catch((err) =>
-              setMessage(err.message),
-            )
-          }
+          onClick={async () => {
+            setIdentityError("");
+            try { await signInWithGoogle("/app/profile"); }
+            catch (error) { setIdentityError(error instanceof Error ? error.message : "No se pudo confirmar tu identidad. Inténtalo de nuevo."); }
+          }}
         >
           Confirmar identidad con Google
         </Button>
+        {identityError && <p role="alert" className="mt-3 text-danger">{identityError}</p>}
         <label className="my-5 block space-y-2">
           <span>Escribe ELIMINAR para confirmar</span>
           <input
@@ -94,13 +118,13 @@ export function ProfilePage() {
           className="border-danger bg-danger"
           onClick={async () => {
             setBusy(true);
-            setMessage("");
+            setDeleteError("");
             try {
               await apiClient.delete("/me");
               await supabase?.auth.signOut({ scope: "local" });
               navigate("/", { replace: true });
             } catch (err) {
-              setMessage((err as Error).message);
+              setDeleteError(err instanceof Error ? err.message : "No se pudo eliminar tu cuenta. Inténtalo de nuevo.");
             } finally {
               setBusy(false);
             }
@@ -108,12 +132,9 @@ export function ProfilePage() {
         >
           Eliminar definitivamente
         </Button>
+        {deleteError && <p role="alert" className="mt-3 text-danger">{deleteError}</p>}
       </Panel>
-      {message && (
-        <p role="alert" className="text-danger">
-          {message}
-        </p>
-      )}
+
     </div>
   );
 }
