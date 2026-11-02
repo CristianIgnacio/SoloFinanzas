@@ -1,7 +1,91 @@
 import { expect, test, type Page } from "@playwright/test";
+import { createProfileExport } from "../src/lib/profileExport";
+
+test("copia personal elimina identificadores y mantiene relaciones aunque haya nombres repetidos", () => {
+  const result = createProfileExport({ user_id: "secret-user", accounts: [
+    { id: 987, user_id: "secret-user", name: "Cuenta", account_last4: "1234" },
+    { id: 456, name: "Cuenta" },
+  ], categories: [{ id: 654, name: "Comida" }, { id: 123, parent_id: 654, name: "Café" }],
+  transactions: [{ id: 999, account_id: 456, category_id: 123, date: "2026-10-10", description: "Almuerzo", amount_clp: -5000, raw_data: { secret: "secret" }, fingerprint: "secret" }],
+  categorization_rules: [{ id: 321, category_id: 123, keyword: "café", match_type: "contains" }] });
+  expect(JSON.stringify(result)).not.toMatch(/secret|user_id|account_id|category_id|parent_id|raw_data|fingerprint|1234|987|456|654|999|321/);
+  expect(result.movimientos[0]).toMatchObject({ cuenta: result.cuentas[1].referencia, categoria: result.categorias[1].referencia, amount_clp: -5000 });
+  expect(result.categorias[1].categoria_padre).toBe(result.categorias[0].referencia);
+  expect(result.reglas[0].categoria).toBe(result.categorias[1].referencia);
+});
+
+test("preparación permite salir y perfil anuncia la descarga JSON", async ({ page }) => {
+  await mockApi(page);
+  let release: () => void = () => {};
+  const waiting = new Promise<void>(resolve => { release = resolve; });
+  await page.route("**/api/v1/me", async route => { await waiting; await route.fallback(); });
+  await page.addInitScript(value => localStorage.setItem("sb-demo-auth-token", JSON.stringify(value)), session(ownerA));
+  await page.goto("/app/profile");
+  await expect(page.getByText(/Preparando tu espacio/)).toBeVisible();
+  await page.getByRole("link", { name: "Volver a la portada" }).click();
+  await expect(page).toHaveURL(/\/$/);
+  release();
+  let finishExport: () => void = () => {};
+  const pendingExport = new Promise<void>(resolve => { finishExport = resolve; });
+  await page.route("**/api/v1/me/export", async route => { await pendingExport; await route.fulfill({ json: { accounts: [], transactions: [], categories: [], categorization_rules: [] } }); });
+  await page.goto("/app/profile");
+  await page.getByRole("button", { name: "Exportar mis datos (JSON)", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Preparando JSON…" })).toBeDisabled();
+  const download = page.waitForEvent("download");
+  finishExport();
+  expect((await download).suggestedFilename()).toBe("solofinanzas.json");
+  await expect(page.getByRole("status")).toContainText("La descarga se inició");
+  await expect(page.getByRole("button", { name: "Exportar mis datos (JSON)", exact: true })).toBeEnabled();
+});
 
 const ownerA = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const ownerB = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+
+test("navegación mantiene el acceso a cuentas y al pie entre móvil, tablet y escritorio", async ({ page }, info) => {
+  await mockApi(page);
+  await page.addInitScript(value => localStorage.setItem("sb-demo-auth-token", JSON.stringify(value)), session(ownerA));
+  await page.goto("/app/accounts");
+  await expect(page.getByRole("heading", { level: 1, name: "Cuentas", exact: true })).toBeVisible();
+  const widths = info.project.name === "mobile" ? [320, 390, 640, 768, 1023] : [1024, 1280];
+  const mobileNav = page.getByRole("navigation", { name: "Navegación móvil", exact: true });
+  for (const width of widths) {
+    await page.setViewportSize({ width, height: 844 });
+    await page.evaluate(() => window.scrollTo(0, 0));
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
+    if (width < 1024) {
+      await expect(mobileNav.locator("a, button")).toHaveText(["Inicio", "Movs.", "Agregar", "Análisis", "Más"]);
+      const header = page.getByRole("banner");
+      expect((await header.boundingBox())!.height).toBeLessThanOrEqual(60);
+      await mobileNav.getByRole("button", { name: "Más", exact: true }).click();
+      const menu = page.getByRole("dialog", { name: "Más opciones" });
+      await expect(menu.getByRole("link", { name: "Cuentas", exact: true })).toHaveAttribute("aria-current", "page");
+      await menu.getByRole("link", { name: "Cuentas", exact: true }).click();
+      await expect(menu).toHaveCount(0);
+    } else {
+      await expect(mobileNav).not.toBeVisible();
+      await expect(page.getByRole("banner")).not.toBeVisible();
+      const desktopNav = page.getByRole("navigation", { name: "Navegación principal", exact: true });
+      await desktopNav.getByRole("link", { name: "Categorías", exact: true }).click();
+      await expect(page.getByRole("heading", { level: 1, name: "Categorías", exact: true })).toBeVisible();
+      await expect(desktopNav.getByRole("link", { name: "Categorías", exact: true })).toHaveAttribute("aria-current", "page");
+      await expect(page.getByRole("link", { name: "Mi perfil", exact: true })).toHaveCount(1);
+      await desktopNav.getByRole("link", { name: "Cuentas", exact: true }).click();
+    }
+    await page.screenshot({ path: info.outputPath(`navigation-ux-${width}.png`) });
+    const help = page.getByRole("contentinfo").getByRole("link", { name: "Ayuda", exact: true });
+    await help.scrollIntoViewIfNeeded();
+    await expect(help).toBeInViewport();
+    if (width < 1024) {
+      const helpBounds = await help.boundingBox();
+      expect(helpBounds!.y + helpBounds!.height).toBeLessThan((await mobileNav.boundingBox())!.y);
+    }
+  }
+  await page.setViewportSize({ width: 768, height: 844 });
+  await mobileNav.getByRole("button", { name: "Más", exact: true }).click();
+  await page.setViewportSize({ width: 1024, height: 844 });
+  await expect(page.getByRole("dialog", { name: "Más opciones" })).toHaveCount(0);
+  await expect.poll(() => page.evaluate(() => document.body.style.overflow)).not.toBe("hidden");
+});
 
 test("eliminar categorías propias conserva movimientos mediante traslado explícito", async ({ page }, info) => {
   await mockApi(page);
@@ -195,7 +279,7 @@ test("apariencia de categoría se guarda y se hereda en los movimientos", async 
   await page.screenshot({ path: info.outputPath("category-movements.png"), fullPage: true });
 });
 
-test("cambiar una categoría aprende sin casilla y deshacer usa la versión del servidor", async ({ page }) => {
+test("cambiar una categoría aprende sin casilla y deshacer usa la versión del servidor", async ({ page }, info) => {
   await mockApi(page);
   const original = { id: 71, account_id: 1, date: "2026-09-15", description: "Comercio barrio",
     normalized_description: "comercio barrio", amount_clp: -1000, transaction_type: "expense",
@@ -230,6 +314,20 @@ test("cambiar una categoría aprende sin casilla y deshacer usa la versión del 
   await page.getByRole("dialog", { name: "Seleccionar categoría" }).getByRole("button", { name: "Compras", exact: true }).click();
   await expect(page.getByRole("button", { name: "Deshacer cambio de categoría" })).toBeVisible();
   expect(confirmations).toBe(1);
+  for (const width of [640, 768, 1023]) {
+    await page.setViewportSize({ width, height: 844 });
+    const undo = page.getByRole("button", { name: "Deshacer cambio de categoría" });
+    const navigation = page.getByRole("navigation", { name: "Navegación móvil", exact: true });
+    await expect(undo).toBeInViewport();
+    const undoBounds = await undo.boundingBox();
+    const navigationBounds = await navigation.boundingBox();
+    expect(undoBounds!.y + undoBounds!.height).toBeLessThan(navigationBounds!.y);
+    expect(await undo.evaluate(element => {
+      const rect = element.getBoundingClientRect();
+      return element.contains(document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2));
+    })).toBe(true);
+    if (width === 768) await page.screenshot({ path: info.outputPath("deshacer-tablet.png") });
+  }
   await page.getByRole("button", { name: "Deshacer cambio de categoría" }).click();
   await expect.poll(() => movement.category_version).toBe(2);
   expect(movement.category_reviewed).toBe(false);
@@ -401,13 +499,94 @@ test("catálogo automático conserva categorías existentes sin solicitar aplica
   });
   await page.addInitScript(value => localStorage.setItem("sb-demo-auth-token", JSON.stringify(value)), session(ownerA));
   await page.goto("/app/categories");
-  await expect(page.getByText(/Las categorías predeterminadas se incorporan automáticamente/)).toBeVisible();
-  await page.getByRole("button", { name: "Ver coincidencias omitidas" }).click();
+  const notice = page.getByRole("complementary", { name: "Información del catálogo" });
+  await expect(notice.getByText(/Tus categorías personalizadas y archivadas se mantienen/)).toHaveCount(0);
+  await notice.getByRole("button", { name: "Sobre tus categorías" }).click();
+  await expect(notice.getByText(/Tus categorías personalizadas y archivadas se mantienen/)).toBeVisible();
   await expect(page.getByText(/Viajes — La categoría coincidente está archivada/)).toBeVisible();
+  await notice.getByRole("button", { name: "Descartar aviso del catálogo" }).click();
+  await expect(notice).toHaveCount(0);
   expect(applied).toBe(false);
   await expect(page.getByRole("heading", { name: "Comida", exact: true })).toBeVisible();
   await expect(page.getByText("7 movimientos · 2 reglas")).toBeVisible();
   await expect(page.getByRole("button", { name: "Aplicar catálogo propuesto" })).toHaveCount(0);
+});
+
+test("catálogo combina búsqueda, tipo y archivadas conservando el contexto de las subcategorías", async ({ page }, info) => {
+  await mockApi(page);
+  const base = { type: "expense", parent_id: null as number | null, is_default: true,
+    is_active: true, sort_order: 1, transaction_count: 4, rule_count: 0 };
+  const categories = [
+    { ...base, id: 1, name: "Alimentación", code: "food" },
+    { ...base, id: 2, name: "Cafeterías", parent_id: 1 },
+    { ...base, id: 3, name: "Supermercado", parent_id: 1 },
+    { ...base, id: 4, name: "Restaurantes antiguos", parent_id: 1, is_active: false },
+    { ...base, id: 5, name: "Trabajo", type: "income" },
+    { ...base, id: 6, name: "Sueldo", parent_id: 5, type: "income" },
+    { ...base, id: 7, name: "Entre cuentas", type: "transfer" },
+  ];
+  await page.route("**/api/v1/categories?*", route => route.fulfill({ json: categories }));
+  await page.addInitScript(value => localStorage.setItem("sb-demo-auth-token", JSON.stringify(value)), session(ownerA));
+  await page.goto("/app/categories");
+  const search = page.getByRole("searchbox", { name: "Buscar categorías y subcategorías" });
+  const filters = page.getByRole("group", { name: "Filtrar categorías por tipo" });
+  const summary = page.getByRole("definition");
+  await expect(summary).toHaveText(["6", "3", "3"]);
+  await page.getByRole("button", { name: "Ocultar subcategorias de Alimentación", exact: true }).click();
+  await expect(page.getByText("Cafeterías", { exact: true })).toHaveCount(0);
+  await search.fill("  CAFETERIAS  ");
+  await expect(page.getByRole("heading", { name: "Alimentación", exact: true })).toBeVisible();
+  await expect(page.getByText("Cafeterías", { exact: true })).toBeVisible();
+  await expect(page.getByText("Supermercado", { exact: true })).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: "Trabajo", exact: true })).toHaveCount(0);
+  await expect(page.getByText("2 categorías visibles · Incluye su grupo principal", { exact: true })).toBeVisible();
+  // Reordering a searched group must still offer all its active children.
+  if (info.project.name === "mobile") {
+    await page.getByRole("button", { name: "Más acciones de Alimentación", exact: true }).click();
+    await page.getByRole("menuitem", { name: "Ordenar subcategorías", exact: true }).click();
+    const order = page.getByRole("dialog", { name: "Ordenar subcategorías", exact: true });
+    await expect(order.getByText("Supermercado", { exact: true })).toBeVisible();
+    await expect(order.getByText("Cafeterías", { exact: true })).toBeVisible();
+    await order.getByRole("button", { name: "Cancelar", exact: true }).click();
+    await expect(search).toHaveValue("  CAFETERIAS  ");
+  }
+  await search.fill("ALIMENTACION");
+  await expect(page.getByText("Cafeterías", { exact: true })).toBeVisible();
+  await expect(page.getByText("Supermercado", { exact: true })).toBeVisible();
+  await expect(page.getByText("Restaurantes antiguos", { exact: true })).toHaveCount(0);
+  await page.getByRole("checkbox", { name: "Solo archivadas" }).check();
+  await expect(page.getByText("Restaurantes antiguos", { exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Alimentación", exact: true })).toHaveCount(0);
+  await expect(page.getByText("Supermercado", { exact: true })).toHaveCount(0);
+  await expect(page.getByText("Cafeterías", { exact: true })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Crear subcategoría en Restaurantes antiguos", exact: true })).toHaveCount(0);
+  await filters.getByRole("button", { name: "Ingresos", exact: true }).click();
+  await expect(page.getByText("No hay categorías que coincidan", { exact: true })).toBeVisible();
+  await search.fill("");
+  await expect(page.getByRole("heading", { name: "Trabajo", exact: true })).toHaveCount(0);
+  await page.getByRole("checkbox", { name: "Solo archivadas" }).uncheck();
+  await search.fill("sueldo");
+  await expect(page.getByRole("heading", { name: "Trabajo", exact: true })).toBeVisible();
+  await expect(page.getByText("Sueldo", { exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Entre cuentas", exact: true })).toHaveCount(0);
+  await search.fill("");
+  await filters.getByRole("button", { name: "Transferencias", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Entre cuentas", exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Trabajo", exact: true })).toHaveCount(0);
+  await filters.getByRole("button", { name: "Gastos", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Entre cuentas", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Mostrar subcategorias de Alimentación", exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Limpiar filtros", exact: true }).click();
+  await expect(search).toBeFocused();
+  await expect(filters.getByRole("button", { name: "Todas", exact: true })).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByRole("checkbox", { name: "Solo archivadas" })).not.toBeChecked();
+  await expect(summary).toHaveText(["6", "3", "3"]);
+  for (const width of info.project.name === "mobile" ? [320, 390, 768] : [1280, 1440]) {
+    await page.setViewportSize({ width, height: 844 });
+    await page.evaluate(() => window.scrollTo(0, 0));
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    await page.screenshot({ path: info.outputPath(`catalogo-filtros-${width}.png`) });
+  }
 });
 
 test("subcategorías se ordenan con flechas en móvil y arrastre en escritorio", async ({ page }, info) => {
@@ -451,6 +630,39 @@ test("subcategorías se ordenan con flechas en móvil y arrastre en escritorio",
     await expect.poll(listNames).toEqual(["Cafeterías", "Almacén", "Restaurantes y comidas fuera de casa"]);
     await page.reload();
     await expect.poll(listNames).toEqual(["Cafeterías", "Almacén", "Restaurantes y comidas fuera de casa"]);
+    const writesBeforeKeyboard = writes.length;
+    const archivedOrderBeforeKeyboard = categories.find(category => category.id === 3)?.sort_order;
+    const trigger = page.getByRole("button", { name: "Más acciones de Alimentación", exact: true });
+    const openWithKeyboard = async () => {
+      await trigger.focus();
+      await page.keyboard.press("Enter");
+      await expect(page.getByRole("menuitem", { name: "Ordenar subcategorías", exact: true })).toBeFocused();
+      await page.keyboard.press("Enter");
+    };
+    await openWithKeyboard();
+    const dialog = page.getByRole("dialog", { name: "Ordenar subcategorías", exact: true });
+    await expect(dialog.getByRole("button", { name: "Bajar Cafeterías", exact: true })).toBeFocused();
+    await page.keyboard.press("Enter");
+    await expect(dialog.getByRole("button", { name: "Bajar Cafeterías", exact: true })).toBeFocused();
+    await page.keyboard.press("Enter");
+    await expect(dialog.getByRole("button", { name: "Subir Cafeterías", exact: true })).toBeFocused();
+    await expect(dialog.getByRole("status")).toContainText("Cafeterías: posición 3 de 3.");
+    await dialog.screenshot({ path: info.outputPath("orden-subcategorias-desktop.png") });
+    await page.keyboard.press("Escape");
+    await expect(trigger).toBeFocused();
+    expect(writes).toHaveLength(writesBeforeKeyboard);
+    await expect.poll(listNames).toEqual(["Cafeterías", "Almacén", "Restaurantes y comidas fuera de casa"]);
+    await openWithKeyboard();
+    await page.keyboard.press("Enter");
+    await dialog.getByRole("button", { name: "Listo", exact: true }).focus();
+    await page.keyboard.press("Enter");
+    await expect(dialog).toHaveCount(0);
+    await expect(trigger).toBeFocused();
+    await expect.poll(listNames).toEqual(["Almacén", "Cafeterías", "Restaurantes y comidas fuera de casa"]);
+    expect(categories.find(category => category.id === 3)?.sort_order).toBe(archivedOrderBeforeKeyboard);
+    expect(categories.find(category => category.id === 7)?.sort_order).toBe(50);
+    await page.reload();
+    await expect.poll(listNames).toEqual(["Almacén", "Cafeterías", "Restaurantes y comidas fuera de casa"]);
     return;
   }
   await page.setViewportSize({ width: 320, height: 844 });
@@ -500,6 +712,141 @@ test("subcategorías se ordenan con flechas en móvil y arrastre en escritorio",
   await expect.poll(listNames).toEqual(["Cafeterías", "Almacén", "Restaurantes y comidas fuera de casa"]);
 });
 
+test("reglas acompaña el catálogo al bajar y permite recorrer paneles largos", async ({ page }, info) => {
+  test.skip(info.project.name !== "desktop", "Panel lateral de escritorio");
+  await mockApi(page);
+  await page.setViewportSize({ width: 1440, height: 900 });
+  const base = { type: "expense", parent_id: null, is_default: true,
+    is_active: true, sort_order: 1, transaction_count: 24, rule_count: 0 };
+  await page.route("**/api/v1/categories?*", route => route.fulfill({ json: [
+    { ...base, id: 1, name: "Alimentación", code: "food", rule_count: 35 },
+    ...Array.from({ length: 18 }, (_, index) => ({ ...base, id: index + 2, name: `Categoría ${index + 2}`, sort_order: index + 2 })),
+  ] }));
+  await page.route("**/api/v1/categorization-rules", route => route.fulfill({ json:
+    Array.from({ length: 35 }, (_, index) => ({ id: index + 1, category_id: 1, keyword: `COMERCIO ${index + 1}`,
+      match_type: "contains", priority: 100, is_active: true, origin: "personal" })),
+  }));
+  await page.addInitScript(value => localStorage.setItem("sb-demo-auth-token", JSON.stringify(value)), session(ownerA));
+  await page.goto("/app/categories");
+  await page.getByRole("button", { name: /^Alimentación Gasto/ }).click();
+  const sidebar = page.getByRole("region", { name: "Reglas y propuestas", exact: true });
+  const content = sidebar.locator('[aria-label="Contenido de reglas y propuestas"]');
+  for (const [width, height] of [[1440, 900], [1280, 600]]) {
+    await page.setViewportSize({ width, height });
+    await page.evaluate(() => window.scrollTo(0, 1300));
+    await expect.poll(async () => Math.round((await sidebar.boundingBox())!.y)).toBe(24);
+    const bounds = (await sidebar.boundingBox())!;
+    expect(bounds.y + bounds.height).toBeLessThanOrEqual(height - 24);
+    await expect(sidebar.getByRole("heading", { name: "Alimentación", exact: true })).toBeInViewport();
+    await expect(sidebar.getByPlaceholder("Palabra o comercio")).toHaveCount(0);
+    await sidebar.getByRole("button", { name: "Eliminar regla COMERCIO 35", exact: true }).scrollIntoViewIfNeeded();
+    await expect(sidebar.getByRole("button", { name: "Eliminar regla COMERCIO 35", exact: true })).toBeInViewport();
+    expect(await page.evaluate(() => scrollY)).toBe(1300);
+    await expect(sidebar.getByRole("tab", { name: "Propuestas", exact: true })).toBeInViewport();
+    await sidebar.getByRole("tab", { name: "Propuestas", exact: true }).click();
+    await expect(sidebar.getByText("No hay propuestas pendientes.", { exact: true })).toBeVisible();
+    await sidebar.getByRole("tab", { name: "Reglas", exact: true }).click();
+    await expect.poll(() => content.evaluate(element => element.scrollTop)).toBe(0);
+    await page.screenshot({ path: info.outputPath(`reglas-sticky-${width}.png`) });
+  }
+  await content.evaluate(element => { element.scrollTop = element.scrollHeight; });
+  await page.getByRole("button", { name: /^Categoría 10 Gasto/ }).click();
+  await expect.poll(() => content.evaluate(element => element.scrollTop)).toBe(0);
+  await expect(sidebar.getByText("Categoría 10", { exact: true })).toBeVisible();
+  await expect(sidebar.getByText("Sin reglas asociadas.", { exact: true })).toBeVisible();
+  await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+  const footer = (await page.getByRole("contentinfo").boundingBox())!;
+  const bounds = (await sidebar.boundingBox())!;
+  expect(bounds.y + bounds.height).toBeLessThanOrEqual(footer.y);
+});
+
+test("panel de escritorio abre el editor bajo demanda y conserva la edición entre pestañas", async ({ page }, info) => {
+  test.skip(info.project.name !== "desktop", "Edición del panel de escritorio");
+  await mockApi(page);
+  await page.setViewportSize({ width: 1440, height: 900 });
+  const base = { type: "expense", parent_id: null, is_default: true, is_active: true, sort_order: 1, transaction_count: 0, rule_count: 0 };
+  await page.route("**/api/v1/categories?*", route => route.fulfill({ json: [
+    { ...base, id: 1, name: "Alimentación" }, { ...base, id: 2, name: "Transporte" },
+  ] }));
+  let rules = [{ id: 1, category_id: 1, keyword: "FERIA", match_type: "exact", priority: 50, is_active: true, origin: "personal" }];
+  await page.route("**/api/v1/categorization-rules", route => {
+    if (route.request().method() === "POST") {
+      const body = route.request().postDataJSON();
+      expect(body.category_id).toBe(1);
+      expect(body).toMatchObject({ priority: 100, match_type: "contains" });
+      const created = { ...rules[0], ...body, id: 2 };
+      rules = [...rules, created];
+      return route.fulfill({ json: created });
+    }
+    return route.fulfill({ json: rules });
+  });
+  let failSave = true;
+  await page.route(/\/api\/v1\/categorization-rules\/1(?:\?.*)?$/, route => {
+    expect(route.request().method()).toBe("PATCH");
+    if (failSave) {
+      failSave = false;
+      return route.fulfill({ status: 500, json: { detail: "No fue posible guardar la regla." } });
+    }
+    const params = new URL(route.request().url()).searchParams;
+    rules = rules.map(rule => rule.id === 1 ? { ...rule, keyword: params.get("keyword")!,
+      category_id: Number(params.get("category_id")), priority: Number(params.get("priority")), match_type: params.get("match_type")! } : rule);
+    return route.fulfill({ json: rules[0] });
+  });
+  await page.addInitScript(value => localStorage.setItem("sb-demo-auth-token", JSON.stringify(value)), session(ownerA));
+  await page.goto("/app/categories");
+  const sidebar = page.getByRole("region", { name: "Reglas y propuestas", exact: true });
+  await page.getByRole("button", { name: /^Alimentación Gasto/ }).click();
+  await expect(sidebar.getByText("FERIA", { exact: true })).toBeVisible();
+  const input = sidebar.getByRole("textbox", { name: "Palabra o comercio", exact: true });
+  await expect(input).toHaveCount(0);
+  await sidebar.getByRole("button", { name: "Nueva regla", exact: true }).click();
+  await expect(input).toBeFocused();
+  await expect(sidebar.getByRole("combobox", { name: "Tipo de coincidencia" })).not.toBeVisible();
+  await expect(sidebar.getByRole("spinbutton", { name: "Prioridad", exact: true })).not.toBeVisible();
+  await input.fill("ALMACEN");
+  await sidebar.screenshot({ path: info.outputPath("reglas-editor-desktop.png") });
+  await sidebar.getByRole("tab", { name: "Reglas", exact: true }).focus();
+  await page.keyboard.press("ArrowRight");
+  await expect(sidebar.getByRole("tab", { name: "Propuestas", exact: true })).toBeFocused();
+  await expect(input).not.toBeVisible();
+  await page.keyboard.press("ArrowLeft");
+  await expect(sidebar.getByRole("tab", { name: "Reglas", exact: true })).toBeFocused();
+  await expect(input).toHaveValue("ALMACEN");
+  await sidebar.getByRole("button", { name: "Agregar regla", exact: true }).click();
+  await expect(input).toHaveCount(0);
+  await expect(sidebar.getByText("ALMACEN", { exact: true })).toBeVisible();
+  await sidebar.getByRole("button", { name: "Editar", exact: true }).first().click();
+  await expect(input).toBeFocused();
+  await expect(input).toHaveValue("FERIA");
+  await expect(sidebar.getByText("Coincidencia exacta · Prioridad 50", { exact: true })).toBeVisible();
+  await sidebar.locator("summary", { hasText: "Opciones avanzadas" }).click();
+  await expect(sidebar.getByRole("combobox", { name: "Tipo de coincidencia" })).toHaveValue("exact");
+  await expect(sidebar.getByRole("spinbutton", { name: "Prioridad", exact: true })).toHaveValue("50");
+  await sidebar.getByRole("spinbutton", { name: "Prioridad", exact: true }).fill("0");
+  await sidebar.screenshot({ path: info.outputPath("reglas-opciones-avanzadas-desktop.png") });
+  await input.fill("FERIA LOCAL");
+  await sidebar.getByRole("button", { name: "Guardar regla", exact: true }).click();
+  await expect(sidebar.getByText("No fue posible guardar la regla.", { exact: true })).toBeVisible();
+  await expect(input).toHaveValue("FERIA LOCAL");
+  await sidebar.getByRole("button", { name: "Guardar regla", exact: true }).click();
+  await expect(input).toHaveCount(0);
+  await expect(sidebar.getByText("FERIA LOCAL", { exact: true })).toBeVisible();
+  expect(rules[0]).toMatchObject({ keyword: "FERIA LOCAL", match_type: "exact", priority: 0 });
+  await sidebar.getByRole("button", { name: "Nueva regla", exact: true }).click();
+  await input.fill("Borrador");
+  await sidebar.getByRole("button", { name: "Cancelar", exact: true }).click();
+  await expect(sidebar.getByRole("button", { name: "Nueva regla", exact: true })).toBeFocused();
+  await sidebar.getByRole("button", { name: "Nueva regla", exact: true }).click();
+  await expect(input).toHaveValue("");
+  await page.getByRole("button", { name: /^Transporte Gasto/ }).click();
+  await expect(input).toHaveCount(0);
+  await expect(sidebar.getByText("Sin reglas asociadas.", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Propuestas", exact: true }).click();
+  await expect(sidebar.getByRole("tab", { name: "Propuestas", exact: true })).toHaveAttribute("aria-selected", "true");
+  await expect(sidebar.getByRole("heading", { name: "Organiza tus categorías", exact: true })).toBeVisible();
+  await sidebar.screenshot({ path: info.outputPath("reglas-propuestas-desktop.png") });
+});
+
 test("categorías en móvil abre reglas y propuestas sin perder la posición del catálogo", async ({ page }, info) => {
   test.skip(info.project.name !== "mobile", "Navegación del panel móvil");
   await mockApi(page);
@@ -520,6 +867,7 @@ test("categorías en móvil abre reglas y propuestas sin perder la posición del
     if (route.request().method() === "POST") {
       const payload = route.request().postDataJSON();
       expect(payload.category_id).toBe(1);
+      expect(payload).toMatchObject({ match_type: "exact", priority: 200 });
       const created = { ...rules[0], ...payload, id: 2 };
       rules = [...rules, created];
       return route.fulfill({ json: created });
@@ -554,6 +902,12 @@ test("categorías en móvil abre reglas y propuestas sin perder la posición del
   await expect(dialog).toBeVisible();
   await expect(dialog.getByText("SUPERMERCADO", { exact: true })).toBeVisible();
   await dialog.getByPlaceholder("Palabra o comercio").fill("FERIA");
+  await expect(dialog.getByRole("combobox", { name: "Tipo de coincidencia" })).not.toBeVisible();
+  await dialog.locator("summary", { hasText: "Opciones avanzadas" }).click();
+  await dialog.getByRole("combobox", { name: "Tipo de coincidencia" }).selectOption("exact");
+  await dialog.getByRole("spinbutton", { name: "Prioridad", exact: true }).fill("200");
+  expect(await dialog.evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true);
+  await dialog.screenshot({ path: info.outputPath("reglas-opciones-avanzadas-mobile.png") });
   await dialog.getByRole("button", { name: "Agregar regla", exact: true }).click();
   await expect(dialog.getByText("Regla creada correctamente.")).toBeVisible();
   await expect(dialog.getByText("FERIA", { exact: true })).toBeVisible();
@@ -585,6 +939,10 @@ test("categorías en móvil abre reglas y propuestas sin perder la posición del
   await expect(childDialog).toBeVisible();
   await expect(childDialog.getByText("Sin reglas asociadas.")).toBeVisible();
   await expect(childDialog.getByPlaceholder("Palabra o comercio")).toHaveValue("");
+  await expect(childDialog.getByRole("combobox", { name: "Tipo de coincidencia" })).not.toBeVisible();
+  await childDialog.locator("summary", { hasText: "Opciones avanzadas" }).click();
+  await expect(childDialog.getByRole("combobox", { name: "Tipo de coincidencia" })).toHaveValue("contains");
+  await expect(childDialog.getByRole("spinbutton", { name: "Prioridad", exact: true })).toHaveValue("100");
   await childDialog.getByRole("button", { name: "Cerrar", exact: true }).click();
   await page.getByRole("button", { name: "Propuestas", exact: true }).click();
   const general = page.getByRole("dialog", { name: "Propuestas de reglas", exact: true });
@@ -624,7 +982,7 @@ test("propuestas permite posponer, recuperar, descartar y aceptar sin mostrar re
   });
   await page.addInitScript(value => localStorage.setItem("sb-demo-auth-token", JSON.stringify(value)), session(ownerA));
   await page.goto("/app/categories");
-  if (info.project.name === "mobile") await page.getByRole("button", { name: "Propuestas" }).click();
+  await page.getByRole("button", { name: "Propuestas", exact: true }).click();
   await expect(page.getByRole("button", { name: "Crear regla", exact: true })).toBeVisible();
   expect(actions).toEqual([]);
   await expect(page.getByText(/registro interno|Detalle técnico interno|Decisión guardada|Patrones e historial/)).toHaveCount(0);
@@ -638,7 +996,7 @@ test("propuestas permite posponer, recuperar, descartar y aceptar sin mostrar re
   await page.getByRole("button", { name: "Recuperar sugerencia" }).click();
   await page.getByRole("button", { name: "No volver a sugerir", exact: true }).click();
   await page.reload();
-  if (info.project.name === "mobile") await page.getByRole("button", { name: "Propuestas" }).click();
+  await page.getByRole("button", { name: "Propuestas", exact: true }).click();
   await expect(page.getByRole("button", { name: "Crear regla", exact: true })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Recuperar sugerencia" })).not.toBeVisible();
   await page.getByText("Sugerencias descartadas y pospuestas", { exact: true }).click();
@@ -766,6 +1124,7 @@ test("movimientos no desborda el ancho móvil con descripciones largas", async (
   await page.screenshot({ path: info.outputPath("movimientos-filtros-desktop.png") });
   await page.getByRole("button", { name: "Filtros", exact: true }).click();
   await page.getByText("Transf a CLEO CHILE").locator("xpath=ancestor::section[1]").screenshot({ path: info.outputPath("movimiento-card-desktop.png") });
+  expect((await page.getByText("Transf a CLEO CHILE").locator("xpath=ancestor::section[1]").boundingBox())!.height).toBeLessThan(112);
   await page.getByRole("button", { name: "Categoria de Transf a CLEO CHILE", exact: true }).click();
   const desktopPicker = page.getByRole("dialog", { name: "Seleccionar categoría" });
   await expect(desktopPicker).toBeVisible();
@@ -802,6 +1161,11 @@ test("movimientos no desborda el ancho móvil con descripciones largas", async (
   await movementCard.evaluate(element => window.scrollTo(0, window.scrollY + element.getBoundingClientRect().top - 160));
   await expect(movementCard.getByText("Cartola PDF")).toBeHidden();
   await expect(movementCard.getByRole("combobox")).toBeHidden();
+  await expect(movementCard.getByRole("button", { name: "Mostrar detalles de Transf a CLEO CHILE" }).locator("svg")).toBeHidden();
+  await movementCard.getByRole("button", { name: "Categoria de Transf a CLEO CHILE", exact: true }).click();
+  await expect(page.getByRole("dialog", { name: "Seleccionar categoría" })).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(movementCard.getByRole("button", { name: "Mostrar detalles de Transf a CLEO CHILE" })).toHaveAttribute("aria-expanded", "false");
   await movementCard.screenshot({ path: info.outputPath("movimiento-card-mobile.png") });
   await movementCard.getByText("Transf a CLEO CHILE").click();
   await expect(movementCard.getByText("Cartola PDF").last()).toBeVisible();
@@ -830,13 +1194,13 @@ test("movimientos no desborda el ancho móvil con descripciones largas", async (
   await expect(categoryDialog).toHaveCount(0);
   await movementCard.getByText("Transf a CLEO CHILE").click();
   await expect(movementCard.getByText("Cartola PDF")).toBeHidden();
-  await expect(movementCard.locator("span.line-clamp-1")).toHaveText("Compras");
+  await expect(movementCard.getByRole("button", { name: "Categoria de Transf a CLEO CHILE", exact: true })).toHaveText("Compras");
   await expect(page.getByText("Categoría cambiada a Compras.")).toBeVisible();
   expect(categoryUpdates).toEqual([1]);
   await expect(page.getByRole("button", { name: "Guardar cambios", exact: true })).toHaveCount(0);
   await page.getByRole("button", { name: "Deshacer cambio de categoría" }).click();
   await expect(page.getByText("Cambio deshecho.")).toBeVisible();
-  await expect(movementCard.locator("span.line-clamp-1")).toHaveText("Sin categoría");
+  await expect(movementCard.getByRole("button", { name: "Categoria de Transf a CLEO CHILE", exact: true })).toHaveText("Sin categoría");
   expect(categoryUpdates).toEqual([1]);
   expect(undoEvents).toEqual([202]);
   await page.setViewportSize({ width: 320, height: 844 });
@@ -910,12 +1274,233 @@ test("movimientos carga más al bajar y reinicia la lista al filtrar", async ({ 
   await expect(page.getByRole("combobox", { name: "Periodo", exact: true })).toBeVisible();
 });
 
+test("movimientos busca descripciones en todas las páginas y combina los filtros", async ({ page }, info) => {
+  await mockApi(page);
+  const items = Array.from({ length: 75 }, (_, index) => ({
+    id: 75 - index, account_id: 1, date: "2026-09-30",
+    description: index === 70 ? "Farmacia Santiago" : `Movimiento ${index + 1}`,
+    amount_clp: -1000, transaction_type: "expense", origin: "pdf", category_id: null,
+  }));
+  const requests: { search: string; offset: number }[] = [];
+  await page.route("**/api/v1/transaction-pages**", route => {
+    const params = new URL(route.request().url()).searchParams;
+    const search = params.get("search") ?? "";
+    const offset = Number(params.get("offset") ?? 0);
+    requests.push({ search, offset });
+    const filtered = items.filter(item => item.description.toLocaleLowerCase("es").includes(search.toLocaleLowerCase("es")) &&
+      (!params.get("transaction_type") || item.transaction_type === params.get("transaction_type")));
+    return route.fulfill({ json: { items: filtered.slice(offset, offset + 50), total: filtered.length, offset, limit: 50 } });
+  });
+  await page.addInitScript(value => localStorage.setItem("sb-demo-auth-token", JSON.stringify(value)), session(ownerA));
+  await page.goto("/app/transactions");
+  await expect(page.getByText("Movimiento 50", { exact: true })).toBeVisible();
+  await expect(page.getByText("Farmacia Santiago", { exact: true })).toHaveCount(0);
+  const search = page.getByRole("searchbox", { name: "Buscar por descripción" });
+  await search.fill("  FARMACIA  ");
+  await expect(page.getByText("Farmacia Santiago", { exact: true })).toBeVisible();
+  await expect(page.getByText("Mostrando 1 de 1 movimientos", { exact: false })).toBeVisible();
+  expect(requests.at(-1)).toEqual({ search: "FARMACIA", offset: 0 });
+  await expect(page.getByText("Movimiento 1", { exact: true })).toHaveCount(0);
+  await page.setViewportSize({ width: 320, height: 844 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(320);
+  await page.screenshot({ path: info.outputPath("busqueda-movimientos-mobile.png") });
+  await page.getByRole("button", { name: "Ingresos", exact: true }).click();
+  await expect(page.getByText("No hay movimientos que coincidan con tu búsqueda")).toBeVisible();
+  await page.getByRole("button", { name: "Limpiar búsqueda", exact: true }).click();
+  await expect(search).toHaveValue("");
+  await expect(page.getByText("No hay movimientos para este filtro")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Ingresos", exact: true })).toHaveAttribute("aria-pressed", "true");
+  await page.getByRole("button", { name: "Todos", exact: true }).click();
+  await expect(page.getByText("Movimiento 50", { exact: true })).toBeVisible();
+  await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+  await expect(page.getByText("Movimiento 75", { exact: true })).toBeVisible();
+  expect(requests.at(-1)).toEqual({ search: "", offset: 50 });
+});
+
+test("movimientos conserva el contexto al volver desde una cuenta y recargar", async ({ page }) => {
+  await mockApi(page);
+  await page.route("**/api/v1/reports/periods**", route => route.fulfill({ json: ["2026-09", "2026-08"] }));
+  await page.route("**/api/v1/categories**", route => route.fulfill({ json: [
+    { id: 1, name: "Compras", type: "expense", parent_id: null, is_active: true, sort_order: 1 },
+  ] }));
+  const queries: URLSearchParams[] = [];
+  await page.route("**/api/v1/transaction-pages**", route => {
+    queries.push(new URL(route.request().url()).searchParams);
+    return route.fulfill({ json: { items: [{ id: 71, account_id: 1, date: "2026-09-15",
+      description: "Compra farmacia", amount_clp: -1000, transaction_type: "expense", origin: "pdf", category_id: 1,
+    }], total: 1, limit: 50, offset: 0 } });
+  });
+  await page.addInitScript(value => localStorage.setItem("sb-demo-auth-token", JSON.stringify(value)), session(ownerA));
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/app/transactions");
+  await page.getByRole("button", { name: "Filtros", exact: true }).click();
+  await page.getByRole("combobox", { name: "Periodo", exact: true }).selectOption("2026-09");
+  await page.getByRole("combobox", { name: "Filtrar por cuenta" }).selectOption("1");
+  await page.getByRole("button", { name: "Filtrar por categoría", exact: true }).click();
+  await page.getByRole("dialog", { name: "Seleccionar categoría" }).getByRole("button", { name: "Compras", exact: true }).click();
+  await page.getByRole("button", { name: "Gastos", exact: true }).click();
+  await page.getByRole("checkbox", { name: "Excluir transferencias internas" }).check();
+  await page.getByRole("searchbox", { name: "Buscar por descripción" }).fill("farmacia");
+  await expect.poll(() => queries.at(-1)?.get("search")).toBe("farmacia");
+  const filteredUrl = page.url();
+  await page.getByRole("link", { name: "Ver detalle de Cuenta demo A", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Cuentas", exact: true, level: 1 })).toBeVisible();
+  await page.goBack();
+  await expect(page).toHaveURL(filteredUrl);
+  await expect(page.getByRole("searchbox", { name: "Buscar por descripción" })).toHaveValue("farmacia");
+  await expect(page.getByRole("combobox", { name: "Periodo", exact: true })).toHaveValue("2026-09");
+  await expect(page.getByRole("combobox", { name: "Filtrar por cuenta" })).toHaveValue("1");
+  await expect(page.getByRole("button", { name: "Filtrar por categoría", exact: true })).toHaveText("Compras");
+  await expect(page.getByRole("button", { name: "Gastos", exact: true })).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByRole("checkbox", { name: "Excluir transferencias internas" })).toBeChecked();
+  await page.reload();
+  await expect(page.getByRole("searchbox", { name: "Buscar por descripción" })).toHaveValue("farmacia");
+  await expect(page.getByText("Compra farmacia", { exact: true })).toBeVisible();
+  expect(Object.fromEntries(queries.at(-1)!)).toMatchObject({
+    search: "farmacia", date_from: "2026-09-01", date_to: "2026-09-30", account_id: "1", category_id: "1", transaction_type: "expense", exclude_internal: "true", offset: "0",
+  });
+  await page.getByRole("button", { name: "Limpiar filtros", exact: true }).click();
+  const params = new URL(page.url()).searchParams;
+  for (const key of ["month", "account_id", "category", "exclude_internal"]) expect(params.has(key)).toBe(false);
+  await page.getByRole("button", { name: "Limpiar búsqueda", exact: true }).click();
+  await page.getByRole("button", { name: "Todos", exact: true }).click();
+  await page.reload();
+  await expect(page.getByRole("searchbox", { name: "Buscar por descripción" })).toHaveValue("");
+  await expect(page.getByRole("button", { name: "Todos", exact: true })).toHaveAttribute("aria-pressed", "true");
+});
+
+test("exportación confirma el total filtrado y permite elegir cantidad", async ({ page }, info) => {
+  await mockApi(page);
+  const items = Array.from({ length: 1051 }, (_, index) => ({
+    id: 1051 - index, account_id: 1, date: "2026-09-30", description: index === 0 ? '=HYPERLINK("Compra")' : index === 1 ? 'Compra "pan"; café\nlocal' : `Compra ${index + 1}`,
+    amount_clp: -1000, transaction_type: "expense", origin: "pdf", category_id: 1,
+  }));
+  await page.route("**/api/v1/categories**", route => route.fulfill({ json: [{ id: 1, name: "Compras", type: "expense", parent_id: null }] }));
+  const requests: { offset: number; limit: number }[] = [];
+  await page.route("**/api/v1/transaction-pages**", route => {
+    const params = new URL(route.request().url()).searchParams;
+    expect(Object.fromEntries(params)).toMatchObject({ search: "Compra", account_id: "1", category_id: "1", transaction_type: "expense", date_from: "2026-09-01", date_to: "2026-09-30" });
+    const offset = Number(params.get("offset") ?? 0), limit = Number(params.get("limit") ?? 50);
+    requests.push({ offset, limit });
+    return route.fulfill({ json: { items: items.slice(offset, offset + limit), total: items.length, offset, limit } });
+  });
+  await page.addInitScript(value => localStorage.setItem("sb-demo-auth-token", JSON.stringify(value)), session(ownerA));
+  await page.goto("/app/transactions?month=2026-09&account_id=1&category=1&type=expense&search=Compra");
+  await expect(page.getByText("Compra 50", { exact: true })).toBeVisible();
+  await expect(page.getByText("Compra 51", { exact: true })).toHaveCount(0);
+  const openExport = async () => {
+    if ((page.viewportSize()?.width ?? 0) < 640) {
+      await page.getByLabel("Más acciones", { exact: true }).click();
+      await page.getByRole("button", { name: "Exportar movimientos", exact: true }).click();
+    } else await page.getByRole("button", { name: "Exportar", exact: true }).click();
+  };
+  await openExport();
+  const dialog = page.getByRole("dialog", { name: "Exportar movimientos", exact: true });
+  await expect(dialog.getByRole("radio", { name: "Todos los resultados (1.051)" })).toBeChecked();
+  await expect(dialog.getByRole("combobox", { name: "Formato" })).toHaveValue("csv");
+  await expect(dialog).toContainText("Descripción: Compra");
+  await page.keyboard.press("Escape");
+  await expect(dialog).toHaveCount(0);
+  expect(requests.every(request => request.offset === 0 && request.limit === 50)).toBe(true);
+  const initialRequests = requests.length;
+  await openExport();
+  const downloadPromise = page.waitForEvent("download");
+  await dialog.getByRole("button", { name: "Exportar 1.051 movimientos", exact: true }).click();
+  const download = await downloadPromise;
+  expect(download.suggestedFilename()).toBe("movimientos-2026-09-1051.csv");
+  const chunks: Buffer[] = [];
+  for await (const chunk of (await download.createReadStream())!) chunks.push(Buffer.from(chunk));
+  const csv = Buffer.concat(chunks).toString("utf8");
+  expect(csv.startsWith('\uFEFF"Fecha";"Descripción";"Monto CLP"')).toBe(true);
+  expect(csv).toContain('"\'=HYPERLINK(""Compra"")"');
+  expect(csv).toContain('"Compra ""pan""; café\nlocal"');
+  expect(csv).toContain('"Compra 1051"');
+  expect([...csv.matchAll(/;-1000;/g)]).toHaveLength(1051);
+  expect(requests.slice(initialRequests)).toEqual([{ offset: 0, limit: 500 }, { offset: 500, limit: 500 }, { offset: 1000, limit: 51 }]);
+  await expect(page.getByText("Compra 51", { exact: true })).toHaveCount(0);
+  await page.setViewportSize({ width: 320, height: 640 });
+  await openExport();
+  await dialog.getByRole("radio", { name: "Elegir cantidad" }).check();
+  const quantity = dialog.getByRole("spinbutton", { name: "Cantidad de movimientos" });
+  for (const invalid of ["0", "1052", "1.5", ""]) {
+    await quantity.fill(invalid);
+    await expect(dialog.getByRole("button", { name: /^Exportar/ })).toBeDisabled();
+  }
+  await quantity.fill("75");
+  await dialog.getByRole("combobox", { name: "Formato" }).selectOption("markdown");
+  await expect(dialog.getByRole("button", { name: "Exportar 75 movimientos", exact: true })).toBeInViewport();
+  expect(await dialog.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
+  await page.screenshot({ path: info.outputPath("exportar-personalizado-mobile.png") });
+  const markdownPromise = page.waitForEvent("download");
+  await dialog.getByRole("button", { name: "Exportar 75 movimientos", exact: true }).click();
+  const markdownDownload = await markdownPromise;
+  expect(markdownDownload.suggestedFilename()).toBe("movimientos-2026-09-75.md");
+  const markdownChunks: Buffer[] = [];
+  for await (const chunk of (await markdownDownload.createReadStream())!) markdownChunks.push(Buffer.from(chunk));
+  const markdown = Buffer.concat(markdownChunks).toString("utf8");
+  expect(markdown).toContain("75 de 1051 resultados filtrados");
+  expect(markdown).toContain("Compra 75");
+  expect(markdown).not.toContain("Compra 76");
+  expect(requests.at(-1)).toEqual({ offset: 0, limit: 75 });
+  await expect(page.getByLabel("Más acciones", { exact: true })).toBeFocused();
+});
+
+test("exportación evita archivos parciales y permite cancelar", async ({ page }) => {
+  await mockApi(page);
+  const items = Array.from({ length: 501 }, (_, index) => ({
+    id: index + 1, account_id: 1, date: "2026-09-30", description: `Compra ${index + 1}`,
+    amount_clp: -1000, transaction_type: "expense", origin: "pdf", category_id: null,
+  }));
+  let available = items.length;
+  let mode: "fail" | "changed" | "delay" = "fail";
+  let release!: () => void;
+  let finishDelayed!: () => void;
+  const delayedFinished = new Promise<void>(resolve => { finishDelayed = resolve; });
+  await page.route("**/api/v1/transaction-pages**", async route => {
+    const params = new URL(route.request().url()).searchParams;
+    const offset = Number(params.get("offset") ?? 0), limit = Number(params.get("limit") ?? 50);
+    if (offset === 500 && mode === "fail") return route.fulfill({ status: 500, json: { detail: "No se pudo preparar la exportación." } });
+    if (limit !== 50 && mode === "delay") {
+      await new Promise<void>(resolve => { release = resolve; });
+      try { await route.fulfill({ json: { items: items.slice(offset, offset + limit), total: available, offset, limit } }); }
+      catch { /* The user cancelled this request. */ }
+      finally { finishDelayed(); }
+      return;
+    }
+    return route.fulfill({ json: { items: items.slice(offset, offset + limit), total: available, offset, limit } });
+  });
+  await page.addInitScript(value => localStorage.setItem("sb-demo-auth-token", JSON.stringify(value)), session(ownerA));
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.goto("/app/transactions");
+  const downloads: string[] = [];
+  page.on("download", download => downloads.push(download.suggestedFilename()));
+  await page.getByRole("button", { name: "Exportar", exact: true }).click();
+  const dialog = page.getByRole("dialog", { name: "Exportar movimientos", exact: true });
+  await dialog.getByRole("button", { name: "Exportar 501 movimientos", exact: true }).click();
+  await expect(dialog.getByRole("alert")).toContainText("No se pudo preparar la exportación.");
+  expect(downloads).toEqual([]);
+  mode = "changed";
+  available = 500;
+  await dialog.getByRole("button", { name: "Exportar 501 movimientos", exact: true }).click();
+  await expect(dialog.getByRole("alert")).toContainText("La cantidad de resultados cambió a 500");
+  expect(downloads).toEqual([]);
+  mode = "delay";
+  await dialog.getByRole("button", { name: "Exportar 500 movimientos", exact: true }).click();
+  await expect.poll(() => typeof release).toBe("function");
+  await dialog.getByRole("button", { name: "Cancelar", exact: true }).click();
+  await expect(dialog).toHaveCount(0);
+  release();
+  await delayedFinished;
+  await expect(page.getByRole("button", { name: "Exportar", exact: true })).toBeFocused();
+  expect(downloads).toEqual([]);
+});
+
 test("inicio conserva sus indicadores y gráficos en móvil y escritorio", async ({ page }, info) => {
   await mockApi(page);
   const names = ["Comida y restaurantes", "Servicios con un nombre largo para el gráfico móvil", "Transporte", "Salud", "Compras", "Educación", "Viajes"];
   const amounts = [50000, 20000, 10000, 8000, 5000, 4000, 3000];
   await page.route("**/api/v1/categories**", route => route.fulfill({ json: names.map((name, index) => ({
-    id: index + 1, name, type: "expense", parent_id: null,
+    id: index + 1, name, type: "expense", parent_id: null, icon: index === 0 ? "food" : "transport",
   })) }));
   await page.route("**/api/v1/transactions**", route => route.fulfill({ json: amounts.map((amount, index) => ({
     id: index + 10, account_id: 1, date: "2026-09-12", description: names[index], amount_clp: -amount,
@@ -945,6 +1530,9 @@ test("inicio conserva sus indicadores y gráficos en móvil y escritorio", async
         const bounds = el.getBoundingClientRect();
         return lines.length === 1 && lines[0].left >= bounds.left && lines[0].right <= bounds.right;
       }), `${value} completo en una línea a ${width}px`).toBe(true);
+      if (width < 640) {
+        expect((await amount.locator("xpath=ancestor::article[1]").boundingBox())!.height).toBeLessThan(136);
+      }
     }
   }
   await page.setViewportSize({ width: 390, height: 844 });
@@ -952,6 +1540,20 @@ test("inicio conserva sus indicadores y gráficos en móvil y escritorio", async
   const gainsSize = await gainsCard.boundingBox();
   expect(gainsSize).not.toBeNull();
   expect(gainsSize!.width / gainsSize!.height).toBeLessThan(1.35);
+  const dailyPanel = page.getByRole("heading", { name: "Gasto diario", exact: true }).locator("xpath=ancestor::section[1]");
+  await expect(dailyPanel.locator('[title="2026-09-12: $100.000"]')).toBeVisible();
+  await expect(dailyPanel.getByRole("button")).toHaveCount(0);
+  await expect(dailyPanel.getByRole("status")).toHaveCount(0);
+  await gainsCard.screenshot({ path: info.outputPath("ganancias-mobile.png") });
+  const top = page.getByRole("heading", { name: "Top 5 Movimientos" }).locator("xpath=ancestor::section[1]");
+  await expect(top.locator("article")).toHaveCount(5);
+  await expect(top.locator("article").first()).toContainText(names[0]);
+  await expect(top.locator("article").last()).toContainText(names[4]);
+  await expect(top.locator("article").first().locator("[data-category-icon]")).toHaveAttribute("data-category-icon", "food");
+  await top.getByRole("button", { name: "Ingresos", exact: true }).click();
+  await expect(top.locator("article")).toHaveCount(0);
+  await top.getByRole("button", { name: "Gastos", exact: true }).click();
+  await expect(top.locator("article")).toHaveCount(5);
   const categoryPanel = page.getByRole("heading", { name: "Gastos por Categoria" }).locator("xpath=ancestor::section[1]");
   await expect(categoryPanel.getByRole("button", { name: /Otras categorías/ })).toContainText("$7.000");
   await expect(categoryPanel.getByRole("status")).toContainText("Total: $100.000");
@@ -971,6 +1573,102 @@ test("inicio conserva sus indicadores y gráficos en móvil y escritorio", async
   await categoryPanel.getByRole("button", { name: /Otras categorías/ }).click();
   await expect(categoryPanel.getByRole("status")).toContainText("Total: $100.000");
   await page.screenshot({ path: info.outputPath("inicio-mobile.png"), fullPage: true });
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.screenshot({ path: info.outputPath("inicio-desktop.png"), fullPage: true });
+});
+
+test("inicio permite personalizar categorías sin duplicar y conserva selección y accesibilidad", async ({ page }, info) => {
+  await mockApi(page);
+  const storageKey = `solofinanzas.dashboard.categories.${ownerA}`;
+  await page.route("**/api/v1/categories**", route => route.fulfill({ json: [
+    { id: 1, name: "Ganancias tarjetas", type: "income", parent_id: null, icon: "card" },
+    { id: 2, name: "Cashback", type: "income", parent_id: 1 },
+    { id: 3, name: "Compras", type: "expense", parent_id: null, icon: "shopping" },
+    { id: 4, name: "Transferencias", type: "transfer", parent_id: null },
+  ] }));
+  const amounts = [1000, 2000, -500, 9999, 8888, 7777];
+  await page.route("**/api/v1/transactions**", route => route.fulfill({ json: amounts.map((amount, index) => ({
+    id: index + 1, account_id: 1, date: "2026-09-12", description: `Movimiento ${index + 1}`, amount_clp: amount,
+    transaction_type: amount < 0 ? "expense" : "income", category_id: [1, 2, 3, 1, 1, 4][index],
+    origin: index === 4 ? "cash_transfer" : "pdf", is_internal_transfer: index === 3,
+  })) }));
+  await page.route("**/api/v1/dashboard**", route => route.fulfill({ json: {
+    period_month: new URL(route.request().url()).searchParams.get("period_month") ?? "2026-09",
+    available_periods: ["2026-09", "2026-08"], cards: [], monthly_movements: [],
+  } }));
+  await page.addInitScript(({ auth, otherOwner }) => {
+    localStorage.setItem("sb-demo-auth-token", JSON.stringify(auth));
+    localStorage.setItem(`solofinanzas.dashboard.categories.${otherOwner}`, "[3]");
+  }, { auth: session(ownerA), otherOwner: ownerB });
+  await page.goto("/app");
+  const summary = page.getByRole("region", { name: "Resumen de categorías", exact: true });
+  await expect(summary.locator("strong")).toHaveText("$3.000");
+  await expect(summary).toContainText("2 movimientos");
+  const trigger = summary.getByRole("button", { name: "Elegir categorías del resumen" });
+  await trigger.click();
+  const dialog = page.getByRole("dialog", { name: "Seleccionar categorías", exact: true });
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByRole("button", { name: "Ganancias tarjetas (todas)", exact: true })).toHaveAttribute("aria-pressed", "true");
+  await expect(dialog.getByRole("button", { name: "Transferencias", exact: true })).toHaveCount(0);
+  await dialog.getByRole("button", { name: "Compras", exact: true }).click();
+  await page.keyboard.press("Escape");
+  await expect(dialog).toBeHidden();
+  await expect(trigger).toBeFocused();
+  await expect(summary.locator("strong")).toHaveText("$2.500");
+  await trigger.click();
+  await expect(dialog.getByRole("button", { name: "Compras", exact: true })).toHaveAttribute("aria-pressed", "true");
+  await dialog.getByRole("button", { name: "Cashback", exact: true }).click();
+  await page.setViewportSize({ width: 320, height: 640 });
+  await expect(dialog.getByRole("button", { name: "Listo", exact: true })).toBeInViewport();
+  expect(await dialog.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
+  await page.screenshot({ path: info.outputPath("resumen-categorias-mobile.png") });
+  await dialog.getByRole("button", { name: "Listo", exact: true }).click();
+  await expect(summary.locator("strong")).toHaveText("$2.500");
+  await expect(summary).toContainText("3 movimientos");
+  const detailToggle = summary.getByRole("button", { name: "Ver detalle por categoría", exact: true });
+  if (info.project.name === "mobile") await detailToggle.tap(); else await detailToggle.click();
+  const detailList = summary.getByRole("list", { name: "Aporte por categoría" });
+  await expect(detailList.getByRole("listitem")).toHaveCount(3);
+  await expect(detailList.getByRole("listitem").filter({ hasText: "Cashback" })).toContainText("$2.000");
+  await expect(detailList.getByRole("listitem").filter({ hasText: "Ganancias tarjetas" })).toContainText("$1.000");
+  await expect(detailList.getByRole("listitem").filter({ hasText: "Compras" })).toContainText("$-500");
+  await expect(summary).toContainText("Saldo neto");
+  await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(320);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await summary.scrollIntoViewIfNeeded();
+  await summary.screenshot({ path: info.outputPath("categorias-detalle-mobile.png"), animations: "disabled" });
+  await summary.getByRole("button", { name: "Volver al resumen de categorías" }).focus();
+  await page.keyboard.press("Enter");
+  await expect(detailList).toHaveCount(0);
+  await expect(summary.getByRole("button")).toHaveCount(2);
+  expect(await page.evaluate(key => JSON.parse(localStorage.getItem(key) ?? "[]").sort(), storageKey)).toEqual([1, 2, 3]);
+  await page.reload();
+  await expect(summary.locator("strong")).toHaveText("$2.500");
+  await trigger.click();
+  for (const name of ["Ganancias tarjetas (todas)", "Cashback", "Compras"]) {
+    await dialog.getByRole("button", { name, exact: true }).click();
+  }
+  await dialog.getByRole("button", { name: "Listo", exact: true }).click();
+  await expect(summary.locator("strong")).toHaveText("$0");
+  await page.reload();
+  await expect(summary.locator("strong")).toHaveText("$0");
+  await trigger.click();
+  await dialog.getByRole("button", { name: "Compras", exact: true }).click();
+  await dialog.getByRole("button", { name: "Listo", exact: true }).click();
+  await expect(summary.locator("strong")).toHaveText("$500");
+  await detailToggle.click();
+  await expect(summary).toContainText("Gasto total");
+  await expect(detailList.getByRole("listitem")).toHaveCount(1);
+  await expect(detailList).toContainText("$500");
+  await summary.getByRole("button", { name: "Volver al resumen de categorías" }).click();
+  await trigger.click();
+  await dialog.getByRole("button", { name: "Compras", exact: true }).click();
+  await dialog.getByRole("button", { name: "Ganancias tarjetas (todas)", exact: true }).click();
+  await dialog.getByRole("button", { name: "Listo", exact: true }).click();
+  await expect(summary.locator("strong")).toHaveText("$3.000");
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await summary.screenshot({ path: info.outputPath("ganancias-desktop.png") });
+
 });
 function session(owner: string) {
   const payload = { sub: owner, exp: Math.floor(Date.now() / 1000) + 3600 };
@@ -1113,6 +1811,38 @@ test("home público, diseño adaptable y rutas privadas", async ({
   ).toBeVisible();
   await page.goto("/transactions?statement_id=8");
   await expect(page).toHaveURL(/\/login$/);
+});
+
+test("perfil muestra cada error junto a su acción y la ruta 404 lleva al dashboard", async ({ page }) => {
+  await mockApi(page);
+  await page.route("**/api/v1/me/export", route => route.fulfill({ status: 500, json: { detail: "No se pudo exportar" } }));
+  await page.route("**/api/v1/me", route => route.request().method() === "DELETE"
+    ? route.fulfill({ status: 403, json: { detail: "Confirma tu identidad antes de eliminar" } }) : route.fallback());
+  await page.addInitScript(value => localStorage.setItem("sb-demo-auth-token", JSON.stringify(value)), session(ownerA));
+  await page.goto("/app/profile");
+  const downloads = page.locator("section").filter({ has: page.getByRole("heading", { name: "Descargar mis datos" }) });
+  const deletion = page.locator("section").filter({ has: page.getByRole("heading", { name: "Eliminar mi cuenta" }) });
+  await downloads.getByRole("button", { name: "Exportar mis datos" }).click();
+  await expect(downloads.getByRole("alert")).toHaveText("No se pudo exportar");
+  await deletion.getByLabel("Escribe ELIMINAR para confirmar").fill("ELIMINAR");
+  await deletion.getByRole("button", { name: "Eliminar definitivamente" }).click();
+  await expect(deletion.getByRole("alert")).toHaveText("Confirma tu identidad antes de eliminar");
+  await expect(downloads.getByRole("alert")).toHaveText("No se pudo exportar");
+  await page.goto("/ruta-inexistente");
+  await expect(page.getByRole("heading", { level: 1 })).toContainText("404");
+  await expect(page.getByRole("link", { name: "Ir al dashboard" })).toHaveAttribute("href", "/app");
+});
+
+test("un fallo de renderizado usa la pantalla de error general", async ({ page }) => {
+  await mockApi(page);
+  const broken = { ...session(ownerA), user: { ...session(ownerA).user, user_metadata: null } };
+  await page.addInitScript(value => localStorage.setItem("sb-demo-auth-token", JSON.stringify(value)), broken);
+  await page.goto("/app/profile");
+  await expect(page.getByRole("heading", { name: "No pudimos mostrar esta pantalla" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: /404/ })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Recargar página" })).toBeVisible();
+  await page.getByRole("link", { name: "Volver a la portada" }).click();
+  await expect(page).toHaveURL(/\/$/);
 });
 
 test("cancelación OAuth y privacidad", async ({ page }) => {
@@ -1501,7 +2231,120 @@ test("cuentas distingue variación registrada y cobertura de cartolas", async ({
   await expect(page.getByText("Cartolas por actualizar", { exact: true })).toHaveCount(0);
 });
 
-test("efectivo permite crear, editar y eliminar un movimiento manual", async ({ page }) => {
+test("eliminar cuenta comprueba todos los registros y conserva foco y errores", async ({ page }, info) => {
+  await mockApi(page);
+  let count = 125;
+  let failCheck = true;
+  let failDelete = true;
+  let deletes = 0;
+  await page.route("**/api/v1/transaction-pages**", route => {
+    const params = new URL(route.request().url()).searchParams;
+    if (params.get("limit") === "1" && failCheck) return route.fulfill({ status: 500, json: { detail: "Sin conexión" } });
+    return route.fulfill({ json: { items: [], total: count, offset: 0, limit: Number(params.get("limit")) } });
+  });
+  await page.route("**/api/v1/accounts/1", route => {
+    deletes++;
+    return failDelete ? route.fulfill({ status: 409, json: { detail: "La cuenta acaba de recibir una cartola." } }) : route.fulfill({ status: 204 });
+  });
+  await page.addInitScript(value => localStorage.setItem("sb-demo-auth-token", JSON.stringify(value)), session(ownerA));
+  await page.goto("/app/accounts");
+  const menu = page.getByLabel("Más acciones de la cuenta");
+  const open = async () => {
+    await menu.click();
+    await page.getByRole("button", { name: "Eliminar cuenta", exact: true }).click();
+  };
+  await open();
+  const dialog = page.getByRole("dialog", { name: "¿Eliminar Cuenta demo A?" });
+  const remove = dialog.getByRole("button", { name: "Eliminar cuenta", exact: true });
+  await expect(dialog.getByRole("button", { name: "Cancelar" })).toBeFocused();
+  await expect(dialog.getByRole("alert")).toContainText("No pudimos comprobar");
+  await expect(remove).toBeDisabled();
+  failCheck = false;
+  await dialog.getByRole("button", { name: "Reintentar" }).click();
+  await expect(dialog.getByText("0 cartolas · 125 movimientos")).toBeVisible();
+  await expect(remove).toBeDisabled();
+  await dialog.getByRole("button", { name: "Cancelar" }).focus();
+  await page.keyboard.press("Tab");
+  await expect(dialog.getByRole("button", { name: "Cancelar" })).toBeFocused();
+  await page.screenshot({ path: info.outputPath("delete-account-blocked.png") });
+  await page.keyboard.press("Escape");
+  await expect(dialog).toHaveCount(0);
+  await expect(menu).toBeFocused();
+  expect(deletes).toBe(0);
+  count = 0;
+  await open();
+  await expect(remove).toBeEnabled();
+  await page.keyboard.press("Shift+Tab");
+  await expect(remove).toBeFocused();
+  await page.keyboard.press("Tab");
+  await expect(dialog.getByRole("button", { name: "Cancelar" })).toBeFocused();
+  await remove.click();
+  await expect(dialog.getByRole("alert")).toContainText("acaba de recibir una cartola");
+  await expect(dialog).toBeVisible();
+  failDelete = false;
+  await remove.click();
+  await expect(dialog).toHaveCount(0);
+  await expect(page.getByRole("heading", { level: 1, name: "Cuentas", exact: true })).toBeFocused();
+  expect(deletes).toBe(2);
+});
+
+test("deshacer importación resume impacto y contiene el foco sin bloquear la cancelación de carga", async ({ page }, info) => {
+  await mockApi(page);
+  const statement = { id: 7, account_id: 1, file_name: "cartola_octubre_2026.pdf", file_type: "application/pdf", file_checksum: null,
+    period_month: "2026-10", status: "processed", raw_path: null, uploaded_at: "2026-10-22T10:00:00Z" };
+  const impact = { statement_id: 7, transaction_count: 125, income_total_clp: 500000, expense_total_clp: 150000,
+    net_total_clp: 350000, affected_periods: ["2026-09", "2026-10"], internal_transfer_match_count: 3, cash_counterpart_count: 2, raw_file_delete_eligible: true };
+  let deleted = false;
+  let release: () => void = () => {};
+  const pending = new Promise<void>(resolve => { release = resolve; });
+  let loads = 0;
+  await page.route("**/api/v1/statements?account_id=1", route => route.fulfill({ json: deleted ? [] : [statement] }));
+  await page.route("**/api/v1/statements/7/deletion-impact", async route => {
+    loads++;
+    if (loads === 1) await pending;
+    await route.fulfill({ json: impact });
+  });
+  await page.route("**/api/v1/statements/7", route => {
+    deleted = true;
+    return route.fulfill({ json: { ...impact, raw_file_deleted: true } });
+  });
+  await page.addInitScript(value => localStorage.setItem("sb-demo-auth-token", JSON.stringify(value)), session(ownerA));
+  await page.goto("/app/accounts");
+  const trigger = page.getByRole("button", { name: "Deshacer importacion de cartola_octubre_2026.pdf" });
+  await trigger.click();
+  const dialog = page.getByRole("dialog", { name: "Deshacer importación", exact: true });
+  await expect(dialog.getByRole("status")).toHaveText("Calculando el impacto…");
+  await page.keyboard.press("Escape");
+  await expect(dialog).toHaveCount(0);
+  await expect(trigger).toBeFocused();
+  await trigger.click();
+  await expect(dialog.getByText("125", { exact: true })).toBeVisible();
+  release();
+  await expect(dialog.getByText(/2 movimientos vinculados de Efectivo/)).toBeVisible();
+  await expect(dialog.getByText("El PDF original también se eliminará.")).toBeVisible();
+  await expect(dialog.getByText("Ingresos", { exact: true })).not.toBeVisible();
+  await expect(dialog.getByRole("button", { name: "Cancelar", exact: true })).toBeFocused();
+  await dialog.getByRole("button", { name: "Deshacer importación", exact: true }).focus();
+  await page.keyboard.press("Tab");
+  await expect(dialog.locator("summary")).toBeFocused();
+  if (info.project.name === "mobile") await page.setViewportSize({ width: 320, height: 740 });
+  expect(await dialog.evaluate(el => el.firstElementChild!.scrollWidth - el.firstElementChild!.clientWidth)).toBeLessThanOrEqual(1);
+  await page.screenshot({ path: info.outputPath("undo-import-summary.png") });
+  await dialog.locator("summary").click();
+  await expect(dialog.getByText("Ingresos", { exact: true })).toBeVisible();
+  await expect(dialog.getByText("septiembre de 2026, octubre de 2026")).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(trigger).toBeFocused();
+  expect(deleted).toBe(false);
+  await trigger.click();
+  await dialog.getByRole("button", { name: "Deshacer importación", exact: true }).click();
+  await expect(dialog).toHaveCount(0);
+  await expect(page.getByRole("heading", { level: 1, name: "Cuentas", exact: true })).toBeFocused();
+  expect(deleted).toBe(true);
+});
+
+test("efectivo permite crear, editar y eliminar un movimiento manual", async ({ page }, info) => {
+  if (info.project.name === "mobile") await page.setViewportSize({ width: 320, height: 740 });
   await mockApi(page);
   let movement: Record<string, unknown> | null = null;
   await page.route("**/api/v1/transaction-pages**", (route) => {
@@ -1545,10 +2388,52 @@ test("efectivo permite crear, editar y eliminar un movimiento manual", async ({ 
   const cash = page.locator("#cash-account");
   await expect(cash.getByRole("heading", { name: "Efectivo" })).toBeVisible();
   await expect(cash.getByText("Información de la cuenta")).toBeVisible();
-  await expect(cash.getByRole("region", { name: "Resumen de movimientos de la cuenta" }).getByRole("article")).toHaveCount(4);
+  await expect(cash.getByText("Cuenta manual · CLP", { exact: true })).toBeVisible();
+  if (info.project.name === "desktop") {
+    const summary = cash.getByRole("region", { name: "Resumen histórico de la cuenta" });
+    await expect(summary.getByText("Todo el historial")).toBeVisible();
+    await expect(summary.getByText("Saldo registrado", { exact: true })).toBeVisible();
+    await expect(summary.getByText("No corresponde al saldo bancario")).toHaveCount(0);
+  } else {
+    await expect(cash.getByRole("region", { name: "Resumen de movimientos de la cuenta" }).getByRole("article")).toHaveCount(4);
+  }
+  await cash.scrollIntoViewIfNeeded();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(page.viewportSize()!.width);
+  await page.screenshot({ path: info.outputPath("cash-summary.png"), fullPage: true });
   await expect(cash.getByText("Cartolas", { exact: true })).toHaveCount(0);
   await cash.getByRole("button", { name: "Registrar movimiento" }).click();
   const dialog = page.getByRole("dialog", { name: "Registrar movimiento" });
+  await expect.poll(() => page.evaluate(() => document.body.style.overflow)).toBe("hidden");
+  await dialog.getByLabel("Tipo").focus();
+  await page.keyboard.press("Shift+Tab");
+  await expect(dialog.getByRole("button", { name: "Registrar", exact: true })).toBeFocused();
+  await page.keyboard.press("Tab");
+  await expect(dialog.getByLabel("Tipo")).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(dialog).toHaveCount(0);
+  await expect(cash.getByRole("button", { name: "Registrar movimiento" })).toBeFocused();
+  await expect.poll(() => page.evaluate(() => document.body.style.overflow)).not.toBe("hidden");
+  await cash.getByRole("button", { name: "Registrar movimiento" }).click();
+  for (const [width, height] of info.project.name === "mobile" ? [[320, 568], [390, 380], [844, 390]] : [[1280, 720]]) {
+    await page.setViewportSize({ width, height });
+    await dialog.getByLabel("Descripción").fill("Almuerzo");
+    const layout = await dialog.evaluate(element => {
+      const panel = element.firstElementChild as HTMLElement;
+      const input = element.querySelector('input[type="text"]')!;
+      const footer = element.querySelector("form")!.lastElementChild!;
+      return { top: panel.getBoundingClientRect().top, bottom: panel.getBoundingClientRect().bottom,
+        overflow: panel.scrollWidth - panel.clientWidth, fieldBottom: input.getBoundingClientRect().bottom,
+        footerTop: footer.getBoundingClientRect().top };
+    });
+    expect(layout.overflow).toBeLessThanOrEqual(1);
+    expect(layout.top).toBeGreaterThanOrEqual(8);
+    expect(layout.bottom).toBeLessThanOrEqual(height - 8);
+    expect(layout.fieldBottom).toBeLessThanOrEqual(layout.footerTop);
+    await expect(dialog.getByRole("button", { name: "Registrar", exact: true })).toBeInViewport({ ratio: 1 });
+    await page.screenshot({ path: info.outputPath(`cash-form-${width}x${height}.png`) });
+  }
+  if (info.project.name === "mobile") await page.setViewportSize({ width: 320, height: 740 });
+  await dialog.getByLabel("Fecha", { exact: true }).fill("2026-10-10");
   await dialog.getByLabel("Monto en pesos").fill("5000");
   await dialog.getByLabel("Descripción").fill("Almuerzo");
   await dialog.getByRole("button", { name: "Registrar", exact: true }).click();
@@ -1565,12 +2450,22 @@ test("efectivo permite crear, editar y eliminar un movimiento manual", async ({ 
   await expect(cash.getByText("Reembolso")).toBeVisible();
   await cash.getByRole("button", { name: "Acciones de Reembolso" }).click();
   await page.getByRole("menuitem", { name: "Eliminar" }).click();
-  await expect(page.getByText("¿Eliminar este movimiento manual?")).toBeVisible();
+  const deleteDialog = page.getByRole("dialog", { name: "Eliminar movimiento", exact: true });
+  await expect(deleteDialog.getByRole("button", { name: "Cancelar", exact: true })).toBeFocused();
+  await expect(deleteDialog.getByText("Reembolso", { exact: true })).toBeVisible();
+  await expect(deleteDialog.getByText("$8.000", { exact: true })).toBeVisible();
+  await expect(deleteDialog.getByText(/10.*oct.*2026/)).toBeVisible();
+  await page.screenshot({ path: info.outputPath("delete-cash-movement.png") });
+  await page.keyboard.press("Escape");
+  await expect(cash.getByRole("button", { name: "Acciones de Reembolso" })).toBeFocused();
+  await cash.getByRole("button", { name: "Acciones de Reembolso" }).click();
+  await page.getByRole("menuitem", { name: "Eliminar" }).click();
   await page.getByRole("button", { name: "Eliminar movimiento" }).click();
   await expect(cash.getByText("Reembolso")).toHaveCount(0);
+  await expect(cash.getByRole("navigation", { name: "Paginación de movimientos de la cuenta", exact: true })).toHaveCount(0);
 });
 
-test("efectivo permite configurar, corregir y quitar el saldo inicial", async ({ page }) => {
+test("efectivo permite configurar, corregir y quitar el saldo inicial", async ({ page }, info) => {
   await mockApi(page);
   await page.route("**/api/v1/reports/accounts", (route) => route.fulfill({ json: [
     { account_id: 3, count: 2, net: -500, income: 1000, expenses: 1500 },
@@ -1597,16 +2492,17 @@ test("efectivo permite configurar, corregir y quitar el saldo inicial", async ({
   await page.getByRole("button", { name: "Seleccionar Efectivo" }).click();
   const cash = page.locator("#cash-account");
   await expect(cash.getByText("Saldo según tus registros")).toBeVisible();
-  const summary = cash.getByRole("region", { name: "Resumen de movimientos de la cuenta" });
-  await expect(summary.getByRole("article").filter({ hasText: "Ingresos" })).toContainText("$1.000");
-  await expect(summary.getByRole("article").filter({ hasText: "Gastos" })).toContainText("$1.500");
+  const summary = cash.getByRole("region", { name: info.project.name === "desktop" ? "Resumen histórico de la cuenta" : "Resumen de movimientos de la cuenta" });
+  const metric = (label: string) => summary.locator(".metric-container").filter({ has: page.getByText(label, { exact: true }) });
+  await expect(metric("Ingresos")).toContainText("$1.000");
+  await expect(metric("Gastos")).toContainText("$1.500");
   await expect(cash.getByText(/saldo calculado es negativo/)).toBeVisible();
   await cash.getByRole("button", { name: "Configurar saldo inicial" }).click();
   await cash.getByLabel("Saldo inicial en pesos").fill("1000");
   await cash.getByLabel("Fecha de inicio").fill("2026-10-10");
   await cash.getByRole("button", { name: "Guardar saldo" }).click();
   await expect(cash.getByText(/al comienzo del 10-10-2026/)).toBeVisible();
-  await expect(summary.getByRole("article").filter({ hasText: "Saldo registrado" })).toContainText("$500");
+  await expect(summary.getByText("$500", { exact: true })).toBeVisible();
   await expect(cash.getByText(/saldo calculado es negativo/)).toHaveCount(0);
   await cash.getByRole("button", { name: "Corregir saldo inicial" }).click();
   await cash.getByLabel("Saldo inicial en pesos").fill("0");
@@ -1617,7 +2513,7 @@ test("efectivo permite configurar, corregir y quitar el saldo inicial", async ({
   await expect(cash.getByText("Calculado desde cero con todos los movimientos registrados.")).toBeVisible();
 });
 
-test("retiro importado se vincula con Efectivo y se puede deshacer", async ({ page }) => {
+test("retiro importado se vincula con Efectivo y se puede deshacer", async ({ page }, info) => {
   await mockApi(page);
   let linked = false;
   let bankCategory: number | null = null;
@@ -1668,13 +2564,39 @@ test("retiro importado se vincula con Efectivo y se puede deshacer", async ({ pa
   await page.getByRole("button", { name: "Vincular con Efectivo" }).click();
   const confirm = page.getByRole("dialog", { name: "Vincular con Efectivo" });
   await expect(confirm.getByText("Entrada a Efectivo")).toBeVisible();
+  await expect(confirm.getByRole("group", { name: "De Cuenta demo A a Efectivo" })).toBeVisible();
+  await page.screenshot({ path: info.outputPath("cash-link.png") });
+  await expect(confirm.getByRole("button", { name: "Cancelar" })).toBeFocused();
+  await page.keyboard.press("Shift+Tab");
+  await expect(confirm.getByRole("button", { name: "Confirmar vínculo" })).toBeFocused();
+  await page.keyboard.press("Tab");
+  await expect(confirm.getByRole("button", { name: "Cancelar" })).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("button", { name: "Vincular con Efectivo" })).toBeFocused();
+  await page.getByRole("button", { name: "Vincular con Efectivo" }).click();
   await confirm.getByRole("button", { name: "Confirmar vínculo" }).click();
   await expect(page.getByText("Retiro desde Cuenta demo A")).toBeVisible();
   await expect(page.locator("span").filter({ hasText: /^Transferencia interna$/ })).toHaveCount(2);
+  await page.getByRole("button", { name: "Mostrar detalles de Retiro desde Cuenta demo A", exact: true }).click();
   await page.getByRole("button", { name: "Deshacer vínculo" }).last().click();
-  await page.getByRole("dialog", { name: "Deshacer vínculo" }).getByRole("button", { name: "Deshacer vínculo" }).click();
+  const unlinkDialog = page.getByRole("dialog", { name: "Deshacer vínculo" });
+  await expect(unlinkDialog.getByText("Entrada a Efectivo")).toBeVisible();
+  await expect(unlinkDialog.getByRole("group", { name: "De Cuenta bancaria a Efectivo" })).toBeVisible();
+  await page.screenshot({ path: info.outputPath("cash-unlink.png") });
+  await unlinkDialog.getByRole("button", { name: "Deshacer vínculo" }).click();
   await expect(page.getByText("Retiro desde Cuenta demo A")).toHaveCount(0);
   await expect(page.getByText("Giro en cajero")).toBeVisible();
+  bank.amount_clp = 20000;
+  bank.transaction_type = "income";
+  bank.description = "Depósito en cuenta";
+  bankCategory = 42;
+  await page.reload();
+  await page.getByRole("button", { name: "Mostrar detalles de Depósito en cuenta", exact: true }).click();
+  await page.getByRole("button", { name: "Vincular con Efectivo" }).click();
+  await expect(confirm.getByRole("group", { name: "De Efectivo a Cuenta demo A" })).toBeVisible();
+  await expect(confirm.getByText("Salida de Efectivo")).toBeVisible();
+  await page.keyboard.press("Escape");
+  expect(linked).toBe(false);
 });
 
 
@@ -1723,12 +2645,15 @@ test("tablas de cuentas adaptan columnas y paginación al móvil", async ({ page
       await page.screenshot({ path: info.outputPath(`movements-account-${accountId}-${width}.png`) });
       const pagination = page.getByRole("navigation", { name: "Paginación de movimientos de la cuenta", exact: true });
       await expect(pagination.getByRole("button", { name: "Anterior", exact: true })).toBeDisabled();
+      await expect(page.getByText("1–50 de 125 movimientos", { exact: true })).toBeVisible();
       await pagination.getByRole("button", { name: "Siguiente", exact: true }).click();
       await expect(movements.getByRole("cell", { name: "Compra 51", exact: true })).toBeVisible();
+      await expect(page.getByText("51–100 de 125 movimientos", { exact: true })).toBeVisible();
       await pagination.getByRole("button", { name: "Anterior", exact: true }).click();
       await expect(movements.getByRole("cell", { name: "Compra 1", exact: true })).toBeVisible();
       await pagination.getByRole("combobox", { name: "Ir a la página" }).selectOption("3");
       await expect(movements.locator("tbody tr")).toHaveCount(25);
+      await expect(page.getByText("101–125 de 125 movimientos", { exact: true })).toBeVisible();
       await expect(pagination.getByRole("button", { name: "Siguiente", exact: true })).toBeDisabled();
       await pagination.scrollIntoViewIfNeeded();
       const controls = await pagination.locator("button, select").evaluateAll(elements => elements.map(element => {
@@ -1759,7 +2684,7 @@ test("barra móvil prioriza agregar cartolas y abre el registro de movimientos",
   await page.goto("/app/accounts");
   if (info.project.name === "desktop") {
     await expect(page.getByRole("navigation", { name: "Navegación móvil", exact: true })).not.toBeVisible();
-    await expect(page.getByRole("navigation", { name: "Navegación principal", exact: true }).getByRole("link")).toHaveText(["Inicio", "Movimientos", "Análisis", "Cuentas"]);
+    await expect(page.getByRole("navigation", { name: "Navegación principal", exact: true }).getByRole("link")).toHaveText(["Inicio", "Movimientos", "Análisis", "Cuentas", "Categorías"]);
     await expect(page.getByRole("link", { name: "Importar cartola", exact: true })).toBeVisible();
     return;
   }
@@ -1774,7 +2699,7 @@ test("barra móvil prioriza agregar cartolas y abre el registro de movimientos",
     await expect(add).toHaveAttribute("aria-expanded", "true");
     await expect(sheet.getByRole("button", { name: "Cerrar" })).toBeFocused();
     await page.keyboard.press("Shift+Tab");
-    await expect(sheet.getByRole("link", { name: /^Agregar movimiento/ })).toBeFocused();
+    await expect(sheet.getByRole("link", { name: /^Registrar movimiento/ })).toBeFocused();
     await page.keyboard.press("Tab");
     await expect(sheet.getByRole("button", { name: "Cerrar" })).toBeFocused();
     for (const option of await sheet.getByRole("link").all()) {
@@ -1795,17 +2720,18 @@ test("barra móvil prioriza agregar cartolas y abre el registro de movimientos",
     await expect(page).toHaveURL(/\/app\/accounts$/);
     await expect(more).toHaveCount(0);
     await add.click();
-    await sheet.getByRole("link", { name: /^Agregar cartola/ }).click();
+    await sheet.getByRole("link", { name: /^Importar cartola/ }).click();
     await expect(page).toHaveURL(/\/app\/import$/);
+    await expect(page.getByRole("heading", { level: 1, name: "Importar cartola", exact: true })).toBeVisible();
     await expect(sheet).toHaveCount(0);
     await add.click();
-    await sheet.getByRole("link", { name: /^Agregar movimiento/ }).click();
+    await sheet.getByRole("link", { name: /^Registrar movimiento/ }).click();
     const form = page.getByRole("dialog", { name: "Registrar movimiento", exact: true });
     await expect(form).toBeVisible();
     await expect(page).toHaveURL(/\/app\/transactions$/);
     await form.getByRole("button", { name: "Cancelar", exact: true }).click();
     await add.click();
-    await sheet.getByRole("link", { name: /^Agregar movimiento/ }).click();
+    await sheet.getByRole("link", { name: /^Registrar movimiento/ }).click();
     await expect(form).toBeVisible();
     await form.getByLabel("Monto en pesos").fill("3500");
     await form.getByLabel("Descripción").fill(`Desde agregar ${width}`);
