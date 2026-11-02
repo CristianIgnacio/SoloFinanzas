@@ -27,14 +27,15 @@ export function PageIntro({
     <section className={cn("subtle-divider", compactOnMobile ? "pb-5 sm:pb-8" : "pb-8")}>
       <div className={cn("flex flex-col lg:flex-row lg:items-end lg:justify-between", compactOnMobile ? "gap-4 sm:gap-6" : "gap-6")}>
         <div className={cn("min-w-0 max-w-3xl", compactOnMobile ? "space-y-3 sm:space-y-4" : "space-y-4")}>
-          <div className="flex flex-wrap items-center gap-4 text-primary">
+          {eyebrow || period ? <div className="flex flex-wrap items-center gap-4 text-primary">
+            <span className="text-sm font-medium uppercase tracking-widest text-muted">Periodo</span>
             {eyebrow ? <p className="eyebrow m-0">{eyebrow}</p> : null}
             {period ? (
               <span className="min-w-0 max-w-full border-b-2 border-primary pb-1 text-base font-medium sm:text-lg">
                 {period}
               </span>
             ) : null}
-          </div>
+          </div> : null}
           <div className="space-y-3">
             <h1 className="page-title">
               {title}
@@ -101,13 +102,13 @@ export function StatCard({
         : "bg-paper-soft text-muted";
 
   return (
-    <article className={cn("surface-card metric-container flex h-full flex-col justify-between", compactOnMobile ? "min-h-[136px] gap-3 p-4 sm:min-h-[190px] sm:gap-6 sm:p-6" : "min-h-[190px] gap-6 p-6")}>
+    <article className={cn("surface-card metric-container flex h-full flex-col justify-between", compactOnMobile ? "gap-1 p-3 sm:min-h-[190px] sm:gap-6 sm:p-6" : "min-h-[190px] gap-6 p-6")}>
       <div className="flex items-start justify-between gap-4">
-        <p className="text-base font-medium text-muted">{label}</p>
+        <p className={cn("font-medium text-muted", compactOnMobile ? "text-sm sm:text-base" : "text-base")}>{label}</p>
         {icon ? (
           <span
             className={cn(
-                compactOnMobile ? "flex h-10 w-10 shrink-0 items-center justify-center rounded-full sm:h-12 sm:w-12" : "flex h-12 w-12 shrink-0 items-center justify-center rounded-full",
+                compactOnMobile ? "flex h-7 w-7 shrink-0 items-center justify-center rounded-full sm:h-12 sm:w-12" : "flex h-12 w-12 shrink-0 items-center justify-center rounded-full",
               toneClass,
             )}
           >
@@ -115,14 +116,15 @@ export function StatCard({
           </span>
         ) : null}
       </div>
-      <div className={compactOnMobile ? "min-w-0 space-y-2 sm:space-y-3" : "space-y-3"}>
+      <div className={compactOnMobile ? "min-w-0 space-y-1 sm:space-y-3" : "space-y-3"}>
         <strong className="metric-value text-ink">
           {value}
         </strong>
         {helper ? (
           <p
             className={cn(
-              "inline-flex max-w-full items-center gap-2 rounded-full px-3 py-1.5 text-sm font-semibold",
+              "inline-flex max-w-full items-center gap-2 rounded-full font-semibold",
+              compactOnMobile ? "px-2 py-0.5 text-xs sm:px-3 sm:py-1.5 sm:text-sm" : "px-3 py-1.5 text-sm",
               helperToneClass,
             )}
           >
@@ -171,26 +173,6 @@ export function Button({
       )}
       {...props}
     />
-  );
-}
-
-type TagProps = {
-  children: ReactNode;
-  active?: boolean;
-};
-
-export function Tag({ children, active = false }: TagProps) {
-  return (
-    <span
-      className={cn(
-        "inline-flex min-h-11 items-center rounded-full border px-3 py-2 text-sm transition sm:px-4 sm:text-base",
-        active
-          ? "border-primary bg-primary text-white"
-          : "border-outline bg-white text-ink",
-      )}
-    >
-      {children}
-    </span>
   );
 }
 

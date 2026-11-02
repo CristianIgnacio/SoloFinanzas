@@ -62,11 +62,11 @@ export function categoryAppearance(category?: AppearanceSource, categoryMap?: Ma
 }
 
 export function CategoryIcon({ category, categoryMap, size = "md", compactOnMobile = false }: {
-  category?: AppearanceSource; categoryMap?: Map<number, Category>; size?: "sm" | "md"; compactOnMobile?: boolean;
+  category?: AppearanceSource; categoryMap?: Map<number, Category>; size?: "xs" | "sm" | "md"; compactOnMobile?: boolean;
 }) {
   const appearance = categoryAppearance(category, categoryMap);
   const palette = CATEGORY_COLORS[appearance.color];
-  const sizeClass = size === "sm"
+  const sizeClass = size === "xs" ? "h-6 w-6 rounded-md text-[11px]" : size === "sm"
     ? compactOnMobile ? "h-6 w-6 rounded-md text-[11px] sm:h-7 sm:w-7 sm:rounded-lg sm:text-xs" : "h-7 w-7 rounded-lg text-xs"
     : compactOnMobile ? "h-8 w-8 rounded-lg text-sm sm:h-12 sm:w-12 sm:rounded-xl sm:text-xl" : "h-9 w-9 rounded-xl text-base sm:h-12 sm:w-12 sm:text-xl";
   return <span aria-hidden="true" data-category-icon={category ? appearance.icon : "uncategorized"}
