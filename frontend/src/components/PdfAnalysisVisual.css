@@ -32,6 +32,15 @@
 .pdf-analysis-fragment { position: absolute; left: 25%; top: 48%; width: 24px; height: 5px; border-radius: 4px; background: #6e875f; opacity: 0; animation: pdf-extract 2.2s ease-in-out infinite; }
 .pdf-analysis-active .pdf-analysis-row { animation: pdf-group 2.2s ease-in-out infinite; }
 
+@media (max-width: 639px) {
+  .pdf-analysis-idle { display: flex; align-items: center; gap: 12px; }
+  .pdf-analysis-idle .pdf-analysis-scene { flex: 0 0 48px; width: 48px; height: 68px; margin: 0; }
+  .pdf-analysis-idle .pdf-analysis-sheet { transform: scale(.5) rotate(-5deg); transform-origin: left center; }
+  .pdf-analysis-idle .pdf-analysis-connection,
+  .pdf-analysis-idle .pdf-analysis-data { display: none; }
+  .pdf-analysis-idle .pdf-analysis-status { min-width: 0; flex: 1; text-align: left; }
+}
+
 @keyframes pdf-scan { 0%, 100% { transform: translateY(0); opacity: 0.4; } 50% { transform: translateY(84px); opacity: 1; } }
 @keyframes pdf-extract { 0%, 15% { transform: translateX(0); opacity: 0; } 35% { opacity: 0.8; } 80%, 100% { transform: translateX(95px); opacity: 0; } }
 @keyframes pdf-group { 0%, 100% { border-color: #d9dfd3; } 55% { border-color: #6e875f; background: #edf3e9; } }
