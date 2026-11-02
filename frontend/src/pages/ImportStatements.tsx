@@ -4,6 +4,7 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import {
   BankIcon,
   Button,
+  ChevronDownIcon,
   EmptyState,
   EyeIcon,
   EyeOffIcon,
@@ -17,6 +18,8 @@ import {
   cn,
 } from "../components";
 import { PdfAnalysisVisual } from "../components/PdfAnalysisVisual";
+import { CategoryPicker } from "../components/CategoryPicker";
+import { AccountTablePagination } from "../components/AccountTablePagination";
 import { PdfImportFeedbackModal } from "../components/PdfImportFeedbackModal";
 import { getAccountPdfAvailability, groupCategories } from "../lib";
 import { ApiRequestError } from "../lib/apiClient";
@@ -26,6 +29,10 @@ import { TransactionType } from "../types";
 import type { Account, Category, FinancialProduct, PdfPreview, TransactionPreviewCandidate } from "../types";
 
 const MAX_PDF_SIZE = 10 * 1024 * 1024;
+const REVIEW_PAGE_SIZE = 20;
+const reviewDateFormatter = new Intl.DateTimeFormat("es-CL", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" });
+type ReviewFilter = "all" | "uncategorized" | "warnings" | "modified";
+const normalizeSearch = (value: string) => value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLocaleLowerCase("es").trim();
 const currencyFormatter = new Intl.NumberFormat("es-CL", {
   style: "currency",
   currency: "CLP",
@@ -53,6 +60,14 @@ type EditablePreviewTransaction = TransactionPreviewCandidate & {
   original_type: TransactionType;
 };
 
+const isModified = (transaction: EditablePreviewTransaction) =>
+  transaction.transaction_type !== transaction.original_type || transaction.category_id !== transaction.suggested_category_id;
+const hasWarning = (transaction: EditablePreviewTransaction) =>
+  Boolean(transaction.suggestion_conflict && transaction.action === "unchanged" && transaction.transaction_type === transaction.original_type);
+const matchesReviewFilter = (transaction: EditablePreviewTransaction, filter: ReviewFilter) =>
+  filter === "all" || (filter === "uncategorized" && transaction.category_id === null)
+  || (filter === "warnings" && hasWarning(transaction)) || (filter === "modified" && isModified(transaction));
+
 export function ImportStatementsPage() {
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [products, setProducts] = useState<FinancialProduct[]>([]);
@@ -65,6 +80,7 @@ export function ImportStatementsPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<PdfPreview | null>(null);
+  const [preparationExpanded, setPreparationExpanded] = useState(false);
   const [issuesAccepted, setIssuesAccepted] = useState(false);
   const [acknowledgementChecked, setAcknowledgementChecked] = useState(false);
   const [feedbackModal, setFeedbackModal] = useState<"issues" | "error" | null>(null);
@@ -73,11 +89,17 @@ export function ImportStatementsPage() {
   >([]);
   const [analyzing, setAnalyzing] = useState(false);
   const [importing, setImporting] = useState(false);
+  const [reviewSearch, setReviewSearch] = useState("");
+  const [reviewFilter, setReviewFilter] = useState<ReviewFilter>("all");
+  const [reviewOffset, setReviewOffset] = useState(0);
+  const reviewControlsRef = useRef<HTMLDivElement>(null);
+  const reviewTableRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const accountSelectRef = useRef<HTMLSelectElement>(null);
   const feedbackRef = useRef<HTMLDivElement>(null);
   const previewRef = useRef<HTMLDivElement>(null);
   const analysisRef = useRef<HTMLDivElement>(null);
+  const preparationRef = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const requestedAccountId = searchParams.get("account_id");
@@ -148,13 +170,26 @@ export function ImportStatementsPage() {
   }, [editableTransactions]);
 
   const resetAnalysis = () => {
+    setReviewSearch("");
+    setReviewFilter("all");
+    setReviewOffset(0);
     setPreview(null);
+    setPreparationExpanded(false);
     setEditableTransactions([]);
     setError(null);
     setCodedError(null);
     setIssuesAccepted(false);
     setAcknowledgementChecked(false);
     setFeedbackModal(null);
+  };
+
+  const editPreparation = () => {
+    setPreparationExpanded(true);
+    setShowPassword(false);
+    window.requestAnimationFrame(() => {
+      scrollTo(preparationRef.current);
+      accountSelectRef.current?.focus({ preventScroll: true });
+    });
   };
 
   const categoryOptionsFor = (transactionType: TransactionType) => {
@@ -215,6 +250,7 @@ export function ImportStatementsPage() {
         password || undefined,
       );
       setPreview(payload);
+      setShowPassword(false);
       if (payload.issues.length > 0) setFeedbackModal("issues");
       setEditableTransactions(
         payload.candidate_transactions.map((transaction) => ({
@@ -270,12 +306,12 @@ export function ImportStatementsPage() {
   };
 
   const updateTransactionType = (
-    sourceId: string | null,
+    index: number,
     transactionType: TransactionType,
   ) => {
     setEditableTransactions((transactions) =>
-      transactions.map((transaction) => {
-        if (transaction.source_id !== sourceId) {
+      transactions.map((transaction, transactionIndex) => {
+        if (transactionIndex !== index) {
           return transaction;
         }
 
@@ -300,12 +336,12 @@ export function ImportStatementsPage() {
   };
 
   const updateTransactionCategory = (
-    sourceId: string | null,
+    index: number,
     categoryId: number | null,
   ) => {
     setEditableTransactions((transactions) =>
-      transactions.map((transaction) =>
-        transaction.source_id === sourceId
+      transactions.map((transaction, transactionIndex) =>
+        transactionIndex === index
           ? { ...transaction, category_id: categoryId,
               action: categoryId === transaction.suggested_category_id ? "confirm" : "set" }
           : transaction,
@@ -313,9 +349,35 @@ export function ImportStatementsPage() {
     );
   };
 
+  const reviewCounts = useMemo(() => ({
+    all: editableTransactions.length,
+    uncategorized: editableTransactions.filter(item => item.category_id === null).length,
+    warnings: editableTransactions.filter(hasWarning).length,
+    modified: editableTransactions.filter(isModified).length,
+  }), [editableTransactions]);
+  const filteredTransactions = useMemo(() => {
+    const query = normalizeSearch(reviewSearch);
+    return editableTransactions.map((transaction, index) => ({ transaction, index }))
+      .filter(({ transaction }) => matchesReviewFilter(transaction, reviewFilter)
+        && normalizeSearch(transaction.description).includes(query));
+  }, [editableTransactions, reviewFilter, reviewSearch]);
+  const lastOffset = Math.max(0, Math.ceil(filteredTransactions.length / REVIEW_PAGE_SIZE) - 1) * REVIEW_PAGE_SIZE;
+  const currentOffset = Math.min(reviewOffset, lastOffset);
+  const visibleTransactions = filteredTransactions.slice(currentOffset, currentOffset + REVIEW_PAGE_SIZE);
+  useEffect(() => {
+    setReviewOffset(currentOffset);
+  }, [currentOffset]);
+  const resetReviewScroll = () => reviewTableRef.current?.scrollTo({ top: 0 });
+  const changeReviewPage = (offset: number) => {
+    setReviewOffset(offset);
+    resetReviewScroll();
+    scrollTo(reviewControlsRef.current);
+    reviewControlsRef.current?.focus({ preventScroll: true });
+  };
+
   return (
     <div className="space-y-5 sm:space-y-8">
-      <PageIntro compactOnMobile eyebrow="Importar PDF" title="Importar cartola"
+      <PageIntro compactOnMobile title="Importar cartola"
         description="Selecciona tu cuenta, analiza el PDF y revisa los movimientos antes de guardarlos." />
 
       <ol aria-label="Etapas de importación" className="grid grid-cols-3 gap-2 sm:gap-4">
@@ -342,6 +404,37 @@ export function ImportStatementsPage() {
         </div>
       ) : null}
 
+      <div ref={preparationRef} className="min-w-0 scroll-mt-28">
+      {preview && !preparationExpanded ? (
+        <section aria-label="Preparación de la cartola" className="flex min-w-0 flex-col gap-3 rounded-2xl border border-outline bg-white p-4 sm:flex-row sm:items-center sm:gap-5 sm:px-5">
+          <dl className="grid min-w-0 flex-1 gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.3fr)_auto] sm:gap-5">
+            <div className="min-w-0">
+              <dt className="text-xs font-medium text-muted">Cuenta de destino</dt>
+              <dd className="mt-1 break-words text-sm font-semibold text-ink">{account?.name}{account?.account_last4 ? ` · •••• ${account.account_last4}` : ""}</dd>
+              <dd className="mt-0.5 text-xs text-muted">{account ? InstitutionLabels[account.institution] : ""}</dd>
+            </div>
+            <div className="min-w-0">
+              <dt className="text-xs font-medium text-muted">Archivo analizado</dt>
+              <dd className="mt-1 text-sm font-medium text-ink [overflow-wrap:anywhere]">{selectedFile?.name}</dd>
+            </div>
+            <div>
+              <dt className="text-xs font-medium text-muted">Contraseña</dt>
+              <dd className="mt-1 text-sm text-ink">{password ? "Ingresada" : "Sin contraseña"}</dd>
+            </div>
+          </dl>
+          <Button compactOnMobile tone="secondary" disabled={busy} className="shrink-0 self-end sm:self-center" onClick={editPreparation}>Cambiar</Button>
+        </section>
+      ) : <div className="space-y-3">
+      {preview && <div className="flex justify-end">
+        <Button compactOnMobile tone="ghost" disabled={busy} onClick={() => {
+          setPreparationExpanded(false);
+          setShowPassword(false);
+          window.requestAnimationFrame(() => {
+            scrollTo(previewRef.current);
+            previewRef.current?.focus({ preventScroll: true });
+          });
+        }}>Volver a la revisión</Button>
+      </div>}
       <div className="grid min-w-0 gap-4 xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)] xl:items-start xl:gap-6">
         <Panel compactOnMobile className="min-w-0 space-y-4 sm:space-y-5">
           <div className="flex items-center gap-3">
@@ -383,7 +476,7 @@ export function ImportStatementsPage() {
             <span className="shrink-0 rounded-full bg-paper-soft px-2.5 py-1 text-sm font-medium text-muted">Máx. 10 MB</span>
           </div>
           {!preview ? <div ref={analysisRef} className="scroll-mt-28"><PdfAnalysisVisual analyzing={analyzing} hasFile={Boolean(selectedFile)} /></div> : (
-            <div role="status" className="rounded-xl bg-primary-mist p-3 text-sm text-primary">Análisis completado · {summary.count} movimientos detectados</div>
+            <div role="status" className="rounded-xl bg-primary-mist p-3 text-sm text-primary">Análisis completado</div>
           )}
           <button type="button" disabled={busy} aria-label={selectedFile ? "Cambiar archivo PDF" : "Seleccionar archivo PDF"}
             onClick={() => fileInputRef.current?.click()}
@@ -411,9 +504,11 @@ export function ImportStatementsPage() {
           </div>
         </Panel>
       </div>
+      </div>}
+      </div>
 
       {preview ? (
-        <div ref={previewRef} className="min-w-0 scroll-mt-28 space-y-4" aria-busy={importing}>
+        <div ref={previewRef} tabIndex={-1} className="min-w-0 scroll-mt-28 space-y-4" aria-busy={importing}>
           <Panel compactOnMobile className="min-w-0 space-y-5">
             <div className="space-y-2">
               <p className="eyebrow m-0 text-primary">Revisa antes de guardar</p>
@@ -421,8 +516,7 @@ export function ImportStatementsPage() {
               <p className="text-sm leading-6 text-muted">Período {preview.period_month} · {preview.page_count} {preview.page_count === 1 ? "página" : "páginas"} · {preview.is_encrypted ? "PDF protegido" : "PDF sin contraseña"}</p>
               <p className="text-sm text-muted">Puedes corregir el tipo y la categoría de cada movimiento.</p>
             </div>
-            <div className={cn("grid gap-3 sm:grid-cols-3", [summary.income, summary.expenses].some(value => currencyFormatter.format(value).length > 10) ? "grid-cols-1" : "grid-cols-2")} aria-label="Resumen de la importación">
-              <div className="col-span-full flex items-center justify-between rounded-2xl bg-paper-soft p-4 sm:col-span-1 sm:block"><p className="text-sm text-muted">Movimientos</p><p className="text-2xl font-semibold tabular-nums sm:mt-1">{summary.count}</p></div>
+            <div className={cn("grid gap-3 sm:grid-cols-2", [summary.income, summary.expenses].some(value => currencyFormatter.format(value).length > 10) ? "grid-cols-1" : "grid-cols-2")} aria-label="Resumen de la importación">
               <div className="metric-container rounded-2xl bg-primary-mist p-3 text-primary sm:p-4"><p className="text-sm">Ingresos</p><p className="metric-value mt-1">{currencyFormatter.format(summary.income)}</p></div>
               <div className="metric-container rounded-2xl bg-danger-soft p-3 text-danger sm:p-4"><p className="text-sm">Gastos</p><p className="metric-value mt-1">{currencyFormatter.format(summary.expenses)}</p></div>
             </div>
@@ -438,75 +532,96 @@ export function ImportStatementsPage() {
             ) : null}
             {preview.parsing_errors.length > 0 ? <StatusNotice tone="error">{preview.parsing_errors.length} fila(s) no pudieron interpretarse. Revisa el PDF antes de confirmar.</StatusNotice> : null}
 
-            {summary.count > 0 ? <div className="xl:max-h-[min(65vh,680px)] xl:overflow-auto xl:rounded-2xl xl:border xl:border-outline/80">
-              <table role="table" aria-label="Movimientos por importar" className="block w-full border-collapse xl:table xl:min-w-[760px]">
+            {summary.count > 0 ? <>
+            <div ref={reviewControlsRef} tabIndex={-1} className="scroll-mt-28 space-y-3" role="region" aria-label="Herramientas de revisión">
+              <input type="search" aria-label="Buscar movimientos por descripción" placeholder="Buscar por descripción" value={reviewSearch} disabled={importing}
+                onChange={event => { setReviewSearch(event.target.value); setReviewOffset(0); resetReviewScroll(); }}
+                className="min-h-11 w-full rounded-xl border border-outline bg-white px-3 py-2 text-base outline-none focus:border-primary focus:ring-2 focus:ring-primary/15 sm:max-w-md sm:text-sm" />
+              <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap" role="group" aria-label="Filtrar movimientos por revisar">
+                {([['all', 'Todos'], ['uncategorized', 'Sin categoría'], ['warnings', 'Con advertencias'], ['modified', 'Modificados']] as const).map(([value, label]) => (
+                  <button key={value} type="button" disabled={importing} aria-pressed={reviewFilter === value}
+                    onClick={() => { setReviewFilter(value); setReviewOffset(0); resetReviewScroll(); }}
+                    className={cn("flex min-h-11 items-center justify-between gap-2 rounded-xl border px-3 py-2 text-left text-xs transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary disabled:opacity-60 sm:text-sm", reviewFilter === value ? "border-primary/30 bg-primary-mist font-semibold text-primary" : "border-outline bg-white text-muted hover:bg-paper-soft")}>
+                    <span>{label}</span> <span className="shrink-0 tabular-nums">{reviewCounts[value]}</span>
+                  </button>
+                ))}
+              </div>
+              {reviewFilter === "warnings" && <p className="text-xs leading-5 text-muted">Conflictos entre categorías sugeridas que aún requieren tu elección. Los avisos del documento se muestran arriba.</p>}
+              <p role="status" className="text-sm text-muted">{filteredTransactions.length > 0 ? `Mostrando ${currentOffset + 1}–${currentOffset + visibleTransactions.length} de ${filteredTransactions.length}${reviewFilter !== "all" || reviewSearch.trim() ? " coincidencias" : " movimientos"}` : "Sin coincidencias"}</p>
+            </div>
+            {filteredTransactions.length > 0 ? <div ref={reviewTableRef} className="-mx-2 sm:mx-0 xl:max-h-[min(65vh,680px)] xl:overflow-auto xl:rounded-2xl xl:border xl:border-outline/80">
+              <table role="table" aria-label="Movimientos por importar" className="block w-full border-collapse xl:table xl:min-w-[760px] xl:table-fixed">
+                <colgroup className="hidden xl:table-column-group">
+                  <col className="w-[6.5rem]" /><col /><col className="w-32" /><col className="w-56" /><col className="w-36" />
+                </colgroup>
                 <thead role="rowgroup" className="sr-only text-left text-sm text-muted xl:not-sr-only xl:sticky xl:top-0 xl:z-10 xl:table-header-group xl:bg-paper">
                   <tr role="row"><th className="px-3 py-3 font-medium">Fecha</th><th className="px-3 py-3 font-medium">Descripción</th><th className="px-3 py-3 font-medium">Tipo</th><th className="px-3 py-3 font-medium">Categoría</th><th className="px-3 py-3 text-right font-medium">Monto</th></tr>
                 </thead>
                 <tbody role="rowgroup" className="grid gap-3 md:grid-cols-2 xl:table-row-group">
-                  {editableTransactions.map((transaction, index) => (
-                    <tr role="row" key={`${transaction.source_line}-${index}`} className="grid min-w-0 grid-cols-2 gap-x-2 gap-y-3 rounded-2xl border border-outline/80 p-3.5 xl:table-row xl:rounded-none xl:border-x-0 xl:border-t-0 xl:p-0 xl:last:border-b-0">
-                      <td role="cell" className="col-start-1 row-start-1 block self-center text-sm text-muted xl:table-cell xl:whitespace-nowrap xl:px-3 xl:py-4">{transaction.date}</td>
-                      <td role="cell" className="col-span-2 row-start-2 block min-w-0 text-sm font-medium [overflow-wrap:anywhere] xl:table-cell xl:px-3 xl:py-4">{transaction.description}</td>
-                      <td role="cell" className="col-span-2 row-start-3 block min-w-0 xl:table-cell xl:w-32 xl:px-3 xl:py-4">
-                        <label className="block min-w-0 space-y-1.5">
-                          <span className="text-sm font-medium text-muted xl:sr-only">Tipo <span className="sr-only">del movimiento {index + 1}</span></span>
-                          <select value={transaction.transaction_type} disabled={importing} onChange={event => updateTransactionType(transaction.source_id, event.target.value as TransactionType)}
-                            className="min-h-11 w-full min-w-0 rounded-xl border border-outline bg-white px-3 py-2 text-base outline-none transition focus:border-primary disabled:opacity-60 xl:text-sm">
+                  {visibleTransactions.map(({ transaction, index }) => (
+                    <tr role="row" key={`${transaction.source_line}-${index}`} className="grid min-w-0 grid-cols-[minmax(0,1fr)_5.75rem] gap-x-3 gap-y-1.5 rounded-2xl border border-outline/60 bg-paper/40 px-3 py-2.5 xl:table-row xl:rounded-none xl:border-x-0 xl:border-t-0 xl:bg-white xl:p-0 xl:last:border-b-0">
+                      <td role="cell" className="col-span-2 row-start-1 block min-w-0 text-xs text-muted xl:table-cell xl:whitespace-nowrap xl:px-3 xl:py-4 xl:align-top xl:text-sm">
+                        <span className="hidden xl:flex xl:min-h-11 xl:items-center">{transaction.date}</span>
+                        <span className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 xl:hidden">
+                          <time dateTime={transaction.date}>{reviewDateFormatter.format(new Date(`${transaction.date}T00:00:00Z`))}</time>
+                          <span className={cn("ml-auto text-lg font-semibold tracking-tight tabular-nums [overflow-wrap:anywhere]", transaction.amount_clp >= 0 ? "text-primary" : "text-danger")}>{currencyFormatter.format(transaction.amount_clp)}</span>
+                        </span>
+                      </td>
+                      <td role="cell" className="col-span-2 row-start-2 block min-w-0 border-b border-outline/60 pb-2 text-[15px] font-medium leading-[1.45] text-ink [overflow-wrap:anywhere] xl:table-cell xl:border-0 xl:px-3 xl:py-4 xl:align-top xl:text-sm xl:leading-5"><span className="xl:flex xl:min-h-11 xl:items-center">{transaction.description}</span></td>
+                      <td role="cell" className="col-start-2 row-start-3 block min-w-0 xl:table-cell xl:w-32 xl:px-3 xl:py-4 xl:align-top">
+                        <label className="relative block min-w-0">
+                          <span className="sr-only">Tipo del movimiento {index + 1}</span>
+                          <select value={transaction.transaction_type} disabled={importing} onChange={event => updateTransactionType(index, event.target.value as TransactionType)}
+                            className={cn("min-h-11 w-full min-w-0 appearance-none rounded-xl border border-transparent py-2 pl-2 pr-6 text-base outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/15 disabled:opacity-60 xl:appearance-auto xl:border-outline xl:bg-white xl:px-3 xl:text-sm xl:text-ink", transaction.transaction_type === TransactionType.INCOME ? "bg-primary-mist/70 text-primary" : "bg-paper-soft text-ink")}>
                             <option value={TransactionType.EXPENSE}>Gasto</option><option value={TransactionType.INCOME}>Ingreso</option>
                           </select>
+                          <ChevronDownIcon aria-hidden="true" className="pointer-events-none absolute right-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted xl:hidden" />
                         </label>
                       </td>
-                      <td role="cell" className="col-span-2 row-start-4 block min-w-0 xl:table-cell xl:w-48 xl:px-3 xl:py-4">
-                        <label className="block min-w-0 space-y-1.5">
-                          <span className="text-sm font-medium text-muted xl:sr-only">Categoría <span className="sr-only">del movimiento {index + 1}</span></span>
-                          <select value={transaction.category_id ?? ""} disabled={importing} onChange={event => updateTransactionCategory(transaction.source_id, event.target.value ? Number(event.target.value) : null)}
-                            className="min-h-11 w-full min-w-0 rounded-xl border border-outline bg-white px-3 py-2 text-base outline-none transition focus:border-primary disabled:opacity-60 xl:text-sm">
-                            <option value="">Sin categoría</option>
-                            {categoryGroupsFor(transaction.transaction_type).map(group => <optgroup key={group.root.id} label={group.root.name}>
-                              <option value={group.root.id}>{group.children.length > 0 ? `${group.root.name} (sin subcategoría)` : group.root.name}</option>
-                              {group.children.map(category => <option key={category.id} value={category.id}>{category.name}</option>)}
-                            </optgroup>)}
-                          </select>
-                        </label>
+                      <td role="cell" className="col-start-1 row-start-3 block min-w-0 xl:table-cell xl:w-56 xl:px-3 xl:py-4 xl:align-top">
+                        <div className="min-w-0">
+                          <CategoryPicker
+                            label={`Categoría del movimiento ${index + 1}`}
+                            triggerVariant="review"
+                            value={transaction.category_id === null ? "" : String(transaction.category_id)}
+                            disabled={importing}
+                            groups={categoryGroupsFor(transaction.transaction_type)}
+                            onChange={value => updateTransactionCategory(index, value ? Number(value) : null)}
+                          />
+                        </div>
                         {transaction.transaction_type === transaction.original_type && transaction.personalized_category_id && transaction.personalized_category_id !== transaction.category_id ? (
                           <button type="button" disabled={importing} className="mt-1 text-left text-xs text-primary underline"
-                            onClick={() => updateTransactionCategory(transaction.source_id, transaction.personalized_category_id)}>
+                            onClick={() => updateTransactionCategory(index, transaction.personalized_category_id)}>
                             Sugerencia personal: {categories.find(item => item.id === transaction.personalized_category_id)?.name}
                           </button>
                         ) : null}
-                        {transaction.suggestion_conflict ? <span className="block text-xs text-muted">Hay decisiones anteriores con categorías diferentes; elige la categoría.</span> : null}
+                        {hasWarning(transaction) ? <span className="block text-xs text-danger">Hay decisiones anteriores con categorías diferentes; elige la categoría.</span> : null}
                         {transaction.action === "unchanged" && transaction.transaction_type !== transaction.original_type ? (
                           <span className="block text-xs text-muted">La categoría se volverá a calcular al importar.</span>
                         ) : null}
-                        {transaction.category_id !== null && transaction.action === "unchanged" ? (
-                          <button type="button" disabled={importing} className="mt-1 text-xs text-primary underline"
-                            onClick={() => updateTransactionCategory(transaction.source_id, transaction.category_id)}>
-                            Confirmar esta categoría
-                          </button>
-                        ) : null}
                         {transaction.action !== "unchanged" && transaction.category_id !== null ? (
-                          <p className="mt-1 text-xs text-muted">Esta decisión se incorporará al aprendizaje al importar.</p>
+                          <p className="mt-1 text-xs leading-4 text-muted"><span className="xl:hidden">Cambio listo</span><span className="hidden xl:inline">Cambio listo para importar</span></p>
                         ) : null}
                       </td>
-                      <td role="cell" className={cn("col-start-2 row-start-1 block min-w-0 self-center text-right text-sm font-semibold tabular-nums [overflow-wrap:anywhere] xl:table-cell xl:whitespace-nowrap xl:px-3 xl:py-4", transaction.amount_clp >= 0 ? "text-primary" : "text-danger")}>{currencyFormatter.format(transaction.amount_clp)}</td>
+                      <td role="cell" className={cn("hidden text-right font-semibold tabular-nums xl:table-cell xl:whitespace-nowrap xl:px-3 xl:py-4 xl:align-top xl:text-sm", transaction.amount_clp >= 0 ? "text-primary" : "text-danger")}><span className="xl:flex xl:min-h-11 xl:items-center xl:justify-end">{currencyFormatter.format(transaction.amount_clp)}</span></td>
                     </tr>
                   ))}
                 </tbody>
               </table>
-            </div> : <EmptyState title="No se detectaron movimientos" description="Revisa el documento o selecciona otra cartola para volver a analizarla." />}
+            </div> : <div className="space-y-3 text-center">
+              <EmptyState title="No hay movimientos que coincidan" description="Prueba otra búsqueda o vuelve a ver todos los movimientos." />
+              <Button tone="secondary" disabled={importing} onClick={() => { setReviewSearch(""); setReviewFilter("all"); setReviewOffset(0); }}>Limpiar filtros</Button>
+            </div>}
+            {filteredTransactions.length > REVIEW_PAGE_SIZE && <AccountTablePagination label="Paginación de la revisión" showTotal={false} total={filteredTransactions.length} pageSize={REVIEW_PAGE_SIZE} offset={currentOffset} disabled={importing} onOffsetChange={changeReviewPage} />}
+            </> : <EmptyState title="No se detectaron movimientos" description="Revisa el documento o selecciona otra cartola para volver a analizarla." />}
 
-            {preview.preview_lines.length > 0 ? <details className="rounded-xl border border-outline/70 p-3 text-sm">
-              <summary className="min-h-8 cursor-pointer font-medium text-primary">Ver texto detectado en el PDF</summary>
-              <div className="mt-3 max-h-48 space-y-1 overflow-y-auto text-sm leading-5 text-muted [overflow-wrap:anywhere]">{preview.preview_lines.map((line, index) => <p key={index}>{line}</p>)}</div>
-            </details> : null}
           </Panel>
-          <div className="sticky bottom-[calc(4rem+env(safe-area-inset-bottom)+0.75rem)] z-30 flex flex-col gap-3 rounded-2xl border border-outline bg-white/95 p-3 shadow-paper backdrop-blur-sm sm:flex-row sm:items-center sm:justify-between sm:p-4 lg:bottom-4">
-            <div className="min-w-0"><p className="truncate text-sm font-semibold" title={account?.name}>{account?.name}</p>
-              <p className="mt-1 text-sm text-muted" role="status">{importing ? "Guardando tus movimientos..." : preview.issues.length > 0 && !issuesAccepted ? "Revisa las diferencias antes de confirmar." : `${summary.count} movimientos · Se guardarán al confirmar.`}</p>
+          <div className="sticky bottom-[calc(4rem+env(safe-area-inset-bottom)+0.5rem)] z-30 flex flex-col gap-2 rounded-2xl border border-outline/60 bg-paper/95 px-3 py-2.5 shadow-sm backdrop-blur-sm sm:flex-row sm:items-center sm:justify-between sm:gap-3 sm:bg-white/95 sm:p-4 lg:bottom-4">
+            <div className="min-w-0"><p className="truncate text-xs font-semibold sm:text-sm" title={account?.name}>{account?.name}</p>
+              <p className="mt-0.5 text-xs leading-5 text-muted sm:mt-1 sm:text-sm" role="status">{importing ? "Guardando tus movimientos..." : preview.issues.length > 0 && !issuesAccepted ? "Revisa las diferencias antes de confirmar." : <><span className="sm:hidden">Se importará toda la cartola.</span><span className="hidden sm:inline">Se importará toda la cartola, incluidos los movimientos fuera de esta vista.</span></>}</p>
             </div>
-            <Button compactOnMobile disabled={summary.count === 0 || !pdfAvailability?.allowed || busy || (preview.issues.length > 0 && !issuesAccepted)} onClick={importDocument}>
-              <UploadIcon className="h-5 w-5 shrink-0" />{importing ? "Importando..." : "Confirmar importación"}
+            <Button compactOnMobile className="shrink-0 !rounded-xl" disabled={summary.count === 0 || !pdfAvailability?.allowed || busy || (preview.issues.length > 0 && !issuesAccepted)} onClick={importDocument}>
+              <UploadIcon className="h-4 w-4 shrink-0 sm:h-5 sm:w-5" />{importing ? "Importando..." : "Confirmar importación"}
             </Button>
           </div>
         </div>
@@ -528,8 +643,7 @@ export function ImportStatementsPage() {
           }}
           onChangeAccount={() => {
             setFeedbackModal(null);
-            scrollTo(accountSelectRef.current);
-            accountSelectRef.current?.focus({ preventScroll: true });
+            editPreparation();
           }}
           onReviewMovements={() => {
             setFeedbackModal(null);

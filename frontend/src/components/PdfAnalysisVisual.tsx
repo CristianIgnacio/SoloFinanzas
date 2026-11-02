@@ -8,7 +8,7 @@ type Props = {
 
 export function PdfAnalysisVisual({ analyzing, hasFile }: Props) {
   return (
-    <div className="rounded-2xl border border-primary/10 bg-primary-mist/40 px-4 py-3 sm:py-4">
+    <div className={`pdf-analysis-visual ${analyzing ? "" : "pdf-analysis-idle"} rounded-2xl border border-primary/10 bg-primary-mist/40 px-4 py-3 sm:py-4`}>
       <div aria-hidden="true" className={`pdf-analysis-scene ${analyzing ? "pdf-analysis-active" : ""}`}>
         <div className="pdf-analysis-sheet">
           <PdfIcon className="mb-3 h-5 w-5 text-primary" />
@@ -33,7 +33,7 @@ export function PdfAnalysisVisual({ analyzing, hasFile }: Props) {
           ))}
         </div>
       </div>
-      <div role="status" aria-live="polite" aria-atomic="true" className="text-center">
+      <div role="status" aria-live="polite" aria-atomic="true" className="pdf-analysis-status text-center">
         <p className="text-sm font-semibold text-primary">
           {analyzing ? "Analizando tu cartola" : hasFile ? "Documento listo para analizar" : "Del PDF a tus movimientos"}
         </p>

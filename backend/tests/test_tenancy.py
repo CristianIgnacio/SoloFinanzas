@@ -258,6 +258,39 @@ class TenancyTests(unittest.TestCase):
         self.assertEqual(foreign['total'], 0)
         self.assertEqual(foreign['items'], [])
 
+    def test_description_search_filters_before_pagination_and_respects_tenant(self):
+        account_id, category_id, statement_id, _ = self.records[A]
+        with TenantSession(self.engine, user_id=A) as s:
+            for description, kind, amount in [
+                ('Compra MERCADO central', 'expense', -100),
+                ('mercado online', 'expense', -200),
+                ('Sueldo mercado', 'income', 300),
+                ('Oferta 50%_club', 'expense', -40),
+            ]:
+                s.add(TransactionModel(account_id=account_id, statement_id=statement_id,
+                    category_id=category_id, date=date(2026, 1, 2), description=description,
+                    normalized_description=description.lower(), transaction_type=kind, amount_clp=amount))
+            s.commit()
+
+        def search(**params):
+            response = self.client.get('/api/v1/transaction-pages', params=params)
+            self.assertEqual(response.status_code, 200)
+            return response.json()
+
+        first = search(search=' MERCADO ', limit=1)
+        second = search(search='mercado', limit=1, offset=1)
+        self.assertEqual(first['total'], 3)
+        self.assertEqual(len(first['items']), 1)
+        self.assertEqual(second['total'], 3)
+        self.assertNotEqual(first['items'][0]['id'], second['items'][0]['id'])
+        self.assertEqual(search(search='mercado', transaction_type='expense')['total'], 2)
+        self.assertEqual(search(search='mercado', account_id=self.records[B][0])['total'], 0)
+        self.assertEqual(search(search='demo')['total'], 1)
+        for literal in ('%', '_', '50%_'):
+            self.assertEqual(search(search=literal)['total'], 1)
+        self.assertEqual(search(search='inexistente')['total'], 0)
+        self.assertEqual(search(search='   ')['total'], 5)
+
     def test_foreign_categories_rules_and_transfers_are_rejected(self):
         with TenantSession(self.engine, user_id=B) as s:
             rule = CategorizationRuleModel(keyword='demo', category_id=self.records[B][1])

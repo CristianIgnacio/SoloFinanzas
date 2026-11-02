@@ -230,8 +230,11 @@ def count_transactions(
 
 
 def transaction_query(session, account_id=None, statement_id=None, date_from=None, date_to=None,
-                      transaction_type=None, category_id=None, uncategorized=False, exclude_internal=False):
+                      transaction_type=None, category_id=None, uncategorized=False, exclude_internal=False, search=None):
     query = select(TransactionModel)
+
+    if search and search.strip():
+        query = query.where(TransactionModel.description.icontains(search.strip(), autoescape=True))
 
     if account_id is not None:
         query = query.where(TransactionModel.account_id == account_id)

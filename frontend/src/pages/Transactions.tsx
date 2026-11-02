@@ -2,6 +2,8 @@ import { ReportService } from '../services/reportService';
 import { useEffect, useMemo, useState } from "react";
 import { Link, useLocation, useSearchParams } from "react-router-dom";
 import { useRef } from "react";
+import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
+import { faMagnifyingGlass, faSliders } from "@fortawesome/free-solid-svg-icons";
 
 import {
   Button,
@@ -14,6 +16,7 @@ import {
   LoadingState,
   WalletIcon,
   Panel,
+  PlusIcon,
   StatusNotice,
   cn,
 } from "../components";
@@ -28,6 +31,7 @@ import { CashLinkModal } from "../components/CashLinkModal";
 import { CategoryIcon } from "../components/CategoryIcon";
 import { CategoryPicker } from "../components/CategoryPicker";
 import { CategoryProposalModal } from "../components/CategoryProposalModal";
+import { TransactionExportModal, type TransactionExportRequest } from "../components/TransactionExportModal";
 import type { CategoryPattern } from "../services/categoryService";
 import { CategoryType } from "../types";
 import type { Account, CashAccount, Category, Transaction } from "../types";
@@ -122,15 +126,39 @@ export function TransactionsPage() {
   };
   useEffect(() => { void refreshProposals(); }, []);
   const [categoryNotice, setCategoryNotice] = useState<CategoryNotice | null>(null);
-  const [filtersOpen, setFiltersOpen] = useState(false);
-  const [filter, setFilter] = useState<FilterMode>("all");
-  const [excludeInternalTransfers, setExcludeInternalTransfers] = useState(false);
-  const [selectedMonth, setSelectedMonth] = useState(() => {
-    const month = searchParams.get("month") ?? "";
-    return /^\d{4}-(0[1-9]|1[0-2])$/.test(month) ? month : ALL_PERIODS;
-  });
-  const [selectedAccount, setSelectedAccount] = useState(searchParams.get("account_id") ?? ALL_ACCOUNTS);
-  const [selectedCategory, setSelectedCategory] = useState(() => searchParams.get("category") === UNCATEGORIZED_CATEGORY ? UNCATEGORIZED_CATEGORY : ALL_CATEGORIES);
+  const updateFilters = (values: Record<string, string | undefined>) => {
+    setSearchParams(previous => {
+      const next = new URLSearchParams(previous);
+      Object.entries(values).forEach(([key, value]) => {
+        if (value === undefined || value === "") next.delete(key);
+        else next.set(key, value);
+      });
+      return next;
+    }, { replace: true, state: location.state, flushSync: true });
+  };
+  const filtersOpen = searchParams.get("filters") === "1";
+  const filterParam = searchParams.get("type");
+  const filter: FilterMode = filterParam === "income" || filterParam === "expense" ? filterParam : "all";
+  const descriptionSearch = (searchParams.get("search") ?? "").slice(0, 200);
+  const [debouncedSearch, setDebouncedSearch] = useState(() => descriptionSearch.trim());
+  const setDescriptionSearch = (value: string) => updateFilters({ search: value || undefined });
+  const setFilter = (value: FilterMode) => updateFilters({ type: value === "all" ? undefined : value });
+  const searchPending = descriptionSearch.trim() !== debouncedSearch;
+  useEffect(() => {
+    const timeout = window.setTimeout(() => setDebouncedSearch(descriptionSearch.trim()), 300);
+    return () => window.clearTimeout(timeout);
+  }, [descriptionSearch]);
+  const excludeInternalTransfers = searchParams.get("exclude_internal") === "1";
+  const monthParam = searchParams.get("month") ?? "";
+  const selectedMonth = /^\d{4}-(0[1-9]|1[0-2])$/.test(monthParam) ? monthParam : ALL_PERIODS;
+  const accountParam = searchParams.get("account_id") ?? "";
+  const selectedAccount = /^[1-9]\d*$/.test(accountParam) ? accountParam : ALL_ACCOUNTS;
+  const categoryParam = searchParams.get("category") ?? "";
+  const selectedCategory = categoryParam === UNCATEGORIZED_CATEGORY || /^[1-9]\d*$/.test(categoryParam) ? categoryParam : ALL_CATEGORIES;
+  const setExcludeInternalTransfers = (value: boolean) => updateFilters({ exclude_internal: value ? "1" : undefined });
+  const setSelectedMonth = (value: string) => updateFilters({ month: value === ALL_PERIODS ? undefined : value });
+  const setSelectedAccount = (value: string) => updateFilters({ account_id: value === ALL_ACCOUNTS ? undefined : value });
+  const setSelectedCategory = (value: string) => updateFilters({ category: value === ALL_CATEGORIES ? undefined : value });
   const [hasLoaded, setHasLoaded] = useState(false);
   const [total, setTotal] = useState(0);
   const [months, setMonths] = useState<string[]>([]);
@@ -139,6 +167,7 @@ export function TransactionsPage() {
   const [loadMoreFailed, setLoadMoreFailed] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [exportRequest, setExportRequest] = useState<TransactionExportRequest | null>(null);
   const [expandedTransactionIds, setExpandedTransactionIds] = useState<Set<number>>(() => new Set());
   const loadMoreRef = useRef<HTMLDivElement>(null);
   const requestGenerationRef = useRef(0);
@@ -217,6 +246,7 @@ export function TransactionsPage() {
   };
 
   const query = {
+    search: debouncedSearch || undefined,
     statement_id: statementId,
     account_id: selectedAccount === ALL_ACCOUNTS ? undefined : Number(selectedAccount),
     category_id: [ALL_CATEGORIES, UNCATEGORIZED_CATEGORY].includes(selectedCategory) ? undefined : Number(selectedCategory),
@@ -250,11 +280,11 @@ export function TransactionsPage() {
     }).catch(err => { if (!cancelled) setError(err.message); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [statementId, selectedMonth, selectedAccount, selectedCategory, filter, excludeInternalTransfers, cashRefreshKey]);
+  }, [statementId, selectedMonth, selectedAccount, selectedCategory, filter, excludeInternalTransfers, cashRefreshKey, debouncedSearch]);
 
   useEffect(() => {
     const sentinel = loadMoreRef.current;
-    if (!sentinel || !hasLoaded || loading || loadingMore || loadMoreFailed || nextOffsetRef.current >= total) return;
+    if (!sentinel || !hasLoaded || loading || searchPending || exportRequest || loadingMore || loadMoreFailed || nextOffsetRef.current >= total) return;
     const observer = new IntersectionObserver(([entry]) => {
       if (!entry?.isIntersecting || fetchingMoreRef.current) return;
       fetchingMoreRef.current = true;
@@ -283,7 +313,7 @@ export function TransactionsPage() {
     }, { rootMargin: "350px 0px" });
     observer.observe(sentinel);
     return () => observer.disconnect();
-  }, [hasLoaded, loading, loadingMore, loadMoreFailed, total, transactions.length, statementId, selectedMonth, selectedAccount, selectedCategory, filter, excludeInternalTransfers, cashRefreshKey]);
+  }, [hasLoaded, loading, searchPending, exportRequest, loadingMore, loadMoreFailed, total, transactions.length, statementId, selectedMonth, selectedAccount, selectedCategory, filter, excludeInternalTransfers, cashRefreshKey, debouncedSearch]);
 
   const accountOptions = useMemo(() => {
     const accountIds = new Set(transactions.map((transaction) => transaction.account_id));
@@ -476,29 +506,6 @@ export function TransactionsPage() {
     }
   };
 
-  const exportMarkdown = () => {
-    const markdown = [
-      `# Movimientos cargados - ${formatMonthLabel(selectedMonth)}`,
-      "",
-      ...visibleTransactions.map((transaction) => {
-        const categoryName = getCategoryPath(
-          transaction.category_id,
-          categoryMap,
-        );
-
-        return `- ${formatDateLabel(transaction.date)} | ${transaction.description} | ${transaction.amount_clp.toLocaleString("es-CL")} | ${categoryName}`;
-      }),
-    ].join("\n");
-
-    const blob = new Blob([markdown], { type: "text/markdown;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `movimientos-${selectedMonth === ALL_PERIODS ? "todos" : selectedMonth}.md`;
-    link.click();
-    URL.revokeObjectURL(url);
-  };
-
   const activeFilters = [
     ...(selectedMonth !== ALL_PERIODS ? [{ key: "period", label: formatMonthLabel(selectedMonth), clear: () => setSelectedMonth(ALL_PERIODS) }] : []),
     ...(selectedAccount !== ALL_ACCOUNTS ? [{ key: "account", label: accountOptions.find(account => String(account.id) === selectedAccount)?.label ?? "Cuenta seleccionada", clear: () => setSelectedAccount(ALL_ACCOUNTS) }] : []),
@@ -506,6 +513,20 @@ export function TransactionsPage() {
     ...(excludeInternalTransfers ? [{ key: "transfers", label: "Sin transferencias internas", clear: () => setExcludeInternalTransfers(false) }] : []),
   ];
   const activeFilterCount = activeFilters.length;
+  const exportDisabled = loading || searchPending || Boolean(error) || total === 0 || savingCategoryIds.size > 0;
+  const openExport = (trigger: HTMLElement) => {
+    if (exportDisabled) return;
+    setExportRequest({
+      filters: { ...query }, total, period: formatMonthLabel(selectedMonth),
+      filePeriod: selectedMonth === ALL_PERIODS ? "todos" : selectedMonth,
+      filterLabels: [
+        ...activeFilters.filter(item => item.key !== "period").map(item => item.label),
+        ...(filter !== "all" ? [filter === "income" ? "Ingresos" : "Gastos"] : []),
+        ...(debouncedSearch ? [`Descripción: ${debouncedSearch}`] : []),
+        ...(statementId ? [`Cartola #${statementId}`] : []),
+      ], trigger,
+    });
+  };
 
   return (
     <div className="space-y-5 sm:space-y-8">
@@ -522,28 +543,35 @@ export function TransactionsPage() {
             <ChevronDownIcon className="pointer-events-none absolute right-1 h-4 w-4 text-primary" />
           </label>
         </div>
-        <h1 className="page-title">Movimientos</h1>
-        <div className="flex flex-wrap items-center gap-2 sm:gap-3">
-          {cashAccount && !statementId ? (
-            <Button compactOnMobile onClick={() => { setEditingCashTransaction(null); setCashFormOpen(true); }}>
-              <span aria-hidden="true">+</span> Registrar
-            </Button>
-          ) : null}
-          <div className="hidden sm:block">
-            <Button compactOnMobile tone="secondary" onClick={exportMarkdown} disabled={loading || visibleTransactions.length === 0}>
-              <ExportIcon className="h-4 w-4" /> Exportar
-            </Button>
-          </div>
-          <details className="relative sm:hidden">
-            <summary aria-label="Más acciones" className="flex h-11 w-11 cursor-pointer list-none items-center justify-center rounded-xl border border-outline bg-white text-xl [&::-webkit-details-marker]:hidden">⋯</summary>
-            <div className="absolute right-0 top-full z-20 mt-2 w-52 rounded-xl border border-outline bg-white p-1 shadow-lg">
-              <button type="button" disabled={loading || visibleTransactions.length === 0}
-                onClick={event => { event.currentTarget.closest("details")?.removeAttribute("open"); exportMarkdown(); }}
-                className="flex min-h-11 w-full items-center gap-2 rounded-lg px-3 text-left text-sm hover:bg-paper-soft disabled:opacity-50">
-                <ExportIcon className="h-4 w-4" /> Exportar movimientos
-              </button>
+        <div className="flex w-full items-center justify-between gap-2 sm:gap-3">
+          <h1 className="page-title min-w-0 text-2xl sm:text-4xl lg:text-[2.5rem]">Movimientos</h1>
+          <div className="flex shrink-0 items-center gap-2 sm:gap-3">
+            {cashAccount && !statementId ? (
+              <Button compactOnMobile aria-label="Registrar movimiento" className="h-11 w-11 !px-0 sm:h-auto sm:w-auto sm:!px-5" onClick={() => { setEditingCashTransaction(null); setCashFormOpen(true); }}>
+                <PlusIcon className="h-4 w-4" /><span className="hidden sm:inline">Registrar movimiento</span>
+              </Button>
+            ) : null}
+            <div className="hidden sm:block">
+              <Button compactOnMobile tone="secondary" onClick={event => openExport(event.currentTarget)} disabled={exportDisabled}>
+                <ExportIcon className="h-4 w-4" /> Exportar
+              </Button>
             </div>
-          </details>
+            <details className="relative sm:hidden">
+              <summary aria-label="Más acciones" className="flex h-11 w-11 cursor-pointer list-none items-center justify-center rounded-xl border border-outline bg-white text-xl [&::-webkit-details-marker]:hidden">⋯</summary>
+              <div className="absolute right-0 top-full z-20 mt-2 w-52 rounded-xl border border-outline bg-white p-1 shadow-lg">
+                <button type="button" disabled={exportDisabled}
+                  onClick={event => {
+                    const menu = event.currentTarget.closest("details");
+                    const trigger = menu?.querySelector("summary") ?? event.currentTarget;
+                    menu?.removeAttribute("open");
+                    openExport(trigger);
+                  }}
+                  className="flex min-h-11 w-full items-center gap-2 rounded-lg px-3 text-left text-sm hover:bg-paper-soft disabled:opacity-50">
+                  <ExportIcon className="h-4 w-4" /> Exportar movimientos
+                </button>
+              </div>
+            </details>
+          </div>
         </div>
         {statementId ? <p className="w-full text-sm text-muted">Revisa los movimientos de la cartola importada.</p> : null}
       </header>
@@ -558,17 +586,27 @@ export function TransactionsPage() {
       ) : null}
 
       <section aria-label="Filtros de movimientos" className="space-y-4">
-        <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 lg:grid-cols-[18rem_auto] lg:justify-start">
-          <div role="group" aria-label="Tipo de movimiento" className="grid min-w-0 grid-cols-3 rounded-xl bg-primary-mist/60 p-1">
+        <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 lg:grid-cols-[minmax(0,1fr)_18rem_auto]">
+          <div className="relative col-span-2 min-w-0 lg:col-span-1">
+            <FontAwesomeIcon icon={faMagnifyingGlass} aria-hidden="true" className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" />
+            <input type="search" aria-label="Buscar por descripción" placeholder="Buscar por descripción"
+              value={descriptionSearch} maxLength={200} onChange={event => setDescriptionSearch(event.target.value)}
+              className="min-h-11 w-full min-w-0 rounded-xl border border-outline bg-white py-2 pl-10 pr-12 text-base text-ink outline-none transition placeholder:text-muted focus:border-primary focus:ring-1 focus:ring-primary [&::-webkit-search-cancel-button]:appearance-none" />
+            {descriptionSearch ? <button type="button" aria-label="Limpiar búsqueda" onClick={() => setDescriptionSearch("")}
+              className="absolute right-0 top-0 flex h-11 w-11 items-center justify-center rounded-xl text-xl text-muted hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary">
+              <span aria-hidden="true">×</span>
+            </button> : null}
+          </div>
+          <div role="group" aria-label="Tipo de movimiento" className="grid w-full min-w-0 grid-cols-3 rounded-xl bg-primary-mist/60 p-1">
             {([['all', 'Todos'], ['expense', 'Gastos'], ['income', 'Ingresos']] as const).map(([value, label]) => (
               <button key={value} type="button" aria-pressed={filter === value} onClick={() => setFilter(value)}
-                className={cn("min-h-10 rounded-lg px-2 text-sm font-medium transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary lg:min-h-9", filter === value ? "bg-white text-primary shadow-sm" : "text-muted hover:text-ink")}>{label}</button>
+                className={cn("min-h-10 rounded-lg px-1 text-xs font-medium transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary sm:px-2 sm:text-sm lg:min-h-9", filter === value ? "bg-white text-primary shadow-sm" : "text-muted hover:text-ink")}>{label}</button>
             ))}
           </div>
-          <button type="button" aria-expanded={filtersOpen} aria-controls="movement-filters" onClick={() => setFiltersOpen(open => !open)}
+          <button type="button" aria-expanded={filtersOpen} aria-controls="movement-filters" onClick={() => updateFilters({ filters: filtersOpen ? undefined : "1" })}
             className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-outline bg-white px-3 text-sm font-medium text-ink">
             Filtros{activeFilterCount > 0 ? <span className="rounded-full bg-primary px-1.5 text-sm leading-5 text-white">{activeFilterCount}</span> : null}
-            <ChevronDownIcon className={cn("h-4 w-4 transition", filtersOpen && "rotate-180")} />
+            <FontAwesomeIcon icon={faSliders} aria-hidden="true" className="h-4 w-4" />
           </button>
         </div>
         <div id="movement-filters" hidden={!filtersOpen} className="pt-1">
@@ -605,31 +643,32 @@ export function TransactionsPage() {
         {activeFilterCount > 0 ? (
           <div className="flex flex-wrap items-center gap-2" aria-label="Filtros aplicados">
             {activeFilters.map(item => <button key={item.key} type="button" onClick={item.clear} aria-label={`Quitar filtro: ${item.label}`} className="inline-flex min-h-9 max-w-full items-center gap-2 rounded-full bg-primary-mist px-3 text-sm font-medium text-primary"><span className="truncate">{item.label}</span><span aria-hidden="true">×</span></button>)}
-            <button type="button" onClick={() => { setSelectedMonth(ALL_PERIODS); setSelectedAccount(ALL_ACCOUNTS); setSelectedCategory(ALL_CATEGORIES); setExcludeInternalTransfers(false); }} className="min-h-9 px-2 text-sm font-medium text-muted underline underline-offset-2">Limpiar filtros</button>
+            <button type="button" onClick={() => updateFilters({ month: undefined, account_id: undefined, category: undefined, exclude_internal: undefined })} className="min-h-9 px-2 text-sm font-medium text-muted underline underline-offset-2">Limpiar filtros</button>
           </div>
         ) : null}
       </section>
 
       {hasLoaded ? (
         <p className="min-h-5 text-sm text-muted" role="status" aria-live="polite">
-          Mostrando {displayedTransactions.length} de {total} movimientos
+          {/* Mostrando {displayedTransactions.length} de  */}
+          {total} movimientos
           {statementId ? " de esta importacion" : ""}.
-          {loading ? <span className="ml-2">Actualizando…</span> : null}
+          {loading || searchPending ? <span className="ml-2">Actualizando…</span> : null}
         </p>
       ) : null}
 
       {groupedTransactions.length > 0 ? (
-        <div className="space-y-5 sm:space-y-8">
+        <div className="space-y-5 sm:space-y-8 lg:space-y-5">
           {groupedTransactions.map(([date, items]) => (
-            <section key={date} className="space-y-3 sm:space-y-4">
+            <section key={date} className="space-y-3 sm:space-y-4 lg:space-y-2">
               <div className="flex items-center gap-2.5 sm:gap-3">
                 <span className="h-5 w-[3px] rounded-full bg-primary-soft" />
-                <h2 className="text-sm font-semibold uppercase tracking-[0.06em] text-ink sm:text-base sm:tracking-[0.08em] lg:text-xl">
+                <h2 className="text-sm font-semibold uppercase tracking-[0.06em] text-ink sm:text-base sm:tracking-[0.08em] lg:text-sm">
                   {formatDateLabel(date)}
                 </h2>
               </div>
 
-              <div className="space-y-3 sm:space-y-4">
+              <div className="space-y-3 sm:space-y-4 lg:space-y-3">
                 {items.map((transaction) => {
                   const categoryValue = transaction.category_id ? String(transaction.category_id) : "";
                   const categoryGroups = categoryGroupsFor(transaction);
@@ -646,14 +685,14 @@ export function TransactionsPage() {
                       compactOnMobile
                       dense
                       key={transaction.id}
-                      className={cn("relative min-w-0 cursor-pointer space-y-3 sm:space-y-4", (transaction.is_internal_transfer || transaction.origin === "cash_transfer") && "overflow-hidden sm:overflow-visible")}
+                      className={cn("relative min-w-0 cursor-pointer space-y-3 sm:space-y-4 lg:space-y-3 lg:rounded-xl lg:px-6 lg:py-5 lg:shadow-none", (transaction.is_internal_transfer || transaction.origin === "cash_transfer") && "overflow-hidden sm:overflow-visible")}
                       onClick={(event) => {
                         if ((event.target as HTMLElement).closest("a, button, input, select, textarea")) return;
                         toggleTransactionDetails(transaction.id);
                       }}
                     >
                       <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_minmax(0,0.75fr)] items-center gap-x-4 gap-y-3 sm:grid-cols-[minmax(0,1fr)_minmax(14rem,0.7fr)] sm:gap-x-6 lg:grid-cols-[3rem_minmax(0,1fr)_max-content_12rem] lg:gap-x-4 lg:gap-y-1 xl:grid-cols-[3rem_minmax(0,1fr)_max-content_14rem] 2xl:grid-cols-[3rem_minmax(0,1fr)_max-content_16rem]">
-                        <span className="hidden lg:col-start-1 lg:row-span-2 lg:row-start-1 lg:flex lg:items-center"><CategoryIcon category={categoryMap.get(transaction.category_id ?? -1)} categoryMap={categoryMap} /></span>
+                        <span className="hidden lg:col-start-1 lg:row-span-2 lg:row-start-1 lg:flex lg:items-center"><CategoryIcon category={categoryMap.get(transaction.category_id ?? -1)} categoryMap={categoryMap} size="md" /></span>
                         <div className="min-w-0">
                           {transaction.is_internal_transfer || transaction.origin === "cash_transfer" ? (
                             <span role="img" aria-label="Transferencia interna" className="pointer-events-none absolute left-0 top-0 z-10 h-11 w-11 bg-primary [clip-path:polygon(0_0,100%_0,0_100%)] sm:hidden">
@@ -671,7 +710,7 @@ export function TransactionsPage() {
                               className="block min-w-0 max-w-full text-left focus-visible:rounded focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
                             >
                               <span className={cn(
-                                "block text-base font-semibold leading-6 tracking-[-0.02em] text-ink sm:text-[1.0625rem] lg:text-[1.375rem] lg:leading-7 xl:text-[1.625rem] xl:leading-8",
+                                "block min-w-0 text-base font-semibold leading-6 tracking-[-0.02em] text-ink sm:text-[1.0625rem] lg:text-base lg:font-medium lg:leading-6",
                                 detailsOpen ? "whitespace-normal [overflow-wrap:anywhere]" : "truncate whitespace-nowrap",
                               )}>
                                 {transaction.description}
@@ -681,7 +720,7 @@ export function TransactionsPage() {
                         </div>
                         <div className="min-w-0 text-right lg:col-start-3 lg:row-span-2 lg:row-start-1 lg:self-center">
                           <p className={cn(
-                            "max-w-full whitespace-nowrap text-base font-semibold tabular-nums sm:text-lg lg:text-[1.375rem] xl:text-[1.625rem]",
+                            "max-w-full whitespace-nowrap text-base font-semibold tabular-nums sm:text-lg lg:text-base",
                             transaction.amount_clp >= 0 ? "text-primary" : "text-ink",
                           )}>
                           {new Intl.NumberFormat("es-CL", {
@@ -693,14 +732,14 @@ export function TransactionsPage() {
                           </p>
                         </div>
                         <div className="flex min-h-6 min-w-0 flex-wrap items-center gap-2 self-center sm:pl-[3.75rem] lg:col-start-2 lg:row-start-2 lg:pl-0">
-                          <span className="hidden text-sm text-muted sm:inline lg:text-base">
+                          <span className="hidden text-sm text-muted sm:inline lg:text-xs">
                             {transaction.transaction_type === "income" ? "Ingreso" : "Gasto"}
                           </span>
                           {account ? (
                             <Link
                               to={`/app/accounts?account_id=${account.id}`}
                               aria-label={`Ver detalle de ${account.name}`}
-                              className="relative inline-flex max-w-full items-center gap-1.5 rounded-md text-sm font-medium text-muted transition hover:text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary lg:rounded-full lg:border lg:border-outline lg:bg-white lg:px-2.5 lg:py-1 lg:font-semibold"
+                              className="relative inline-flex max-w-full items-center gap-1.5 rounded-md text-sm font-medium text-muted transition hover:text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary lg:text-xs"
                             >
                               <span className="block shrink-0">{"institution" in account ? (
                                 <InstitutionLogo institution={account.institution} size="sm" />
@@ -713,19 +752,17 @@ export function TransactionsPage() {
                             </span>
                           )}
                           {transaction.is_internal_transfer || transaction.origin === "cash_transfer" ? (
-                            <span className="hidden rounded-full border border-primary/20 bg-primary-mist px-2.5 py-1 text-sm font-semibold text-primary sm:inline-flex lg:px-2 lg:py-0.5 lg:text-xs lg:uppercase lg:tracking-[0.02em] 2xl:text-sm">
+                            <span className="hidden rounded-full border border-primary/20 bg-primary-mist px-2.5 py-1 text-sm font-semibold text-primary sm:inline-flex lg:px-2 lg:py-0.5 lg:text-xs lg:tracking-[0.02em] 2xl:text-sm">
                               Transferencia interna
                             </span>
                           ) : null}
-                          <span className="hidden text-sm text-muted 2xl:inline">{originLabel}</span>
+                          {/* <span className="hidden text-sm text-muted 2xl:inline">{originLabel}</span> */}
                         </div>
-                        <span className="min-w-0 self-center text-right text-sm leading-5 text-muted sm:hidden" title={categoryMap.get(Number(categoryValue))?.name ?? "Sin categoría"}>
-                          <span className="line-clamp-1 [overflow-wrap:anywhere]">{categoryMap.get(Number(categoryValue))?.name ?? "Sin categoría"}</span>
-                        </span>
-                        <div className={cn("col-span-2 mt-2 w-full min-w-0 text-left sm:col-span-1 sm:ml-auto sm:mt-0 sm:max-w-64 sm:text-right lg:col-start-4 lg:row-span-2 lg:row-start-1 lg:self-center", detailsOpen ? "block" : "hidden sm:block")}>
-                          <span className="block text-left text-sm font-medium text-muted lg:sr-only">Categoría</span>
-                          <div className="relative mt-1 w-full min-w-0 lg:mt-0">
+                        <div className="w-full min-w-0 self-center sm:ml-auto sm:max-w-64 sm:text-right lg:col-start-4 lg:row-span-2 lg:row-start-1">
+                          <span className="sr-only text-left text-sm font-medium text-muted sm:not-sr-only sm:block lg:sr-only">Categoría</span>
+                          <div className="relative w-full min-w-0 sm:mt-1 lg:mt-0">
                               <CategoryPicker
+                                triggerVariant="compact"
                                 label={`Categoria de ${transaction.description}`}
                                 disabled={transaction.origin === "cash_transfer" || savingCategoryIds.has(transaction.id)}
                                 value={categoryValue}
@@ -798,10 +835,10 @@ export function TransactionsPage() {
             {loadMoreFailed ? <Button tone="secondary" onClick={() => { setError(null); setLoadMoreFailed(false); }}>Reintentar carga</Button> : null}
           </div>
         </div>
-      ) : hasLoaded ? (
+      ) : hasLoaded && !loading && !searchPending ? (
         <EmptyState
-          title={selectedCategory === UNCATEGORIZED_CATEGORY && selectedMonth !== ALL_PERIODS && selectedAccount === ALL_ACCOUNTS && filter === "all" && !excludeInternalTransfers ? "Todo categorizado para este periodo" : "No hay movimientos para este filtro"}
-          description={selectedCategory === UNCATEGORIZED_CATEGORY ? "No quedan movimientos sin categoría con los filtros actuales." : "Prueba cambiando el periodo o el criterio de revision."}
+          title={debouncedSearch ? "No hay movimientos que coincidan con tu búsqueda" : selectedCategory === UNCATEGORIZED_CATEGORY && selectedMonth !== ALL_PERIODS && selectedAccount === ALL_ACCOUNTS && filter === "all" && !excludeInternalTransfers ? "Todo categorizado para este periodo" : "No hay movimientos para este filtro"}
+          description={debouncedSearch ? "Prueba con otra descripción o ajusta los filtros actuales." : selectedCategory === UNCATEGORIZED_CATEGORY ? "No quedan movimientos sin categoría con los filtros actuales." : "Prueba cambiando el periodo o el criterio de revision."}
         />
       ) : null}
       {proposals.length > 0 ? <div role="status" className="rounded-xl border border-primary/20 bg-primary-mist/40 p-3 text-sm">
@@ -822,7 +859,7 @@ export function TransactionsPage() {
         }} /> : null}
       {categoryNotice ? (
         <div role={categoryNotice.tone === "error" ? "alert" : "status"} aria-live={categoryNotice.tone === "error" ? "assertive" : "polite"}
-          className={cn("fixed inset-x-4 bottom-[calc(5rem+env(safe-area-inset-bottom))] z-40 flex min-h-12 items-center justify-between gap-3 rounded-xl border px-4 py-2 text-sm shadow-lg sm:bottom-6 sm:left-auto sm:right-6 sm:w-auto sm:max-w-md",
+          className={cn("fixed inset-x-4 bottom-[calc(5rem+env(safe-area-inset-bottom))] z-40 flex min-h-12 items-center justify-between gap-3 rounded-xl border px-4 py-2 text-sm shadow-lg lg:bottom-6 sm:left-auto sm:right-6 sm:w-auto sm:max-w-md",
             categoryNotice.tone === "error" ? "border-danger/30 bg-danger-soft text-danger" : "border-primary/20 bg-white text-ink")}>
           <span>{categoryNotice.message}</span>
           {categoryNotice.undo ? (
@@ -833,6 +870,12 @@ export function TransactionsPage() {
           ) : null}
         </div>
       ) : null}
+      {exportRequest ? <TransactionExportModal request={exportRequest} categories={categoryMap}
+        accountNames={new Map([...accountMap].map(([id, account]) => [id, account.name]))}
+        onClose={() => setExportRequest(null)} onExported={count => {
+          setExportRequest(null);
+          setSuccessMessage(`Se descargaron ${count.toLocaleString("es-CL")} ${count === 1 ? "movimiento" : "movimientos"}.`);
+        }} /> : null}
       {cashFormOpen ? (
         <CashMovementFormModal
           key={editingCashTransaction?.id ?? "new"}

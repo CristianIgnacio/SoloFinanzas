@@ -4,7 +4,7 @@ import type { ManualTransactionInput, Transaction, TransactionCreate } from "../
 export type TransactionFilters = {
   account_id?: number; statement_id?: number; date_from?: string; date_to?: string;
   transaction_type?: string; category_id?: number; uncategorized?: boolean;
-  exclude_internal?: boolean; limit?: number; offset?: number;
+  exclude_internal?: boolean; search?: string; limit?: number; offset?: number;
 };
 export class TransactionService {
   static async linkCash(transactionId: number): Promise<Transaction> {
@@ -25,8 +25,8 @@ export class TransactionService {
   static async deleteCashTransaction(id: number): Promise<void> {
     await apiClient.delete(`/cash-transactions/${id}`);
   }
-  static async getPage(filters: TransactionFilters) {
-    return apiClient.get<{ items: Transaction[]; total: number; limit: number; offset: number }>('/transaction-pages', { params: filters });
+  static async getPage(filters: TransactionFilters, signal?: AbortSignal) {
+    return apiClient.get<{ items: Transaction[]; total: number; limit: number; offset: number }>('/transaction-pages', { params: filters, signal });
   }
 
   static async getTransactions(filters?: {

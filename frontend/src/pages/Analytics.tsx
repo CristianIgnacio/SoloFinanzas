@@ -1,4 +1,6 @@
 import { createPortal } from "react-dom";
+import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
+import { faSliders } from "@fortawesome/free-solid-svg-icons";
 import "./Analytics.css";
 import { CategoryPicker } from "../components/CategoryPicker";
 import { ReportService } from '../services/reportService';
@@ -16,10 +18,8 @@ import {
   ChevronRightIcon,
   EChart,
   EmptyState,
-  ErrorState,
   EyeIcon,
   EyeOffIcon,
-  FilterIcon,
   LoadingState,
   MoneyIcon,
   Panel,
@@ -316,7 +316,12 @@ export function AnalyticsPage() {
   const [showStickyBulkActions, setShowStickyBulkActions] = useState(false);
   const transactionTableRef = useRef<HTMLDivElement>(null);
   const bulkActionsRef = useRef<HTMLDivElement>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<{ message: string; scope: "initial" | "periods" } | null>(null);
+  const [initialAttempt, setInitialAttempt] = useState(0);
+  const [periodAttempt, setPeriodAttempt] = useState(0);
+  const [loadedPeriods, setLoadedPeriods] = useState<Set<string> | null>(null);
+  // Keep chart labels and date filtering aligned with the last successful response.
+  const displayedPeriods = loadedPeriods ?? selectedPeriods;
 
   useEffect(() => {
     const navigation = navigationRef.current;
@@ -332,6 +337,8 @@ export function AnalyticsPage() {
     let cancelled = false;
 
     async function loadAnalyticsData() {
+      setLoading(true);
+      setError(null);
       try {
         const [accountData, cashData, categoryData, periods] = await Promise.all([
           AccountService.getAccounts(),
@@ -349,7 +356,7 @@ export function AnalyticsPage() {
         setSelectedPeriods(new Set(sortedPeriods.slice(0, 1)));
       } catch (err) {
         if (!cancelled) {
-          setError(err instanceof Error ? err.message : "No fue posible cargar el an\u00e1lisis.");
+          setError({ message: err instanceof Error ? err.message : "No fue posible cargar el análisis.", scope: "initial" });
         }
       } finally {
         if (!cancelled) setLoading(false);
@@ -360,11 +367,21 @@ export function AnalyticsPage() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [initialAttempt]);
 
   useEffect(() => {
+    if (loading) return;
+    // Removing the last period chip must clear the view without fetching all history.
+    if (selectedPeriods.size === 0) {
+      setTransactions([]);
+      setLoadedPeriods(null);
+      setLoadingPeriods(false);
+      setError(current => current?.scope === "periods" ? null : current);
+      return;
+    }
     let cancelled = false;
-    setLoadingPeriods(true); setTransactions([]);
+    setLoadingPeriods(true);
+    setError(null);
     // An empty period selection means no data, never an implicit full-history fetch.
     void (async () => {
       const data: Transaction[] = [];
@@ -372,11 +389,16 @@ export function AnalyticsPage() {
         if (cancelled) return;
         data.push(...await loadPeriodTransactions(period));
       }
-      if (!cancelled) setTransactions(data);
-    })().catch(err => { if (!cancelled) setError(err.message); })
+      if (!cancelled) {
+        setTransactions(data);
+        setLoadedPeriods(selectedPeriods);
+      }
+    })().catch(err => {
+      if (!cancelled) setError({ message: err instanceof Error ? err.message : "No fue posible cargar los movimientos.", scope: "periods" });
+    })
       .finally(() => { if (!cancelled) setLoadingPeriods(false); });
     return () => { cancelled = true; };
-  }, [selectedPeriods]);
+  }, [selectedPeriods, periodAttempt, loading]);
 
   useEffect(() => {
     window.localStorage.setItem(
@@ -531,7 +553,7 @@ export function AnalyticsPage() {
           : UNCATEGORIZED_KEY;
         const scope = transaction.is_internal_transfer || transaction.origin === "cash_transfer" ? "internal" : "regular";
         return (
-          (selectedPeriods.size === 0 || selectedPeriods.has(period)) &&
+          (displayedPeriods.size === 0 || displayedPeriods.has(period)) &&
           (selectedAccountIds.size === 0 ||
             selectedAccountIds.has(String(transaction.account_id))) &&
           (selectedCategoryKeys.size === 0 ||
@@ -564,7 +586,7 @@ export function AnalyticsPage() {
       categoryMap,
       chartDrilldown,
       selectedCategoryKeys,
-      selectedPeriods,
+      displayedPeriods,
       selectedScopes,
       selectedTypes,
       transactions,
@@ -608,10 +630,10 @@ export function AnalyticsPage() {
     };
   }, [metricTransactions]);
 
-  const weeklyEvolution = selectedPeriods.size === 1;
+  const weeklyEvolution = displayedPeriods.size === 1;
   const evolutionData = useMemo(() => {
     const totals = new Map<string, { income: number; expenses: number }>();
-    [...selectedPeriods].sort().forEach((period) => {
+    [...displayedPeriods].sort().forEach((period) => {
       if (weeklyEvolution) {
         const [year, month] = period.split("-").map(Number);
         const days = new Date(year, month, 0).getDate();
@@ -633,7 +655,7 @@ export function AnalyticsPage() {
       totals.set(period, current);
     });
     return [...totals.entries()].sort(([left], [right]) => left.localeCompare(right));
-  }, [weeklyEvolution, metricTransactions, selectedPeriods]);
+  }, [weeklyEvolution, metricTransactions, displayedPeriods]);
 
   const evolutionLabels = useMemo(() => evolutionData.map(([period]) => weeklyEvolution
     ? formatWeekRange(period)
@@ -737,7 +759,8 @@ export function AnalyticsPage() {
             {
               name: "Ingresos",
               type: "line" as const,
-              smooth: false,
+              smooth: 0.3,
+              smoothMonotone: "x" as const,
               symbolSize: 8,
               data: income,
               lineStyle: { color: "#344b2e", width: 3 },
@@ -746,7 +769,8 @@ export function AnalyticsPage() {
             {
               name: "Gastos",
               type: "line" as const,
-              smooth: false,
+              smooth: 0.3,
+              smoothMonotone: "x" as const,
               symbolSize: 8,
               data: expenses,
               lineStyle: { color: "#d77b68", width: 3 },
@@ -1161,7 +1185,6 @@ export function AnalyticsPage() {
   };
 
   if (loading) return <LoadingState message={"Preparando tu espacio de an\u00e1lisis..."} />;
-  if (error) return <ErrorState message={error} />;
 
   return (
     <div className="analytics-view space-y-6 sm:space-y-8">
@@ -1200,7 +1223,7 @@ export function AnalyticsPage() {
               <SettingsIcon aria-hidden="true" className="h-5 w-5 sm:hidden" /><span className="hidden sm:inline">Personalizar</span>
             </button>
             <button ref={filterButtonRef} type="button" aria-haspopup="dialog" aria-expanded={filtersOpen} aria-label="Filtros" title={`Filtros · ${activeFilterCount} activos`} onClick={() => setFiltersOpen(true)} className="relative flex h-11 w-11 shrink-0 items-center justify-center gap-1.5 rounded-xl bg-primary text-sm font-semibold text-white transition hover:bg-primary/90 sm:w-auto sm:px-4">
-              <FilterIcon aria-hidden="true" className="h-5 w-5 sm:hidden" /><span className="hidden sm:inline">Filtros</span>
+              <FontAwesomeIcon icon={faSliders} aria-hidden="true" className="h-5 w-5" /><span className="hidden sm:inline">Filtros</span>
               <span aria-hidden="true" className="absolute -right-0.5 -top-0.5 min-w-4 rounded-full bg-primary px-1 text-center text-[10px] leading-4 ring-2 ring-paper sm:static sm:bg-white/20 sm:px-1.5 sm:py-0.5 sm:text-xs sm:leading-normal sm:ring-0">{activeFilterCount}</span>
             </button>
             </div>
@@ -1209,16 +1232,23 @@ export function AnalyticsPage() {
           {(activeFilters.length > 0 || chartDrilldown) && (
             <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-outline/70 pt-4" aria-label="Filtros activos">
               <span className="mr-1 text-xs font-medium text-muted">Aplicados</span>
-              {chartDrilldown && <button type="button" aria-label={`Quitar selección del gráfico: ${chartDrilldown.label}`} onClick={clearChartDrilldown} className="inline-flex items-center gap-2 rounded-full border border-primary/30 bg-primary-mist px-3 py-1.5 text-sm font-medium text-primary">
+              {chartDrilldown && <button type="button" aria-label={`Quitar selección del gráfico: ${chartDrilldown.label}`} onClick={clearChartDrilldown} className="inline-flex items-center gap-2 rounded-full border border-primary/30 bg-primary-mist px-3 py-1.5 text-xs font-medium text-primary">
                 Gráfico: {chartDrilldown.label}<span aria-hidden="true">×</span>
               </button>}
-              {activeFilters.map(filter => <button key={filter.key} type="button" className="inline-flex items-center gap-2 rounded-full border border-primary/15 bg-primary-mist/50 px-3 py-1.5 text-sm text-primary hover:bg-primary-mist" aria-label={`Quitar filtro ${filter.groupLabel}: ${filter.label}`} onClick={() => removeActiveFilter(filter.group, filter.value)}>
+              {activeFilters.map(filter => <button key={filter.key} type="button" className="inline-flex items-center gap-2 rounded-full border border-primary/15 bg-primary-mist/50 px-3 py-1.5 text-xs text-primary hover:bg-primary-mist" aria-label={`Quitar filtro ${filter.groupLabel}: ${filter.label}`} onClick={() => removeActiveFilter(filter.group, filter.value)}>
                 <span>{filter.groupLabel}: {filter.label}</span><span aria-hidden="true">×</span>
               </button>)}
             </div>
           )}
 
-        {loadingPeriods && <LoadingState message="Cargando los meses seleccionados…" />}
+        {error && <div role="alert" className="flex flex-col gap-3 rounded-2xl border border-danger/20 bg-danger/5 px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="min-w-0"><p className="font-semibold text-ink">{error.scope === "initial" ? "No se pudo preparar el análisis" : "No se pudieron cargar los meses seleccionados"}</p><p className="mt-1 break-words text-sm text-muted">{error.message}</p></div>
+          <Button tone="secondary" compactOnMobile className="shrink-0" onClick={() => error.scope === "initial" ? setInitialAttempt(value => value + 1) : setPeriodAttempt(value => value + 1)}>Reintentar</Button>
+        </div>}
+        {loadingPeriods && <p role="status" className="text-sm text-muted">Cargando los meses seleccionados…</p>}
+        {loadedPeriods && (loadingPeriods || error?.scope === "periods") && <p role="status" className="rounded-xl bg-paper-soft px-4 py-3 text-sm text-muted">
+          Sigues viendo los datos de {[...loadedPeriods].sort().map(formatPeriodLabel).join(", ")} hasta que se complete la carga.
+        </p>}
         {customizeOpen && <AnalysisCustomizeDialog visibleWidgets={visibleWidgets} onToggle={toggleWidget} onClose={() => setCustomizeOpen(false)} />}
         {filtersOpen && <AnalysisFiltersDialog
           initial={{ periods: selectedPeriods, accounts: selectedAccountIds, categories: selectedCategoryKeys, types: selectedTypes, scopes: selectedScopes }}
@@ -1235,7 +1265,7 @@ export function AnalyticsPage() {
           }}
         />}
 
-        <div id="analysis-view-panel" role="tabpanel" aria-labelledby={`analysis-tab-${analysisView}`} tabIndex={0} className="min-w-0 space-y-6">
+        {(loadedPeriods !== null || (!loadingPeriods && !error && selectedPeriods.size === 0)) && <div id="analysis-view-panel" role="tabpanel" aria-labelledby={`analysis-tab-${analysisView}`} tabIndex={0} className="min-w-0 space-y-6">
           <p className="text-sm text-muted">
             {analyzedTransactions.length} {analyzedTransactions.length === 1 ? "movimiento" : "movimientos"}
           </p>
@@ -1246,9 +1276,9 @@ export function AnalyticsPage() {
                   </div>}
           {analysisView === "summary" && <>
             <section className="grid grid-cols-2 gap-2 xl:grid-cols-4 sm:gap-4" aria-label="Indicadores del análisis">
+              <CompactMetric prominent label="Balance" value={formatCurrency(summary.balance)} icon={<BalanceIcon className="h-5 w-5" />} tone={summary.balance >= 0 ? "income" : "expense"} />
               <CompactMetric prominent label="Ingresos" value={formatCurrency(summary.income)} icon={<MoneyIcon className="h-5 w-5" />} tone="income" />
               <CompactMetric prominent label="Gastos" value={formatCurrency(summary.expenses)} icon={<ReceiptIcon className="h-5 w-5" />} tone="expense" />
-              <CompactMetric prominent label="Balance" value={formatCurrency(summary.balance)} icon={<BalanceIcon className="h-5 w-5" />} tone={summary.balance >= 0 ? "income" : "expense"} />
               <CompactMetric prominent label="Gasto mensual promedio" value={formatCurrency(summary.averageExpenses)} icon={<CalendarIcon className="h-5 w-5" />} />
             </section>
           </>}
@@ -1269,15 +1299,13 @@ export function AnalyticsPage() {
               {analysisView === "summary" && CHART_WIDGETS.some(widget => visibleWidgets.has(widget.value)) && <p className="text-sm text-muted">Selecciona una barra o un punto para ver sus movimientos.</p>}
               {showChart("evolution") ? (
                 <AnalysisChartPanel chart="evolution" label="Gráfico de evolución">
-                  <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
                   <ChartHeading
                     title={"Evoluci\u00f3n temporal"}
                     description={weeklyEvolution
                       ? "Ingresos y gastos por semana."
                       : "Ingresos y gastos por mes."}
+                    action={<ChartStyleToggle label="Estilo de evolución temporal" value={chartStyle} onChange={setChartStyle} />}
                   />
-                    <ChartStyleToggle label="Estilo de evolución temporal" value={chartStyle} onChange={setChartStyle} />
-                  </div>
                   <AnalysisChart className="mt-5 h-[260px] w-full sm:h-[360px]" option={evolutionOption} onItemClick={(index, seriesIndex) => {
                     const period = evolutionData[index];
                     if (period) openChartMovements({ sourceChart: "evolution", label: `${seriesIndex === 0 ? "Ingresos" : "Gastos"} · ${evolutionLabels[index]}`, transactionType: seriesIndex === 0 ? TransactionType.INCOME : TransactionType.EXPENSE, periodKey: period[0], weekly: weeklyEvolution });
@@ -1288,7 +1316,6 @@ export function AnalyticsPage() {
               <div className="space-y-6">
                 {showChart("categories") ? (
                   <AnalysisChartPanel chart="categories" label="Gráfico de categorías">
-                    <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
                       <ChartHeading
                         title={"Distribuci\u00f3n por categor\u00eda"}
                         description={
@@ -1296,9 +1323,8 @@ export function AnalyticsPage() {
                             ? "Las 10 categorías y subcategorías con más gasto."
                             : "Las 10 categorías con más gasto."
                         }
+                        action={<SubcategoryToggle checked={showSubcategoryDetail} onChange={() => setShowSubcategoryDetail(current => !current)} />}
                       />
-                      <SubcategoryToggle checked={showSubcategoryDetail} onChange={() => setShowSubcategoryDetail(current => !current)} />
-                    </div>
                     {categoryBreakdown.length > 0 ? <>
                     <div style={{ height: Math.max(300, categoryBreakdown.length * 42) }} className="mt-5">
                     <AnalysisChart className="h-full w-full" horizontal option={categoryOption} onItemClick={index => {
@@ -1358,12 +1384,10 @@ export function AnalyticsPage() {
                 ) : null}
 
                 {showChart("expenseFrequency") && <AnalysisChartPanel chart="expenseFrequency" label="Gráfico de frecuencia de gastos">
-                  <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
                     <ChartHeading title="Frecuencia de gastos por categoría" description={showFrequencySubcategories
                       ? "Las 10 categorías y subcategorías con más movimientos de gasto."
-                      : "Las 10 categorías con más movimientos de gasto."} />
-                    <SubcategoryToggle checked={showFrequencySubcategories} onChange={() => setShowFrequencySubcategories(current => !current)} />
-                  </div>
+                      : "Las 10 categorías con más movimientos de gasto."}
+                      action={<SubcategoryToggle checked={showFrequencySubcategories} onChange={() => setShowFrequencySubcategories(current => !current)} />} />
                   {expenseFrequency.length > 0
                     ? <div className="mt-5" style={{ height: Math.max(300, expenseFrequency.length * 42) }}><AnalysisChart className="h-full w-full" horizontal option={expenseFrequencyOption} onItemClick={index => {
                       const item = expenseFrequency[expenseFrequency.length - 1 - index];
@@ -1444,6 +1468,11 @@ export function AnalyticsPage() {
                       </p>
                       <div className="mt-2 grid grid-cols-2 gap-2 lg:grid-cols-4">
                         <CompactMetric
+                          label="Balance"
+                          value={formatCurrency(summary.balance)}
+                          tone={summary.balance >= 0 ? "income" : "expense"}
+                        />
+                        <CompactMetric
                           label="Ingresos"
                           value={formatCurrency(summary.income)}
                           tone="income"
@@ -1452,11 +1481,6 @@ export function AnalyticsPage() {
                           label="Gastos"
                           value={formatCurrency(summary.expenses)}
                           tone="expense"
-                        />
-                        <CompactMetric
-                          label="Balance"
-                          value={formatCurrency(summary.balance)}
-                          tone={summary.balance >= 0 ? "income" : "expense"}
                         />
                         <CompactMetric
                           label="Promedio mensual"
@@ -1733,7 +1757,7 @@ export function AnalyticsPage() {
               ) : null}
             </>
           )}
-        </div>
+        </div>}
       </div>
     </div>
   );
@@ -2065,13 +2089,15 @@ function CheckboxRow({ checked, label, helper, onChange }: CheckboxRowProps) {
 type ChartHeadingProps = {
   title: string;
   description: string;
+  action?: ReactNode;
 };
 
-function ChartHeading({ title, description }: ChartHeadingProps) {
+function ChartHeading({ title, description, action }: ChartHeadingProps) {
   return (
-    <div className="space-y-2">
-      <h2 className="text-2xl font-medium tracking-[-0.03em] sm:text-3xl">{title}</h2>
-      <p className="text-sm leading-6 text-muted">{description}</p>
+    <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-2 gap-y-2 sm:gap-x-4">
+      <h2 className="min-w-0 text-2xl font-medium tracking-[-0.03em] sm:text-3xl">{title}</h2>
+      {action}
+      <p className="col-span-2 text-sm leading-6 text-muted">{description}</p>
     </div>
   );
 }
@@ -2097,10 +2123,10 @@ function AnalysisChartPanel({ chart, label, children }: { chart: ChartWidgetId; 
 }
 
 function SubcategoryToggle({ checked, onChange }: { checked: boolean; onChange: () => void }) {
-  return <button type="button" role="switch" aria-checked={checked} onClick={onChange}
-    className={cn("inline-flex shrink-0 items-center gap-3 self-start rounded-full border px-3 py-2 text-sm font-medium transition",
+  return <button type="button" role="switch" aria-label="Ver subcategorías" aria-checked={checked} onClick={onChange}
+    className={cn("inline-flex shrink-0 items-center gap-1.5 self-center rounded-full border px-2 py-2 text-xs font-medium transition sm:gap-3 sm:px-3 sm:text-sm",
       checked ? "border-primary/30 bg-primary-mist text-primary" : "border-outline bg-white text-muted hover:border-primary/30 hover:text-primary")}>
-    <span>Ver subcategorías</span>
+    <span><span className="hidden sm:inline">Ver </span>subcategorías</span>
     <span aria-hidden="true" className={cn("relative h-5 w-9 rounded-full transition-colors", checked ? "bg-primary" : "bg-outline")}>
       <span className={cn("absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-white transition-transform", checked && "translate-x-4")} />
     </span>
@@ -2113,10 +2139,10 @@ function ChartStyleToggle({ label, value, onChange }: {
   onChange: (value: ChartStyle) => void;
 }) {
   return (
-    <div role="group" aria-label={label} className="flex shrink-0 self-start rounded-2xl border border-outline bg-paper-soft p-1">
+    <div role="group" aria-label={label} className="flex shrink-0 self-center rounded-2xl border border-outline bg-paper-soft p-1">
       {(["bar", "line"] as const).map(style => (
         <button key={style} type="button" aria-pressed={value === style} onClick={() => onChange(style)}
-          className={cn("min-h-11 rounded-xl px-4 py-2 text-sm font-medium transition", value === style ? "bg-primary text-white" : "text-muted hover:bg-white")}>
+          className={cn("min-h-11 rounded-xl px-2 py-2 text-xs font-medium transition sm:px-4 sm:text-sm", value === style ? "bg-primary text-white" : "text-muted hover:bg-white")}>
           {style === "bar" ? "Barras" : "Líneas"}
         </button>
       ))}

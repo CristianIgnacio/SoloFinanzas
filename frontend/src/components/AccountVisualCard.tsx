@@ -106,6 +106,7 @@ const kindAliases: Record<string, string> = {
 type SharedCardProps = {
   name?: string;
   compact?: boolean;
+  miniOnMobile?: boolean;
   compactOnDesktop?: boolean;
   preview?: boolean;
   className?: string;
@@ -131,7 +132,7 @@ type AccountVisualCardProps = FinancialCardProps | CashCardProps;
 export function AccountVisualCard(props: AccountVisualCardProps) {
   const cash = props.variant === "cash";
   const financial = cash ? null : props;
-  const { name, compact = false, compactOnDesktop = false, preview = false, className = "" } = props;
+  const { name, compact = false, miniOnMobile = false, compactOnDesktop = false, preview = false, className = "" } = props;
   const accountType = financial?.accountType ?? "cash";
   const productName = financial?.productName ?? "Efectivo";
   const rawKind = accountType.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim().replace(/[\s_]+/g, "_");
@@ -149,7 +150,7 @@ export function AccountVisualCard(props: AccountVisualCardProps) {
     <div
       role="img"
       aria-label={cash ? `Cuenta Efectivo, ${displayName}` : `${preview ? "Vista previa de" : "Cuenta"} ${productName} de ${InstitutionLabels[financial!.institution]}${preview ? "" : `, ${displayName}`}`}
-      className={`relative flex aspect-[1.55] min-h-[180px] w-full flex-col justify-between overflow-hidden rounded-[1.6rem] shadow-[0_20px_42px_rgba(21,35,51,0.22)] ${compact ? "p-5" : "p-6 sm:p-7"} ${className}`}
+      className={`relative flex w-full flex-col justify-between overflow-hidden shadow-[0_20px_42px_rgba(21,35,51,0.22)] ${miniOnMobile ? "aspect-[1/1.1] min-h-[144px] rounded-2xl p-2.5 sm:aspect-[1.55] sm:min-h-[180px] sm:rounded-[1.6rem] sm:p-5" : `aspect-[1.55] min-h-[180px] rounded-[1.6rem] ${compact ? "p-5" : "p-6 sm:p-7"}`} ${className}`}
       style={{ background, color: theme.ink }}
     >
       {isCopecPay ? (
@@ -168,27 +169,27 @@ export function AccountVisualCard(props: AccountVisualCardProps) {
       {!isCopecPay && (kind === "billetera_prepago" || kind === "billetera_digital" || kind === "prepago") ? <div className="pointer-events-none absolute right-[10%] top-[30%] h-[28%] w-[28%] rotate-12 rounded-2xl border-2 opacity-40" style={{ borderColor: theme.glow }} /> : null}
       <div className="relative flex items-start justify-between gap-2">
         <div className="flex min-w-0 items-center gap-2">
-          {cash ? <span className="grid h-9 w-12 place-items-center rounded-lg border border-white/25 bg-white/10"><WalletIcon className="h-5 w-5" /></span>
-            : <InstitutionLogo institution={financial!.institution} size="sm" className={isCopecPay ? "!h-9 !w-24 !rounded-lg" : "!h-9 !w-12 !rounded-lg"} />}
-          {!isCopecPay ? <span className="truncate text-xs font-bold sm:text-sm">{cash ? "Efectivo" : InstitutionLabels[financial!.institution]}</span> : null}
+          {cash ? <span className={`grid place-items-center rounded-lg border border-white/25 bg-white/10 ${miniOnMobile ? "h-7 w-9 sm:h-9 sm:w-12" : "h-9 w-12"}`}><WalletIcon className="h-5 w-5" /></span>
+            : <InstitutionLogo institution={financial!.institution} size="sm" className={isCopecPay ? miniOnMobile ? "!h-7 !w-16 !rounded-lg sm:!h-9 sm:!w-24" : "!h-9 !w-24 !rounded-lg" : miniOnMobile ? "!h-7 !w-9 !rounded-lg sm:!h-9 sm:!w-12" : "!h-9 !w-12 !rounded-lg"} />}
+          {!isCopecPay ? <span className={`${miniOnMobile ? "hidden sm:inline" : ""} truncate text-xs font-bold sm:text-sm`}>{cash ? "Efectivo" : InstitutionLabels[financial!.institution]}</span> : null}
         </div>
-        <span className="max-w-[40%] shrink-0 truncate rounded-full border border-current/30 px-2 py-1 text-[0.6rem] font-bold uppercase tracking-[0.1em]">
+        <span className={`${miniOnMobile ? "hidden sm:inline" : ""} max-w-[40%] shrink-0 truncate rounded-full border border-current/30 px-2 py-1 text-[0.6rem] font-bold uppercase tracking-[0.1em]`}>
           <span className={compactOnDesktop ? "sm:hidden lg:inline" : "sm:hidden"}>{cash ? "Manual" : shortKindLabels[kind] ?? kindLabel}</span>
           <span className={compactOnDesktop ? "hidden sm:inline lg:hidden" : "hidden sm:inline"}>{kindLabel}</span>
         </span>
       </div>
       <div className="relative min-w-0 max-w-[88%]">
-        <p className="text-[0.6rem] font-semibold uppercase tracking-[0.16em] opacity-70">{cash ? "Saldo registrado" : "Producto financiero"}</p>
-        <p className={`mt-1 line-clamp-2 font-semibold leading-tight tracking-[-0.04em] ${compact ? "text-xl" : "text-2xl sm:text-3xl"}`}>
+        <p className={`${miniOnMobile ? "hidden sm:block" : ""} text-[0.6rem] font-semibold uppercase tracking-[0.16em] opacity-70`}>{cash ? "Saldo registrado" : "Producto financiero"}</p>
+        <p className={`mt-1 line-clamp-2 font-semibold leading-tight tracking-[-0.04em] ${miniOnMobile ? "text-sm sm:text-xl" : compact ? "text-xl" : "text-2xl sm:text-3xl"}`}>
           {cash ? props.cashBalance == null ? "Saldo no disponible" : pesos.format(props.cashBalance) : productName}
         </p>
       </div>
       <div className="relative flex items-end justify-between gap-2">
         <div className="min-w-0">
-          <p className="truncate text-sm font-medium">{displayName}</p>
-          {financial?.accountLast4 ? <p className="mt-1 text-xs font-semibold tracking-[0.1em] opacity-75">**** {financial.accountLast4}</p> : null}
+          <p className={`truncate font-medium ${miniOnMobile ? "text-xs sm:text-sm" : "text-sm"}`}>{displayName}</p>
+          {financial?.accountLast4 ? <p className={`${miniOnMobile ? "hidden sm:block" : ""} mt-1 text-xs font-semibold tracking-[0.1em] opacity-75`}>**** {financial.accountLast4}</p> : null}
         </div>
-        <span className="text-sm font-bold tracking-[0.1em]" style={{ color: theme.accent }}>{financial?.currency ?? "CLP"}</span>
+        <span className={`${miniOnMobile ? "hidden sm:inline" : ""} text-sm font-bold tracking-[0.1em]`} style={{ color: theme.accent }}>{financial?.currency ?? "CLP"}</span>
       </div>
     </div>
   );

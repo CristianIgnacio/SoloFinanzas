@@ -6,7 +6,6 @@ import { createPortal } from "react-dom";
 
 import {
   Button,
-  CategoriesIcon,
   ChevronDownIcon,
   EmptyState,
   ErrorState,
@@ -43,6 +42,9 @@ const typeLabels: Record<CategoryType, string> = {
   [CategoryType.EXPENSE]: "Gasto",
   [CategoryType.TRANSFER]: "Transferencia",
 };
+
+const normalizeCatalogSearch = (value: string) => value.normalize("NFD")
+  .replace(/[\u0300-\u036f]/g, "").toLocaleLowerCase("es").trim();
 
 const typeBadgeClasses: Record<CategoryType, string> = {
   [CategoryType.INCOME]: "bg-primary-mist text-primary",
@@ -525,6 +527,9 @@ export function CategoriesPage() {
   const [error, setError] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<string | null>(null);
   const [showArchived, setShowArchived] = useState(false);
+  const [catalogSearch, setCatalogSearch] = useState("");
+  const [catalogType, setCatalogType] = useState<CategoryType | "all">("all");
+  const catalogSearchRef = useRef<HTMLInputElement>(null);
   const [form, setForm] = useState<CategoryForm | null>(null);
   const [selectedCategoryId, setSelectedCategoryId] = useState<number | null>(null);
   const [compactDetails, setCompactDetails] = useState(() => window.matchMedia("(max-width: 1279px)").matches);
@@ -534,8 +539,14 @@ export function CategoriesPage() {
   const [ruleMatchType, setRuleMatchType] = useState<"exact" | "contains">("contains");
   const [rulePreview, setRulePreview] = useState<{ match_count: number; examples: string[] } | null>(null);
   const [editingRuleId, setEditingRuleId] = useState<number | null>(null);
+  const [ruleFormOpen, setRuleFormOpen] = useState(false);
+  const [ruleError, setRuleError] = useState<string | null>(null);
+  const [ruleFeedback, setRuleFeedback] = useState<string | null>(null);
+  const ruleInputRef = useRef<HTMLInputElement>(null);
+  const newRuleButtonRef = useRef<HTMLButtonElement>(null);
   const [catalogPreview, setCatalogPreview] = useState<CatalogChange[]>([]);
   const [showCatalogPreview, setShowCatalogPreview] = useState(false);
+  const [catalogNoticeDismissed, setCatalogNoticeDismissed] = useState(false);
   const [mergingCategory, setMergingCategory] = useState<Category | null>(null);
   const [mergeError, setMergeError] = useState<string | null>(null);
   const [merging, setMerging] = useState(false);
@@ -551,6 +562,28 @@ export function CategoriesPage() {
   const [orderingCategoryId, setOrderingCategoryId] = useState<number | null>(null);
   const orderingSiblingIds = useRef<number[]>([]);
   const CategoryLabel = compactDetails ? "div" : "button";
+
+  useEffect(() => {
+    setRuleFormOpen(false);
+    setEditingRuleId(null);
+    setRuleKeyword("");
+    setRulePreview(null);
+    setRulePriority("100");
+    setRuleMatchType("contains");
+    setRuleError(null);
+    setRuleFeedback(null);
+  }, [selectedCategoryId]);
+
+  const closeRuleForm = () => {
+    setRuleFormOpen(false);
+    setEditingRuleId(null);
+    setRuleKeyword("");
+    setRulePreview(null);
+    setRulePriority("100");
+    setRuleMatchType("contains");
+    setRuleError(null);
+    window.requestAnimationFrame(() => newRuleButtonRef.current?.focus({ preventScroll: true }));
+  };
 
   const loadData = async () => {
     try {
@@ -593,10 +626,27 @@ export function CategoriesPage() {
   const groups = useMemo(
     () =>
       groupCategories(
-        showArchived ? categories : categories.filter((category) => category.is_active),
+        categories.filter((category) => showArchived ? !category.is_active : category.is_active),
       ),
     [categories, showArchived],
   );
+  const normalizedCatalogSearch = normalizeCatalogSearch(catalogSearch);
+  const visibleGroups = useMemo(() => groups
+    .filter(({ root }) => catalogType === "all" || root.type === catalogType)
+    .flatMap(({ root, children }) => {
+      if (!normalizedCatalogSearch || normalizeCatalogSearch(getCategoryPath(root.id, categoryMap)).includes(normalizedCatalogSearch)) {
+        return [{ root, children }];
+      }
+      const matchingChildren = children.filter(child => normalizeCatalogSearch(child.name).includes(normalizedCatalogSearch));
+      return matchingChildren.length ? [{ root, children: matchingChildren }] : [];
+    }), [groups, catalogType, normalizedCatalogSearch, categoryMap]);
+  const visibleCategoryCount = visibleGroups.reduce((count, group) => count + 1 + group.children.length, 0);
+  const catalogFiltered = Boolean(normalizedCatalogSearch) || catalogType !== "all";
+  const clearCatalogFilters = () => {
+    setCatalogSearch("");
+    setCatalogType("all");
+    catalogSearchRef.current?.focus();
+  };
   const selectedCategory = selectedCategoryId
     ? categoryMap.get(selectedCategoryId) ?? null
     : null;
@@ -658,7 +708,7 @@ export function CategoriesPage() {
     setRuleKeyword("");
     setEditingRuleId(null);
     setRulePreview(null);
-    if (compactDetails) setDetailsView("rules");
+    setDetailsView("rules");
   };
 
   const reorderSubcategory = async (
@@ -723,7 +773,7 @@ export function CategoriesPage() {
     }
   };
 
-  const saveMobileOrder = async (ids: number[]) => {
+  const saveSubcategoryOrder = async (ids: number[]) => {
     if (!orderingGroup || reorderingSubcategories) return;
     const visibleIds = new Set(orderingGroup.children.map(category => category.id));
     if (ids.length !== visibleIds.size || new Set(ids).size !== ids.length || ids.some(id => !visibleIds.has(id))) return;
@@ -817,45 +867,45 @@ export function CategoriesPage() {
     }
   };
 
+  const parsedRulePriority = rulePriority.trim() === "" ? 100 : Number(rulePriority);
+  const validRulePriority = Number.isSafeInteger(parsedRulePriority);
   const createRule = async () => {
-    if (!selectedCategory || !ruleKeyword.trim()) return;
+    if (!selectedCategory || !ruleKeyword.trim() || !validRulePriority) return;
     try {
       const payload = {
         keyword: ruleKeyword.trim(), category_id: selectedCategory.id,
-        priority: Number(rulePriority) || 100, match_type: ruleMatchType,
+        priority: parsedRulePriority, match_type: ruleMatchType,
       };
       if (editingRuleId) await CategoryService.updateCategorizationRule(editingRuleId, payload);
       else await CategoryService.createCategorizationRule(payload);
-      setRuleKeyword("");
-      setEditingRuleId(null);
-      setRulePreview(null);
-      setFeedback("Regla creada correctamente.");
+      closeRuleForm();
+      setRuleFeedback(editingRuleId ? "Regla actualizada correctamente." : "Regla creada correctamente.");
       await loadData();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "No fue posible crear la regla.");
+      setRuleError(err instanceof Error ? err.message : "No fue posible crear la regla.");
     }
   };
 
   const previewRule = async () => {
-    if (!selectedCategory || !ruleKeyword.trim()) return;
+    if (!selectedCategory || !ruleKeyword.trim() || !validRulePriority) return;
     try {
       setRulePreview(await CategoryService.previewCategorizationRule({
         keyword: ruleKeyword.trim(), category_id: selectedCategory.id,
-        priority: Number(rulePriority) || 100, match_type: ruleMatchType,
+        priority: parsedRulePriority, match_type: ruleMatchType,
       }));
-      setError(null);
+      setRuleError(null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "No fue posible revisar la regla.");
+      setRuleError(err instanceof Error ? err.message : "No fue posible revisar la regla.");
     }
   };
 
   const removeRule = async (ruleId: number) => {
     try {
       await CategoryService.deleteCategorizationRule(ruleId);
-      setFeedback("Regla eliminada.");
+      setRuleFeedback("Regla eliminada.");
       await loadData();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "No fue posible eliminar la regla.");
+      setRuleError(err instanceof Error ? err.message : "No fue posible eliminar la regla.");
     }
   };
 
@@ -880,8 +930,7 @@ export function CategoriesPage() {
     <div className="space-y-5 sm:space-y-8">
       <PageIntro
         compactOnMobile
-        eyebrow="Organizacion"
-        title="Categorias y subcategorias"
+        title="Categorías"
         description="Ordena tus movimientos en dos niveles y administra las reglas que los clasifican automaticamente."
         actions={
           <Button className="w-full sm:w-auto" onClick={() => openCreateCategory()}>
@@ -895,15 +944,19 @@ export function CategoriesPage() {
       {error && !form ? <ErrorState message={error} /> : null}
       {loading ? <LoadingState message="Cargando categorias..." /> : null}
 
-      {!loading && catalogPreview.some(item => item.status === "skipped") ? (
-        <Panel className="space-y-3">
-          <h2 className="text-xl font-medium">Categorías conservadas</h2>
-          <p className="text-sm text-muted">Las categorías predeterminadas se incorporan automáticamente. Se omitieron algunas coincidencias para respetar tus categorías archivadas o personalizadas.</p>
-          <button type="button" className="text-sm text-primary underline" onClick={() => setShowCatalogPreview(current => !current)}>
-            {showCatalogPreview ? "Ocultar detalles" : "Ver coincidencias omitidas"}
-          </button>
+      {!loading && !catalogNoticeDismissed && catalogPreview.some(item => item.status === "skipped") ? (
+        <aside aria-label="Información del catálogo" className="rounded-xl border border-outline/60 bg-white/60 px-3 py-1 text-sm">
+          <div className="flex items-center justify-between gap-3">
+            <button type="button" aria-expanded={showCatalogPreview} aria-controls="catalog-preserved-details"
+              className="flex min-h-11 items-center gap-2 text-left text-muted hover:text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary" onClick={() => setShowCatalogPreview(current => !current)}>
+              <ChevronDownIcon className={cn("h-4 w-4 shrink-0 transition", showCatalogPreview && "rotate-180")} />Sobre tus categorías
+            </button>
+            <button type="button" aria-label="Descartar aviso del catálogo" onClick={() => setCatalogNoticeDismissed(true)}
+              className="min-h-11 shrink-0 rounded-lg px-2 text-muted underline underline-offset-4 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary">Descartar</button>
+          </div>
           {showCatalogPreview ? (
-            <div className="max-h-64 overflow-auto rounded-xl border border-outline p-3 text-sm">
+            <div id="catalog-preserved-details" className="max-h-64 space-y-2 overflow-auto border-t border-outline/60 py-3 text-muted">
+              <p>Tus categorías personalizadas y archivadas se mantienen. Estas no se agregaron de nuevo para respetar tu organización:</p>
               {catalogPreview.filter(item => item.status === "skipped").map(item => (
                 <p key={item.code} className="py-1">
                   {item.name}
@@ -912,33 +965,14 @@ export function CategoriesPage() {
               ))}
             </div>
           ) : null}
-        </Panel>
+        </aside>
       ) : null}
 
-      {!loading ? (
-        <section aria-label="Resumen de categorías" className="grid grid-cols-3 gap-2 sm:gap-4">
-          {[
-            ["Activas", activeCount],
-            ["Categorias principales", rootCount],
-            ["Subcategorias", subcategoryCount],
-          ].map(([label, value]) => (
-            <Panel key={label} className="flex min-w-0 items-center justify-between gap-2 !rounded-2xl !p-3 sm:gap-4 sm:!rounded-[1.5rem] sm:!p-6 md:!p-8">
-              <div className="min-w-0">
-                <p className="min-h-8 text-[11px] font-medium leading-4 text-muted sm:min-h-0 sm:text-sm sm:leading-5">{label}</p>
-                <p className="mt-1 text-2xl font-semibold tracking-[-0.04em] sm:mt-2 sm:text-4xl">{value}</p>
-              </div>
-              <span className="hidden h-12 w-12 shrink-0 items-center justify-center rounded-full bg-primary-mist text-primary md:flex">
-                <CategoriesIcon className="h-5 w-5" />
-              </span>
-            </Panel>
-          ))}
-        </section>
-      ) : null}
-
-      <div id="category-catalog" className="flex scroll-mt-24 flex-wrap items-center justify-between gap-3 sm:gap-4">
+      <section id="category-catalog" aria-label="Explorar categorías" className="scroll-mt-24 space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-3 sm:gap-4">
         <div className="flex items-center gap-3">
-          <h2 className="section-title">Catalogo</h2>
-          <button type="button" className="min-h-11 rounded-xl border border-outline bg-white px-3 text-sm font-medium text-primary xl:hidden"
+          <h2 className="section-title">Catálogo</h2>
+          <button type="button" className="min-h-11 rounded-xl border border-outline bg-white px-3 text-sm font-medium text-primary"
             onClick={() => { setSelectedCategoryId(null); setDetailsView("proposals"); }}>
             Propuestas
           </button>
@@ -949,25 +983,53 @@ export function CategoriesPage() {
               Guardando orden...
             </span>
           ) : null}
-          <label className="flex items-center gap-2 text-sm text-muted">
+          <label className="flex min-h-11 items-center gap-2 text-sm text-muted">
             <input
               type="checkbox"
               checked={showArchived}
               onChange={(event) => setShowArchived(event.target.checked)}
               className="h-4 w-4 accent-primary"
             />
-            Mostrar archivadas
+            Solo archivadas
           </label>
         </div>
       </div>
+      {!loading ? <>
+        <dl aria-label="Resumen de categorías" className="flex flex-wrap gap-x-5 gap-y-1 text-sm leading-6 text-muted">
+          {[["Activas", activeCount], ["Principales", rootCount], ["Subcategorías", subcategoryCount]].map(([label, value]) => (
+            <div key={label} className="flex items-baseline gap-1.5">
+              <dt className="order-2">{label}</dt><dd className="font-semibold tabular-nums text-ink">{value}</dd>
+            </div>
+          ))}
+        </dl>
+        <div className="flex min-w-0 flex-col gap-3 xl:flex-row xl:items-center">
+          <input ref={catalogSearchRef} type="search" aria-label="Buscar categorías y subcategorías" placeholder="Buscar categorías y subcategorías"
+            value={catalogSearch} onChange={event => setCatalogSearch(event.target.value)}
+            className="min-h-11 w-full min-w-0 rounded-xl border border-outline bg-white px-3 py-2 text-base outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/15 xl:max-w-md" />
+          <div role="group" aria-label="Filtrar categorías por tipo" className="flex min-w-0 gap-1 sm:gap-2">
+            {([["all", "Todas"], [CategoryType.EXPENSE, "Gastos"], [CategoryType.INCOME, "Ingresos"], [CategoryType.TRANSFER, "Transferencias"]] as const).map(([value, label]) => (
+              <button key={value} type="button" aria-pressed={catalogType === value} onClick={() => setCatalogType(value)}
+                className={cn("min-h-11 flex-1 whitespace-nowrap rounded-lg border px-2 py-2 text-xs transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary sm:flex-none sm:rounded-xl sm:px-3 sm:text-sm", catalogType === value ? "border-primary/30 bg-primary-mist font-semibold text-primary" : "border-outline bg-white text-muted hover:bg-paper-soft")}>
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+        {catalogFiltered ? <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
+          <p role="status" className="text-muted">{visibleCategoryCount === 0 ? "Sin resultados" : `${visibleCategoryCount} ${visibleCategoryCount === 1 ? "categoría visible" : "categorías visibles"}${normalizedCatalogSearch ? " · Incluye su grupo principal" : ""}`}</p>
+          <button type="button" onClick={clearCatalogFilters} className="min-h-11 rounded-lg px-2 text-primary underline underline-offset-4 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary">Limpiar filtros</button>
+        </div> : null}
+      </> : null}
+      </section>
 
       {!loading ? (
         <div className="grid grid-cols-[minmax(0,1fr)] gap-5 xl:grid-cols-[minmax(0,1.35fr)_minmax(340px,0.65fr)]">
           <div className="min-w-0 space-y-4">
-            {groups.length === 0 ? <EmptyState title="No hay categorias"
-              description="Crea la primera categoria para comenzar a organizar tus movimientos." /> : null}
-            {groups.map(({ root, children }) => {
-              const isCollapsed = collapsedCategoryIds.has(root.id);
+            {visibleGroups.length === 0 && catalogFiltered ? <EmptyState title="No hay categorías que coincidan"
+              description={showArchived ? "Prueba otro nombre o tipo, o desactiva «Solo archivadas» para ver las activas." : "Prueba otro nombre o tipo. Activa «Solo archivadas» si buscas una categoría archivada."} /> : groups.length === 0 ? <EmptyState title={showArchived ? "No hay categorías archivadas" : "No hay categorias"}
+              description={showArchived ? "Las categorías que archives aparecerán aquí. Desactiva «Solo archivadas» para volver a las activas." : "Crea la primera categoria para comenzar a organizar tus movimientos."} /> : null}
+            {visibleGroups.map(({ root, children }) => {
+              const isCollapsed = !normalizedCatalogSearch && collapsedCategoryIds.has(root.id);
               const isRootSelected = !compactDetails && selectedCategoryId === root.id;
               return (
                 <Panel
@@ -987,7 +1049,7 @@ export function CategoriesPage() {
                   ) : null}
                   <div className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-2 sm:flex sm:justify-between sm:gap-4">
                     <div className="flex min-w-0 flex-1 items-start gap-1.5 sm:gap-3">
-                      {children.length > 0 ? (
+                      {children.length > 0 && !normalizedCatalogSearch ? (
                         <button
                           type="button"
                           onClick={() => toggleCategoryCollapse(root.id)}
@@ -1018,6 +1080,7 @@ export function CategoriesPage() {
                         <div className="flex min-w-0 items-start gap-2 sm:gap-3">
                           <CategoryIcon category={root} compactOnMobile />
                           <div className="min-w-0">
+                            {root.parent_id !== null && categoryMap.has(root.parent_id) ? <p className="mb-1 text-xs text-muted [overflow-wrap:anywhere]">{categoryMap.get(root.parent_id)?.name}</p> : null}
                             <h3 className="text-base font-medium leading-tight [overflow-wrap:anywhere] sm:text-xl">{root.name}</h3>
                             <div className="mt-2 flex flex-wrap items-center gap-1.5 sm:gap-2">
                               <span className={cn("rounded-full px-3 py-1 text-xs font-semibold", typeBadgeClasses[root.type])}>
@@ -1040,13 +1103,13 @@ export function CategoriesPage() {
                     <div className="justify-self-end sm:contents">
                       <CategoryActions category={root} canMerge={canMergeCategory(root, categories)}
                         onViewRules={compactDetails ? category => toggleCategorySelection(category.id) : undefined}
-                        onReorder={compactDetails && children.length > 1 ? category => {
+                        onReorder={(groups.find(group => group.root.id === root.id)?.children.length ?? 0) > 1 ? category => {
                           orderingSiblingIds.current = categories.filter(item => item.parent_id === category.id)
                             .sort((left, right) => left.sort_order - right.sort_order || left.name.localeCompare(right.name, "es"))
                             .map(item => item.id);
                           setError(null); setFeedback(null); setOrderingCategoryId(category.id);
                         } : undefined}
-                        onCreateSubcategory={openCreateCategory} onEdit={editCategory}
+                        onCreateSubcategory={root.parent_id === null && root.is_active ? openCreateCategory : undefined} onEdit={editCategory}
                         onMerge={(category) => { setMergeError(null); setMergingCategory(category); }}
                         onToggleArchive={(category) => void toggleArchive(category)}
                         onRemove={removeCategory} />
@@ -1152,14 +1215,15 @@ export function CategoriesPage() {
           <CategoryDetailsPanel compact={compactDetails} open={detailsView !== null}
             view={detailsView ?? "rules"} onViewChange={setDetailsView} onClose={() => setDetailsView(null)}
             categoryName={selectedCategory ? getCategoryPath(selectedCategory.id, categoryMap) : undefined}
+            categoryBadge={selectedCategory ? <span className={cn("rounded-full px-2 py-0.5 text-xs font-medium", typeBadgeClasses[selectedCategory.type])}>{typeLabels[selectedCategory.type]}</span> : null}
             rules={
-            <Panel className="!p-4 sm:!p-6 md:!p-8">
-              <h2 className="text-xl font-medium sm:text-2xl">Reglas automaticas</h2>
-              {compactDetails && error && !form ? <StatusNotice tone="error" className="mt-3">{error}</StatusNotice> : null}
-              {compactDetails && feedback ? <StatusNotice tone="success" className="mt-3">{feedback}</StatusNotice> : null}
+            <Panel className={compactDetails ? "!p-4 sm:!p-6 md:!p-8" : "!rounded-none !border-0 !p-4 !shadow-none"}>
+              <h2 className={compactDetails ? "text-xl font-medium sm:text-2xl" : "sr-only"}>Reglas automaticas</h2>
+              {ruleError ? <StatusNotice tone="error" className="mt-3">{ruleError}</StatusNotice> : null}
+              {ruleFeedback ? <StatusNotice tone="success" className="mt-3">{ruleFeedback}</StatusNotice> : null}
               {selectedCategory ? (
                 <>
-                  <div className="mt-4 rounded-2xl border border-primary/20 bg-primary-mist/55 px-4 py-3">
+                  {compactDetails ? <div className="mt-4 rounded-2xl border border-primary/20 bg-primary-mist/55 px-4 py-3">
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <div>
                         <p className="text-xs font-semibold uppercase tracking-[0.12em] text-primary/75">
@@ -1181,66 +1245,94 @@ export function CategoriesPage() {
                     <p className="mt-2 text-sm text-muted">
                       Las nuevas reglas se asignaran a esta categoria.
                     </p>
-                  </div>
-                  <div className="mt-5 space-y-3">
+                  </div> : <div className="flex items-center justify-between gap-3">
+                    <p className="text-sm text-muted">{selectedRules.length} {selectedRules.length === 1 ? "regla" : "reglas"}</p>
+                    <button ref={newRuleButtonRef} type="button" disabled={!selectedCategory.is_active} aria-expanded={ruleFormOpen}
+                      aria-controls="category-rule-editor" onClick={() => {
+                        setRuleKeyword(""); setEditingRuleId(null); setRulePriority("100"); setRuleMatchType("contains");
+                        setRulePreview(null); setRuleError(null); setRuleFeedback(null); setRuleFormOpen(true);
+                        window.requestAnimationFrame(() => ruleInputRef.current?.focus());
+                      }} className="flex min-h-11 items-center gap-1.5 rounded-xl border border-outline px-3 text-sm font-medium text-primary hover:bg-primary-mist disabled:opacity-50">
+                      <PlusIcon className="h-4 w-4" />Nueva regla
+                    </button>
+                  </div>}
+                  {compactDetails || ruleFormOpen ? <div id="category-rule-editor" role="region" aria-label={editingRuleId ? "Editar regla" : "Nueva regla"}
+                    className={cn("mt-4 space-y-3", !compactDetails && "rounded-xl border border-outline bg-paper/50 p-3")}>
+                    {!compactDetails && <p className="text-sm font-semibold">{editingRuleId ? "Editar regla" : "Nueva regla"}</p>}
                     <input
+                      ref={ruleInputRef}
+                      aria-label="Palabra o comercio"
                       value={ruleKeyword}
                       onChange={(event) => setRuleKeyword(event.target.value)}
                       placeholder="Palabra o comercio"
                       disabled={!selectedCategory.is_active}
                       className="w-full rounded-2xl border border-outline bg-white px-4 py-3"
                     />
-                    <div className="flex flex-wrap gap-2">
-                      <select aria-label="Tipo de coincidencia" value={ruleMatchType}
-                        onChange={event => { setRuleMatchType(event.target.value as "exact" | "contains"); setRulePreview(null); }}
-                        className="rounded-2xl border border-outline bg-white px-3 py-2">
-                        <option value="contains">Contiene</option>
-                        <option value="exact">Exacta</option>
-                      </select>
-                      <input
-                        type="number"
-                        value={rulePriority}
-                        onChange={(event) => setRulePriority(event.target.value)}
-                        className="w-28 rounded-2xl border border-outline bg-white px-4 py-3"
-                        title="Prioridad"
-                      />
+                    <p className="text-xs leading-5 text-muted">{ruleMatchType === "contains" ? "Se aplicará cuando la descripción contenga esta palabra o frase." : "Se aplicará cuando coincida toda la descripción."}</p>
+                    <details key={`${selectedCategory.id}-${editingRuleId ?? "new"}`} className="rounded-xl border border-outline/70 bg-white px-3">
+                      <summary className="cursor-pointer py-3 text-sm font-medium text-muted focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary">
+                        Opciones avanzadas
+                        {(ruleMatchType !== "contains" || parsedRulePriority !== 100) && <span className="mt-1 block text-xs font-normal">{ruleMatchType === "exact" ? "Coincidencia exacta" : "Contiene"} · Prioridad {rulePriority || "100"}</span>}
+                      </summary>
+                      <div className="space-y-4 border-t border-outline/60 pb-3 pt-3">
+                        <label className="block space-y-2 text-sm">
+                          <span className="font-medium">Tipo de coincidencia</span>
+                          <select aria-describedby="rule-match-help" value={ruleMatchType}
+                            onChange={event => { setRuleMatchType(event.target.value as "exact" | "contains"); setRulePreview(null); }}
+                            className="min-h-11 w-full rounded-xl border border-outline bg-white px-3 py-2">
+                            <option value="contains">Contiene</option><option value="exact">Exacta</option>
+                          </select>
+                        </label>
+                        <p id="rule-match-help" className="text-xs leading-5 text-muted">«Contiene» busca la palabra o frase dentro de la descripción. «Exacta» exige que coincida la descripción completa.</p>
+                        <label className="block space-y-2 text-sm">
+                          <span className="font-medium">Prioridad</span>
+                          <input type="number" step="1" value={rulePriority} aria-describedby="rule-priority-help" aria-invalid={!validRulePriority}
+                            onChange={event => { setRulePriority(event.target.value); setRulePreview(null); }}
+                            placeholder="100" className="min-h-11 w-full rounded-xl border border-outline bg-white px-3 py-2" />
+                        </label>
+                        <p id="rule-priority-help" className="text-xs leading-5 text-muted">Usa 100 normalmente. Si coinciden varias reglas tuyas, se evalúa primero la de mayor número.</p>
+                        {!validRulePriority && <p role="alert" className="text-xs text-danger">Escribe un número entero.</p>}
+                      </div>
+                    </details>
                       <Button
-                        className="min-w-0 flex-1 basis-full sm:basis-auto"
-                        disabled={!ruleKeyword.trim() || !selectedCategory.is_active}
+                        className="w-full min-w-0"
+                        disabled={!ruleKeyword.trim() || !selectedCategory.is_active || !validRulePriority}
                         onClick={() => void createRule()}
                       >
                         {editingRuleId ? "Guardar regla" : "Agregar regla"}
                       </Button>
+                    <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+                      {editingRuleId || !compactDetails ? <button type="button" className="min-h-11 text-sm text-muted underline"
+                        onClick={closeRuleForm}>
+                        {editingRuleId ? "Cancelar edición" : "Cancelar"}
+                      </button> : null}
+                      <button type="button" className="min-h-11 text-sm text-primary underline" disabled={!ruleKeyword.trim() || !validRulePriority}
+                        onClick={() => void previewRule()}>Vista previa de coincidencias</button>
                     </div>
-                    {editingRuleId ? <button type="button" className="text-sm text-muted underline"
-                      onClick={() => { setEditingRuleId(null); setRuleKeyword(""); setRulePreview(null); }}>
-                      Cancelar edición
-                    </button> : null}
-                    <button type="button" className="text-sm text-primary underline" disabled={!ruleKeyword.trim()}
-                      onClick={() => void previewRule()}>Vista previa de coincidencias</button>
                     {rulePreview ? <p className="text-sm text-muted">
                       {rulePreview.match_count} movimientos existentes coinciden. Las categorías actuales no cambiarán.
                       {rulePreview.examples.length > 0 ? ` Ejemplos: ${rulePreview.examples.slice(0, 3).join("; ")}.` : ""}
                     </p> : null}
-                  </div>
-                  <div className="mt-5 max-h-[23.5rem] space-y-2 overflow-y-auto overscroll-contain pr-1">
+                  </div> : null}
+                  <div className="mt-5 max-h-[23.5rem] space-y-2 overflow-y-auto overscroll-contain pr-1 xl:max-h-none xl:overflow-visible">
                     {selectedRules.map((rule) => (
-                      <div key={rule.id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-paper-soft px-3 py-2 sm:flex-nowrap">
-                        <div className="min-w-0 basis-full sm:basis-auto">
+                      <div key={rule.id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-paper-soft px-3 py-2 sm:flex-nowrap xl:flex-wrap xl:justify-start xl:gap-x-4 xl:gap-y-1">
+                        <div className="min-w-0 basis-full sm:basis-auto xl:basis-full">
                           <p className="break-words font-medium">{rule.keyword}</p>
                           <p className="text-sm text-muted">
                             {rule.match_type === "exact" ? "Exacta" : "Contiene"} · {rule.origin === "system" ? "Predeterminada" : rule.origin === "accepted" ? "Aceptada" : rule.origin === "legacy" ? "Anterior" : "Personal"} · Prioridad {rule.priority}
                           </p>
                         </div>
                         <button type="button" className="min-h-11 text-xs text-primary underline sm:min-h-0"
-                          onClick={() => void CategoryService.updateCategorizationRule(rule.id, { is_active: !rule.is_active }).then(loadData).catch(err => setError(err.message))}>
+                          onClick={() => void CategoryService.updateCategorizationRule(rule.id, { is_active: !rule.is_active }).then(loadData).catch(err => setRuleError(err.message))}>
                           {rule.is_active ? "Pausar" : "Activar"}
                         </button>
                         <button type="button" className="min-h-11 text-xs text-primary underline sm:min-h-0"
                           onClick={() => {
                             setEditingRuleId(rule.id); setRuleKeyword(rule.keyword);
                             setRulePriority(String(rule.priority)); setRuleMatchType(rule.match_type);
-                            setRulePreview(null);
+                            setRulePreview(null); setRuleFormOpen(true); setRuleError(null); setRuleFeedback(null);
+                            window.requestAnimationFrame(() => ruleInputRef.current?.focus());
                           }}>Editar</button>
                         <button
                           type="button"
@@ -1264,14 +1356,14 @@ export function CategoriesPage() {
 
           }
             proposals={<CategoryLearning categories={categories} onRuleCreated={() => void loadData()}
-              categoryId={compactDetails ? selectedCategoryId : null} />}
+              embedded={!compactDetails} categoryId={selectedCategoryId} />}
           />
         </div>
       ) : null}
 
       {orderingGroup ? <SubcategoryOrderModal key={orderingGroup.root.id} parent={orderingGroup.root}
         items={orderingGroup.children} categoryMap={categoryMap} saving={reorderingSubcategories} error={error}
-        onSave={ids => void saveMobileOrder(ids)} onClose={() => { if (!reorderingSubcategories) { setOrderingCategoryId(null); setError(null); } }} /> : null}
+        onSave={ids => void saveSubcategoryOrder(ids)} onClose={() => { if (!reorderingSubcategories) { setOrderingCategoryId(null); setError(null); } }} /> : null}
 
       {deletingCategory ? (
         <CategoryDeleteModal key={deletingCategory.id} category={deletingCategory} categories={categories}

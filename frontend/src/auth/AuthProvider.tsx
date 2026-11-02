@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useState } from "react";
-import { Navigate, Outlet } from "react-router-dom";
+import { Link, Navigate, Outlet } from "react-router-dom";
 import type { Session } from "@supabase/supabase-js";
 import { supabase } from "../lib/supabase";
 import { apiClient } from "../lib/apiClient";
@@ -59,9 +59,10 @@ function ProvisionedApp() {
   const [attempt, setAttempt] = useState(0);
   useEffect(() => {
     let active = true;
+    const controller = new AbortController();
     setError("");
     void apiClient
-      .get("/me")
+      .get("/me", { signal: controller.signal })
       .then(() => {
         if (active) setReady(true);
       })
@@ -70,6 +71,7 @@ function ProvisionedApp() {
       });
     return () => {
       active = false;
+      controller.abort();
     };
   }, [attempt]);
   if (error)
@@ -92,6 +94,7 @@ function ProvisionedApp() {
     return (
       <div className="p-8">
         <LoadingState message="Preparando tu espacio. El primer acceso puede tardar hasta un minuto…" />
+        <SessionExit />
       </div>
     );
   return <Outlet />;
@@ -103,9 +106,17 @@ export function RequireAuth() {
     return (
       <div className="p-8">
         <LoadingState />
+        <SessionExit />
       </div>
     );
   if (!session) return <Navigate to="/login" replace />;
   // Remount all financial state whenever identity changes.
   return <ProvisionedApp key={session.user.id} />;
+}
+
+function SessionExit() {
+  return <div className="mt-5 text-center">
+    <Link to="/" className="inline-flex min-h-11 items-center rounded-xl border border-outline px-4 py-2 font-medium text-primary">Volver a la portada</Link>
+    <p className="mt-2 text-sm text-muted">Puedes volver e intentarlo más tarde.</p>
+  </div>;
 }

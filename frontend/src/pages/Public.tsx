@@ -63,7 +63,7 @@ export function HomePage() {
             to={session ? "/app" : "/login"}
             className="inline-flex rounded-2xl bg-primary px-7 py-4 font-medium text-white"
           >
-            {session ? "Ir a mi espacio" : "Comenzar con Google"}
+            {session ? "Ir a mi espacio" : "Comenzar"}
             <span aria-hidden className="ml-5">
               ↗
             </span>
@@ -156,9 +156,12 @@ export function HomePage() {
           Tus cuentas, juntas y ordenadas.
         </h2>
         <p className="mt-3 text-muted">
-          Compatible con cartolas de estas instituciones. Los formatos admitidos
-          se explican en Ayuda.
+          La compatibilidad depende del producto y del formato de la cartola;
+          no todos los productos de estas instituciones están admitidos.
         </p>
+        <a href="/help#formatos-admitidos" className="mt-2 inline-flex min-h-11 items-center font-medium text-primary underline underline-offset-4 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary">
+          Ver formatos admitidos
+        </a>
         <div className="mt-7 flex flex-wrap gap-3">
           {InstitutionOptions.map(({ value, label }) => (
             <div
@@ -310,6 +313,10 @@ export function AuthCallbackPage() {
   );
 }
 
+function InfoLink({ to, children }: { to: string; children: React.ReactNode }) {
+  return <Link to={to} className="font-medium text-primary underline underline-offset-4 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary">{children}</Link>;
+}
+
 export function InformationPage({ privacy = false }: { privacy?: boolean }) {
   return (
     <PublicShell>
@@ -321,43 +328,49 @@ export function InformationPage({ privacy = false }: { privacy?: boolean }) {
         </h1>
         {privacy ? (
           <>
-            <p>
-              SoloFinanzas guarda tu identidad, cuentas, movimientos, categorías
-              y reglas para ofrecerte un espacio financiero privado. Supabase
-              gestiona Google y PostgreSQL; Render procesa las solicitudes y los
-              PDFs; Vercel aloja la interfaz.
-            </p>
-            <p>
-              Los PDFs y sus contraseñas se usan temporalmente durante la
-              importación. El original se descarta y no puede descargarse
-              después. No solicitamos acceso a tu banca en línea.
-            </p>
-            <p>
-              Desde tu perfil puedes descargar tus datos o eliminar la cuenta.
-              Los respaldos cifrados se conservan durante siete copias diarias;
-              la eliminación de esos respaldos ocurre por rotación y depende de
-              que la tarea de respaldo se ejecute.
-            </p>
-            <p>
-              El navegador conserva la sesión para que no debas ingresar cada
-              vez. En un equipo compartido, cierra sesión cuando termines. Esta
-              beta depende de servicios gratuitos que pueden detenerse al
-              alcanzar sus límites.
-            </p>
+            <section className="space-y-2" aria-labelledby="privacy-data">
+              <h2 id="privacy-data" className="text-xl font-semibold">¿Qué información se guarda y para qué?</h2>
+              <p>SoloFinanzas guarda tu identidad, cuentas, movimientos, categorías y reglas para ofrecerte un espacio financiero privado.</p>
+            </section>
+            <section className="space-y-2" aria-labelledby="privacy-services">
+              <h2 id="privacy-services" className="text-xl font-semibold">¿Qué servicios intervienen?</h2>
+              <p>Supabase gestiona el acceso con Google y la base de datos PostgreSQL; Render procesa las solicitudes y los PDFs; Vercel aloja la interfaz.</p>
+            </section>
+            <section className="space-y-2" aria-labelledby="privacy-pdf">
+              <h2 id="privacy-pdf" className="text-xl font-semibold">¿Se conserva mi PDF o su contraseña?</h2>
+              <p>Los PDFs y sus contraseñas se usan temporalmente durante la importación. El archivo original se descarta y no puede descargarse después. Los movimientos importados sí se guardan. No solicitamos acceso a tu banca en línea.</p>
+            </section>
+            <section className="space-y-2" aria-labelledby="privacy-delete">
+              <h2 id="privacy-delete" className="text-xl font-semibold">¿Cómo descargo mis datos o elimino mi cuenta?</h2>
+              <p>En <InfoLink to="/app/profile">Perfil</InfoLink> puedes descargar tus datos o eliminar tu cuenta de SoloFinanzas.</p>
+              <p>Los respaldos cifrados se conservan durante siete copias diarias. Su eliminación ocurre por rotación y depende de que se ejecute la tarea de respaldo.</p>
+            </section>
+            <section className="space-y-2" aria-labelledby="privacy-device">
+              <h2 id="privacy-device" className="text-xl font-semibold">¿Qué queda en mi navegador?</h2>
+              <p>El navegador conserva tu sesión para que no debas ingresar cada vez y algunas preferencias de las pantallas, como las omisiones de Análisis. En un equipo compartido, cierra sesión cuando termines.</p>
+            </section>
+            <section className="space-y-2" aria-labelledby="privacy-availability">
+              <h2 id="privacy-availability" className="text-xl font-semibold">¿Puede interrumpirse el servicio?</h2>
+              <p>Esta beta depende de servicios gratuitos que pueden detenerse al alcanzar sus límites.</p>
+            </section>
+            <section className="space-y-2 rounded-2xl border border-outline bg-white p-5" aria-labelledby="privacy-contact">
+              <h2 id="privacy-contact" className="text-xl font-semibold">¿Dónde consulto sobre mis datos?</h2>
+              <p>Escribe a <a className="break-all font-medium text-primary underline underline-offset-4" href="mailto:soloropaoficial@gmail.com">soloropaoficial@gmail.com</a> para consultas de privacidad. No adjuntes contraseñas ni cartolas completas.</p>
+            </section>
           </>
         ) : (
           <>
-            <section aria-labelledby="help-accounts-title">
+            <section id="formatos-admitidos" className="scroll-mt-6" aria-labelledby="help-accounts-title">
               <h2 id="help-accounts-title" className="text-2xl font-semibold">Cuentas e importaciones</h2>
               <ol className="list-decimal space-y-3 pl-6">
                 <li>
-                  Ingresa con Google. En <strong>Cuentas</strong>, agrega una
+                  Ingresa con Google. En <InfoLink to="/app/accounts">Cuentas</InfoLink>, agrega una
                   cuenta financiera y selecciona institución, tipo y producto.
-                  También puedes comenzar con <strong>Efectivo</strong> desde el
+                  También puedes comenzar con <InfoLink to="/app/accounts">Efectivo</InfoLink> desde el
                   inicio para registrar movimientos manualmente.
                 </li>
                 <li>
-                  Para importar, descarga una cartola PDF con texto seleccionable
+                  En <InfoLink to="/app/import">Importar cartola</InfoLink>, usa un PDF con texto seleccionable
                   y elige la cuenta correspondiente. Se admiten archivos de
                   hasta 10 MB y 50 páginas.
                 </li>
@@ -380,15 +393,15 @@ export function InformationPage({ privacy = false }: { privacy?: boolean }) {
               <h2 id="help-review-title" className="text-2xl font-semibold">Movimientos y organización</h2>
               <ul className="list-disc space-y-3 pl-6">
                 <li>
-                  En <strong>Movimientos</strong>, filtra por período, cuenta,
+                  En <InfoLink to="/app/transactions">Movimientos</InfoLink>, filtra por período, cuenta,
                   tipo o categoría y corrige la categoría cuando lo necesites.
                 </li>
                 <li>
-                  En <strong>Categorías</strong>, organiza categorías y
+                  En <InfoLink to="/app/categories">Categorías</InfoLink>, organiza categorías y
                   subcategorías, y administra las reglas de clasificación.
                 </li>
                 <li>
-                  En <strong>Efectivo</strong>, registra, edita o elimina
+                  En <InfoLink to="/app/accounts">Efectivo</InfoLink>, registra, edita o elimina
                   movimientos y configura un saldo inicial. Puedes vincular sus
                   traspasos con movimientos bancarios para reconocerlos como
                   transferencias entre tus cuentas.
@@ -400,8 +413,27 @@ export function InformationPage({ privacy = false }: { privacy?: boolean }) {
                 </li>
               </ul>
             </section>
+            <section className="space-y-3" aria-labelledby="help-analysis-title">
+              <h2 id="help-analysis-title" className="text-2xl font-semibold">Análisis: movimientos y gráficos</h2>
+              <p>En <InfoLink to="/app/analytics">Análisis</InfoLink>, ajusta el período y los filtros para explorar tus movimientos y su evolución. Los indicadores y gráficos reflejan la selección actual y las omisiones que hayas aplicado.</p>
+              <p>Las transferencias internas no cuentan como ingresos ni gastos consolidados. Los resultados describen los registros disponibles: no sustituyen el saldo informado por tu banco.</p>
+            </section>
+            <section className="space-y-3" aria-labelledby="help-omissions-title">
+              <h2 id="help-omissions-title" className="text-2xl font-semibold">¿Qué significa omitir un movimiento?</h2>
+              <p>Omitir lo deja fuera de los cálculos de <InfoLink to="/app/analytics">Análisis</InfoLink>. No elimina el registro ni lo quita de Movimientos o de su cuenta.</p>
+              <p>Usa «Ver omitidos» o la vista «Omitidos» para revisarlos y volver a incluirlos. Los filtros actuales también se aplican a esta lista.</p>
+              <p>Las omisiones se guardan por usuario en este navegador; no se sincronizan entre dispositivos. Tampoco cambian el alcance de las exportaciones de Movimientos.</p>
+            </section>
+            <section className="space-y-3" aria-labelledby="help-export-title">
+              <h2 id="help-export-title" className="text-2xl font-semibold">¿Qué incluye cada exportación?</h2>
+              <ul className="list-disc space-y-3 pl-6">
+                <li>En <InfoLink to="/app/transactions">Movimientos</InfoLink>, «Exportar» propone todos los resultados de los filtros actuales, incluidos los que aún no has cargado al bajar. Antes de descargar, puedes revisar la cantidad, limitarla y elegir CSV o Markdown. Si limitas la cantidad, se toman los primeros resultados en el orden de la lista.</li>
+                <li>En <InfoLink to="/app/profile">Perfil</InfoLink>, «Exportar mis datos» descarga cuentas, movimientos, categorías y reglas en JSON. Es una exportación de tus datos, independiente de los filtros de Movimientos.</li>
+              </ul>
+              <p>Estas descargas no incluyen los PDFs originales de las cartolas.</p>
+            </section>
             <p>
-              Desde <strong>Perfil</strong> puedes descargar tus datos o
+              Desde <InfoLink to="/app/profile">Perfil</InfoLink> puedes descargar tus datos o
               eliminar tu cuenta. Si el servicio demora en responder después de
               un período inactivo, espera un momento y vuelve a intentarlo.
             </p>

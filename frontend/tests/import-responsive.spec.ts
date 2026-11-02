@@ -39,6 +39,81 @@ async function prepare(page: Page) {
   await expect(page.getByRole("combobox", { name: "Cuenta Destino" })).toHaveValue("1");
 }
 
+test("cartolas largas conservan todas las correcciones al buscar, filtrar y paginar", async ({ page }, info) => {
+  test.setTimeout(60000);
+  await prepare(page);
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  const transactions = Array.from({ length: 45 }, (_, index) => ({
+    ...preview.candidate_transactions[1],
+    source_id: index === 0 || index === 44 ? null : `row-${index}`,
+    source_line: `Movimiento ${index + 1}`,
+    description: index === 21 ? "Café y alimentación" : `Movimiento ${index + 1}`,
+    suggested_category_id: index === 0 || index === 44 ? null : 2,
+    suggestion_conflict: index === 21,
+  }));
+  await page.route("**/statement-imports/pdf/preview", route => route.fulfill({ json: { ...preview, candidate_transactions: transactions } }));
+  let submitted: { source_id: string | null; category_id: number | null; transaction_type: string }[] = [];
+  await page.route("**/statement-imports/pdf/reviewed", route => {
+    const field = route.request().postData()!.split('name="reviewed_transactions"\r\n\r\n')[1].split("\r\n--")[0];
+    submitted = JSON.parse(field);
+    return route.fulfill({ json: { statement: { id: 5 }, result: { inserted_count: 45 } } });
+  });
+  await page.locator('input[type="file"]').setInputFiles(pdf);
+  await page.getByRole("button", { name: "Analizar Documento", exact: true }).click();
+  const controls = page.getByRole("region", { name: "Herramientas de revisión" });
+  const types = page.getByRole("combobox", { name: /^Tipo del movimiento/ });
+  const search = page.getByRole("searchbox", { name: "Buscar movimientos por descripción" });
+  const filter = (name: string) => controls.getByRole("button", { name, exact: true });
+  await expect(page.getByRole("heading", { name: "45 movimientos detectados" })).toBeVisible();
+  await expect(types).toHaveCount(20);
+  await expect(filter("Sin categoría 2")).toBeVisible();
+  await expect(filter("Con advertencias 1")).toBeVisible();
+  await expect(filter("Modificados 0")).toBeVisible();
+  await page.getByRole("combobox", { name: "Ir a la página" }).selectOption("3");
+  await expect(types).toHaveCount(5);
+  await page.getByRole("button", { name: "Categoría del movimiento 45", exact: true }).click();
+  await page.getByRole("dialog").getByRole("button", { name: "Supermercado", exact: true }).click();
+  await expect(filter("Sin categoría 1")).toBeVisible();
+  await filter("Sin categoría 1").click();
+  await expect(types).toHaveCount(1);
+  await expect(page.getByRole("button", { name: "Categoría del movimiento 1", exact: true })).toHaveText("Sin categoría");
+  await filter("Con advertencias 1").click();
+  await search.fill("CAFE");
+  await expect(types).toHaveCount(1);
+  await page.getByRole("button", { name: "Categoría del movimiento 22", exact: true }).click();
+  await page.getByRole("dialog").getByRole("button", { name: "Supermercado", exact: true }).click();
+  await expect(filter("Con advertencias 0")).toBeVisible();
+  await expect(page.getByText("No hay movimientos que coincidan", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Limpiar filtros", exact: true }).click();
+  await expect(types).toHaveCount(20);
+  await page.getByRole("combobox", { name: "Ir a la página" }).selectOption("2");
+  await page.getByRole("combobox", { name: "Tipo del movimiento 21", exact: true }).selectOption("income");
+  await filter("Modificados 2").click();
+  await expect(types).toHaveCount(2);
+  await expect(page.getByRole("combobox", { name: "Tipo del movimiento 21", exact: true })).toHaveValue("income");
+  await search.fill("inexistente");
+  await expect(types).toHaveCount(0);
+  await search.fill("Movimiento 45");
+  await expect(types).toHaveCount(1);
+  await page.getByRole("button", { name: "Categoría del movimiento 45", exact: true }).click();
+  await page.getByRole("dialog").getByRole("button", { name: "Sin categoría", exact: true }).click();
+  await expect(filter("Modificados 1")).toBeVisible();
+  await page.getByRole("button", { name: "Limpiar filtros", exact: true }).click();
+  for (const width of [320, 390, 768, 1440]) {
+    await page.setViewportSize({ width, height: 844 });
+    await controls.scrollIntoViewIfNeeded();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    await page.screenshot({ path: info.outputPath(`revision-filtros-${width}.png`) });
+  }
+  await filter("Modificados 1").click();
+  await page.getByRole("button", { name: "Confirmar importación", exact: true }).click();
+  await expect(page).toHaveURL(/\/app\/transactions\?statement_id=5$/);
+  expect(submitted).toHaveLength(45);
+  expect(submitted[20]).toMatchObject({ source_id: "row-20", transaction_type: "income" });
+  expect(submitted[0].category_id).toBeNull();
+  expect(submitted[44].category_id).toBeNull();
+});
+
 test("importación conserva correcciones, anima durante el análisis y se adapta sin desbordar", async ({ page }, info) => {
   test.setTimeout(60000);
   await prepare(page);
@@ -74,16 +149,41 @@ test("importación conserva correcciones, anima durante el análisis y se adapta
   await expect(page.getByRole("heading", { name: "3 movimientos detectados" })).toBeVisible();
   await expect(page.locator(".pdf-analysis-scan")).toHaveCount(0);
   const type = page.getByRole("combobox", { name: "Tipo del movimiento 2", exact: true });
-  const category = page.getByRole("combobox", { name: "Categoría del movimiento 2", exact: true });
+  const category = page.getByRole("button", { name: "Categoría del movimiento 2", exact: true });
+  const categories = page.getByRole("dialog", { name: "Seleccionar categoría", exact: true });
+  await category.click();
+  await expect(categories.getByRole("button", { name: "Supermercado", exact: true })).toHaveAttribute("aria-pressed", "true");
+  await page.screenshot({ path: info.outputPath("importar-selector-categorias.png") });
+  await categories.getByRole("button", { name: "Sin categoría", exact: true }).click();
+  await expect(category).toHaveText("Sin categoría");
+  await expect(category).toBeFocused();
+  await category.click();
+  await categories.getByRole("button", { name: "Supermercado", exact: true }).click();
   await type.selectOption("income");
-  await expect(category).toHaveValue("");
-  await category.selectOption("3");
+  await expect(category).toHaveText("Sin categoría");
+  await category.click();
+  await expect(categories.getByRole("button", { name: "Supermercado", exact: true })).toHaveCount(0);
+  await categories.getByRole("button", { name: "Sueldo", exact: true }).click();
+  const preparation = page.getByRole("region", { name: "Preparación de la cartola" });
+  await expect(preparation).toContainText(pdf.name);
+  await expect(preparation).toContainText("Cuenta principal del hogar");
+  await expect(preparation).toContainText("Ingresada");
+  await expect(page.getByRole("combobox", { name: "Cuenta Destino" })).toHaveCount(0);
+  await expect(password).toHaveCount(0);
+  await expect(page.locator("body")).not.toContainText("clave-demo");
+  await preparation.getByRole("button", { name: "Cambiar", exact: true }).click();
+  await expect(page.getByRole("combobox", { name: "Cuenta Destino" })).toBeFocused();
+  await expect(password).toHaveValue("clave-demo");
+  await expect(password).toHaveAttribute("type", "password");
+  await page.getByRole("button", { name: "Volver a la revisión", exact: true }).click();
+  await expect(type).toHaveValue("income");
+  await expect(category).toHaveText("Sueldo");
   const confirm = page.getByRole("button", { name: "Confirmar importación", exact: true });
   const table = page.getByRole("table", { name: "Movimientos por importar" });
   for (const width of [320, 390, 768, 1024, 1440]) {
     await page.setViewportSize({ width, height: 844 });
     await expect(type).toHaveValue("income");
-    await expect(category).toHaveValue("3");
+    await expect(category).toHaveText("Sueldo");
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
     await page.getByRole("heading", { name: "3 movimientos detectados" }).scrollIntoViewIfNeeded();
     await expect(confirm).toBeInViewport({ ratio: 1 });
@@ -136,7 +236,9 @@ test("contraseña, diferencias y duplicados mantienen sus controles de importaci
     expect(await dialog.evaluate(el => el.scrollWidth <= el.clientWidth + 1)).toBe(true);
     await page.screenshot({ path: info.outputPath(`importar-avisos-${width}.png`) });
   }
-  await dialog.getByRole("button", { name: "Revisar movimientos" }).click();
+  await dialog.getByRole("button", { name: "Cambiar cuenta", exact: true }).click();
+  await expect(page.getByRole("combobox", { name: "Cuenta Destino" })).toBeFocused();
+  await page.getByRole("button", { name: "Volver a la revisión", exact: true }).click();
   await expect(confirm).toBeDisabled();
   await page.getByRole("button", { name: "Revisar diferencias", exact: true }).click();
   await dialog.getByRole("checkbox").check();
@@ -146,9 +248,37 @@ test("contraseña, diferencias y duplicados mantienen sus controles de importaci
   await expect(page.getByRole("dialog", { name: "Cartola ya importada" })).toBeVisible();
   expect(accepted).toContain('["BANK_MISMATCH"]');
   await page.getByRole("button", { name: "Cerrar", exact: true }).click();
+  await page.getByRole("region", { name: "Preparación de la cartola" }).getByRole("button", { name: "Cambiar", exact: true }).click();
   await page.getByRole("combobox", { name: "Cuenta Destino" }).selectOption("2");
   await expect(page.getByRole("table", { name: "Movimientos por importar" })).toHaveCount(0);
   await expect(confirm).toHaveCount(0);
+});
+
+test("cambiar contraseña o archivo exige analizar de nuevo antes de importar", async ({ page }) => {
+  await prepare(page);
+  let analyses = 0;
+  await page.route("**/statement-imports/pdf/preview", route => {
+    analyses += 1;
+    return route.fulfill({ json: preview });
+  });
+  await page.locator('input[type="file"]').setInputFiles(pdf);
+  const analyze = page.getByRole("button", { name: "Analizar Documento", exact: true });
+  const preparation = page.getByRole("region", { name: "Preparación de la cartola" });
+  await analyze.click();
+  await expect(preparation).toContainText("Sin contraseña");
+  for (const field of ["password", "file"]) {
+    await preparation.getByRole("button", { name: "Cambiar", exact: true }).click();
+    if (field === "password") await page.getByLabel("Contraseña del documento", { exact: true }).fill("clave-nueva");
+    else await page.locator('input[type="file"]').setInputFiles({ ...pdf, name: "otra_cartola.pdf" });
+    await expect(page.getByRole("table", { name: "Movimientos por importar" })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Confirmar importación", exact: true })).toHaveCount(0);
+    await expect(analyze).toBeEnabled();
+    await analyze.click();
+    await expect(preparation).toBeVisible();
+  }
+  await expect(preparation).toContainText("otra_cartola.pdf");
+  await expect(preparation).toContainText("Ingresada");
+  expect(analyses).toBe(3);
 });
 
 test("rechaza archivos inválidos, permite volver a elegir el mismo PDF y no importa una vista vacía", async ({ page }) => {

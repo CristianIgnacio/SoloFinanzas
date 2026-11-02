@@ -24,14 +24,8 @@ const navItems = [
   { to: "/app/transactions", label: "Movimientos", icon: ReportIcon },
   { to: "/app/analytics", label: "Análisis", icon: TrendLineIcon },
   { to: "/app/accounts", label: "Cuentas", icon: BankIcon },
+  { to: "/app/categories", label: "Categorías", icon: CategoriesIcon },
 ];
-
-const organizationItem = {
-  to: "/app/categories",
-  label: "Categorías",
-  icon: CategoriesIcon,
-};
-const OrganizationIcon = organizationItem.icon;
 
 export function RootLayout() {
   const location = useLocation();
@@ -62,31 +56,12 @@ export function RootLayout() {
     window.scrollTo(0, 0);
   }, [location.pathname]);
 
-  const currentSection =
-    location.pathname.startsWith("/app/import")
-      ? "Importar cartola"
-      : location.pathname.startsWith("/app/categories")
-        ? "Organización · Categorías"
-        : location.pathname.startsWith("/app/profile")
-          ? "Perfil"
-          : navItems.find((item) =>
-              item.to === "/app"
-                ? location.pathname === "/app"
-                : location.pathname.startsWith(item.to),
-            )?.label ?? "SoloFinanzas";
-
-  const navLinkClass = (isActive: boolean, compact = false) =>
+  const navLinkClass = (isActive: boolean) =>
     cn(
-      compact
-        ? "inline-flex shrink-0 items-center gap-2 rounded-full border px-4 py-2 text-sm font-medium transition"
-        : "group relative flex items-center gap-3 rounded-2xl px-3.5 py-3.5 text-[1.05rem] font-medium transition",
+      "group relative flex items-center gap-3 rounded-2xl px-3.5 py-3.5 text-[1.05rem] font-medium transition",
       isActive
-        ? compact
-          ? "border-primary bg-primary text-white"
-          : "bg-primary/10 text-primary"
-        : compact
-          ? "border-outline bg-white text-ink"
-          : "text-ink/75 hover:border-outline/70 hover:bg-white hover:text-ink",
+        ? "bg-primary/10 text-primary"
+        : "text-ink/75 hover:border-outline/70 hover:bg-white hover:text-ink",
     );
 
   useEffect(() => {
@@ -137,7 +112,7 @@ export function RootLayout() {
 
   return (
     <div className="min-h-screen bg-paper text-ink lg:grid lg:grid-cols-[17.5rem_minmax(0,1fr)]">
-      <aside className="hidden border-r border-outline/70 bg-paper/90 lg:sticky lg:top-0 lg:flex lg:h-screen lg:self-start lg:flex-col lg:justify-between lg:px-5 lg:py-7">
+      <aside className="hidden border-r border-outline/70 bg-paper/90 lg:sticky lg:top-0 lg:flex lg:h-dvh lg:self-start lg:flex-col lg:justify-between lg:gap-6 lg:overflow-y-auto lg:px-5 lg:py-7">
         <div className="space-y-9">
           <div className="flex items-center gap-3">
             <span className="text-primary"><LogoMark className="h-12 w-12" /></span>
@@ -159,17 +134,6 @@ export function RootLayout() {
             ))}
           </nav>
 
-          <div className="space-y-3">
-            <p className="px-3 text-xs font-semibold uppercase tracking-[0.12em] text-muted">Organización</p>
-            <NavLink to={organizationItem.to} className={({ isActive }) => navLinkClass(isActive)}>
-              {({ isActive }) => <>
-                <OrganizationIcon className="h-6 w-6 shrink-0" />
-                <span>{organizationItem.label}</span>
-                {isActive ? <span className="absolute bottom-3 right-0 top-3 w-1 rounded-full bg-primary" /> : null}
-              </>}
-            </NavLink>
-          </div>
-
           <Link to="/app/import" className="flex items-center justify-center gap-2 rounded-2xl bg-primary px-4 py-3.5 font-semibold text-white transition hover:bg-primary/90">
             <PdfIcon className="h-5 w-5" />
             Importar cartola
@@ -178,47 +142,35 @@ export function RootLayout() {
 
         <div className="space-y-6">
           <div className="subtle-divider" />
-          <div className="flex items-center gap-4">
+          <Link to="/app/profile" aria-label="Mi perfil" className="flex min-h-11 items-center gap-4 rounded-xl">
             <div className="flex h-11 w-11 items-center justify-center rounded-full bg-primary text-sm font-semibold text-white">
               {String(name).slice(0, 2).toUpperCase()}
             </div>
             <div className="min-w-0">
-              <Link to="/app/profile" className="block truncate font-medium">{name}</Link>
+              <span className="block truncate font-medium">{name}</span>
               <p className="text-sm text-muted">Perfil y sesión</p>
             </div>
-          </div>
+          </Link>
+          <button type="button" onClick={() => void supabase?.auth.signOut({ scope: "local" })}
+            className="flex min-h-11 w-full items-center gap-3 rounded-xl px-3 text-sm font-medium text-muted hover:bg-white hover:text-ink">
+            <SignOutIcon className="h-5 w-5" /> Cerrar sesión
+          </button>
         </div>
       </aside>
 
       <div className="flex min-h-screen min-w-0 flex-col">
-        <header ref={headerRef} className="subtle-divider sticky top-0 z-20 bg-paper/90 backdrop-blur-sm">
-          <div className="mx-auto flex max-w-[1280px] items-center justify-between gap-4 px-4 py-4 sm:px-6 lg:px-10 xl:px-12">
-            <div className="flex items-center gap-4">
-              <span className="text-primary lg:hidden"><LogoMark className="h-11 w-11" /></span>
-              <div className="space-y-1">
-                <p className="text-3xl font-semibold tracking-[-0.04em] text-primary lg:hidden">SoloFinanzas</p>
-                <p className="text-lg font-medium text-primary">{currentSection}</p>
-              </div>
-            </div>
-            <div className="flex items-center gap-3 text-ink">
-              <button onClick={() => void supabase?.auth.signOut({ scope: "local" })} className="hidden rounded-full px-3 py-2 text-sm lg:inline-flex">Salir</button>
-              <Link
-                aria-label="Mi perfil"
-                to="/app/profile"
-                className="hidden h-10 w-10 shrink-0 items-center justify-center rounded-full border border-primary/20 bg-white text-primary transition hover:border-primary/40 hover:bg-primary-mist focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary lg:inline-flex"
-              >
-                <UserCircleIcon className="h-6 w-6" />
-              </Link>
-            </div>
-          </div>
-
+        <header ref={headerRef} className="subtle-divider sticky top-0 z-20 bg-paper/90 backdrop-blur-sm lg:hidden">
+          <Link to="/app" aria-label="SoloFinanzas · Inicio" className="mx-4 flex min-h-14 w-fit items-center gap-2 rounded-lg text-primary sm:mx-6">
+            <LogoMark className="h-8 w-8" />
+            <span className="text-xl font-semibold tracking-tight">SoloFinanzas</span>
+          </Link>
         </header>
 
-        <main className="min-w-0 flex-1 px-4 py-6 pb-28 sm:px-6 lg:px-10 lg:py-10 xl:px-12">
+        <main className="min-w-0 flex-1 px-4 py-6 sm:px-6 lg:px-10 lg:py-10 xl:px-12">
           <div className="mx-auto max-w-[1280px]"><Outlet /></div>
         </main>
 
-        <footer className="subtle-divider mt-auto bg-white/70">
+        <footer className="subtle-divider mt-auto bg-white/70 pb-[calc(4rem+env(safe-area-inset-bottom))] lg:pb-0">
           <div className="mx-auto flex max-w-[1280px] flex-col gap-3 px-4 py-4 text-sm text-muted sm:px-6 md:flex-row md:items-center md:justify-between lg:px-10 xl:px-12">
             <p className="m-0">SoloFinanzas · Beta · Tu espacio privado</p>
             <div className="flex gap-6"><Link to="/privacy">Privacidad</Link><Link to="/help">Ayuda</Link></div>
@@ -228,7 +180,7 @@ export function RootLayout() {
 
       <nav aria-label="Navegación móvil" className="fixed inset-x-0 bottom-0 z-40 border-t border-outline/80 bg-white/95 pb-[env(safe-area-inset-bottom)] shadow-[0_-8px_24px_rgba(21,35,33,0.08)] backdrop-blur lg:hidden">
         <div className="mx-auto grid min-h-16 max-w-[1280px] grid-cols-5 items-stretch px-1">
-          {navItems.filter(item => item.to !== "/app/accounts").map(({ to, label, icon: Icon }, index) => (
+          {navItems.filter(item => item.to !== "/app/accounts" && item.to !== "/app/categories").map(({ to, label, icon: Icon }, index) => (
             <Fragment key={to}>
               {index === 2 ? (
                 <button ref={addButtonRef} type="button" aria-haspopup="dialog" aria-expanded={mobileMenu === "add"} aria-controls="mobile-menu" onClick={() => setMobileMenu("add")}
@@ -302,11 +254,11 @@ export function RootLayout() {
               <div className="space-y-3">
                 <Link to="/app/import" onClick={() => setMobileMenu(null)} className="flex items-center gap-4 rounded-2xl border border-primary/20 bg-primary-mist p-4 transition hover:border-primary/40">
                   <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-primary text-white"><PdfIcon className="h-5 w-5" /></span>
-                  <span className="min-w-0"><span className="block font-semibold text-primary">Agregar cartola</span><span className="mt-1 block text-sm text-muted">Importa los movimientos de tu cuenta.</span></span>
+                  <span className="min-w-0"><span className="block font-semibold text-primary">Importar cartola</span><span className="mt-1 block text-sm text-muted">Importa los movimientos de tu cuenta.</span></span>
                 </Link>
                 <Link to="/app/transactions?new_movement=1" onClick={() => setMobileMenu(null)} className="flex items-center gap-4 rounded-2xl border border-outline p-4 transition hover:bg-paper-soft">
                   <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-paper-soft text-primary"><WalletIcon className="h-5 w-5" /></span>
-                  <span className="min-w-0"><span className="block font-semibold">Agregar movimiento</span><span className="mt-1 block text-sm text-muted">Registra un ingreso o gasto en efectivo.</span></span>
+                  <span className="min-w-0"><span className="block font-semibold">Registrar movimiento</span><span className="mt-1 block text-sm text-muted">Registra un ingreso o gasto en efectivo.</span></span>
                 </Link>
               </div>
             ) : (
@@ -316,14 +268,14 @@ export function RootLayout() {
                 isActive ? "bg-primary-mist text-primary" : "text-ink hover:bg-paper-soft",
               )}><BankIcon className="h-5 w-5" /> Cuentas</NavLink>
               <NavLink
-                to={organizationItem.to}
+                to="/app/categories"
                 onClick={() => setMobileMenu(null)}
                 className={({ isActive }) => cn(
                   "flex min-h-12 items-center gap-3 rounded-xl px-3 font-medium",
                   isActive ? "bg-primary-mist text-primary" : "text-ink hover:bg-paper-soft",
                 )}
               >
-                <OrganizationIcon className="h-5 w-5" /> Categorías
+                <CategoriesIcon className="h-5 w-5" /> Categorías
               </NavLink>
               <NavLink
                 to="/app/profile"
@@ -340,7 +292,7 @@ export function RootLayout() {
                 onClick={() => void supabase?.auth.signOut({ scope: "local" })}
                 className="flex min-h-12 w-full items-center gap-3 rounded-xl px-3 font-medium text-ink hover:bg-paper-soft"
               >
-                <SignOutIcon className="h-5 w-5" /> Salir
+                <SignOutIcon className="h-5 w-5" /> Cerrar sesión
               </button>
             </div>
             )}

@@ -1,10 +1,8 @@
-import { useEffect } from "react";
-
 import { useFormatCurrency } from "../hooks";
 import type { Statement, StatementDeletionImpact } from "../types";
-import { LoadingState } from "./LoadingState";
+import { ModalDialog } from "./ModalDialog";
 import { TrashIcon } from "./icons";
-import { Button, StatusNotice, cn } from "./ui";
+import { Button, StatusNotice } from "./ui";
 
 type DeleteStatementModalProps = {
   statement: Statement;
@@ -20,164 +18,52 @@ function formatPeriod(period: string | null) {
   if (!period) return "Sin periodo";
   const [year, month] = period.split("-");
   return new Date(Number(year), Number(month) - 1, 1).toLocaleDateString("es-CL", {
-    month: "long",
-    year: "numeric",
+    month: "long", year: "numeric",
   });
 }
 
-export function DeleteStatementModal({
-  statement,
-  impact,
-  loadingImpact,
-  deleting,
-  error,
-  onCancel,
-  onConfirm,
-}: DeleteStatementModalProps) {
+export function DeleteStatementModal({ statement, impact, loadingImpact, deleting, error, onCancel, onConfirm }: DeleteStatementModalProps) {
   const formatCurrency = useFormatCurrency();
-  const busy = loadingImpact || deleting;
-
-  useEffect(() => {
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape" && !busy) onCancel();
-    };
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [busy, onCancel]);
-
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-ink/30 px-4 py-8 backdrop-blur-sm"
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget && !busy) onCancel();
-      }}
-    >
-      <div
-        aria-labelledby="delete-statement-title"
-        aria-modal="true"
-        className="surface-card max-h-[calc(100vh-2rem)] w-full max-w-3xl overflow-y-auto p-6 md:p-8"
-        role="dialog"
-      >
-        <div className="flex items-start gap-4">
-          <span className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-danger-soft text-danger">
-            <TrashIcon className="h-6 w-6" />
-          </span>
-          <div className="space-y-3">
-            <p className="eyebrow m-0 text-danger">Deshacer importacion</p>
-            <h2
-              className="dialog-title"
-              id="delete-statement-title"
-            >
-              Confirmar eliminacion
-            </h2>
-            <p className="text-muted">
-              Se eliminaran la cartola y los movimientos creados durante esta importacion.
-              Los saldos, graficos y transferencias internas se recalcularan.
-            </p>
-          </div>
+    <ModalDialog labelledBy="delete-statement-title" busy={deleting} onClose={onCancel}
+      initialFocus="[data-modal-cancel]" className="max-w-xl p-4 sm:p-6">
+      <p className="eyebrow m-0 text-danger">Cartola importada</p>
+      <h2 id="delete-statement-title" className="mt-2 dialog-title">Deshacer importación</h2>
+      <p className="mt-3 break-words font-semibold text-ink">{statement.file_name}</p>
+      <p className="mt-1 text-sm capitalize text-muted">{formatPeriod(statement.period_month)}</p>
+      <p className="mt-3 text-sm text-muted">Se eliminarán esta cartola y sus movimientos. Los saldos y gráficos se recalcularán.</p>
+
+      {loadingImpact ? <p role="status" className="mt-5 text-sm text-muted">Calculando el impacto…</p> : null}
+      {error ? <StatusNotice className="mt-4" tone="error">{error}</StatusNotice> : null}
+      {!loadingImpact && impact ? <div className="mt-5 space-y-4">
+        <dl className="grid grid-cols-2 gap-3 rounded-2xl border border-outline bg-paper-soft p-4">
+          <div><dt className="text-sm text-muted">Movimientos</dt><dd className="mt-1 text-xl font-semibold">{impact.transaction_count}</dd></div>
+          <div><dt className="text-sm text-muted">Balance asociado</dt><dd className="mt-1 break-words text-xl font-semibold">{formatCurrency(impact.net_total_clp)}</dd></div>
+        </dl>
+        <div className="space-y-2 rounded-xl bg-danger-soft/60 p-3 text-sm text-danger">
+          <p>Esta acción es definitiva. Se perderán las categorías asignadas a estos movimientos.</p>
+          {impact.cash_counterpart_count > 0 ? <p>Además, se eliminarán {impact.cash_counterpart_count} {impact.cash_counterpart_count === 1 ? "movimiento vinculado" : "movimientos vinculados"} de Efectivo.</p> : null}
+          {impact.raw_file_delete_eligible ? <p>El PDF original también se eliminará.</p> : null}
         </div>
-
-        <div className="mt-6 rounded-[1.75rem] border border-outline/80 bg-paper-soft/80 p-5">
-          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted">
-            Cartola seleccionada
-          </p>
-          <p className="mt-2 break-words text-2xl font-medium tracking-[-0.03em] text-ink">
-            {statement.file_name}
-          </p>
-          <p className="mt-1 capitalize text-muted">{formatPeriod(statement.period_month)}</p>
-        </div>
-
-        {loadingImpact ? (
-          <div className="mt-6">
-            <LoadingState message="Calculando el impacto de la eliminacion..." />
-          </div>
-        ) : null}
-
-        {error ? (
-          <StatusNotice className="mt-6" tone="error">
-            {error}
-          </StatusNotice>
-        ) : null}
-
-        {!loadingImpact && impact ? (
-          <div className="mt-6 space-y-5">
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-              <ImpactValue label="Movimientos" value={String(impact.transaction_count)} />
-              <ImpactValue
-                label="Ingresos"
-                value={formatCurrency(impact.income_total_clp)}
-                valueClassName="text-primary"
-              />
-              <ImpactValue
-                label="Gastos"
-                value={formatCurrency(impact.expense_total_clp)}
-                valueClassName="text-danger"
-              />
-              <ImpactValue
-                label="Impacto neto"
-                value={formatCurrency(impact.net_total_clp)}
-                valueClassName={impact.net_total_clp >= 0 ? "text-primary" : "text-danger"}
-              />
-              <ImpactValue
-                label="Transferencias afectadas"
-                value={String(impact.internal_transfer_match_count)}
-              />
-              {impact.cash_counterpart_count > 0 ? (
-                <ImpactValue label="Movimientos vinculados de Efectivo" value={String(impact.cash_counterpart_count)} />
-              ) : null}
-              <ImpactValue
-                label="Meses afectados"
-                value={impact.affected_periods.length > 0 ? impact.affected_periods.join(", ") : "Ninguno"}
-              />
-            </div>
-
-            <StatusNotice tone={impact.raw_file_delete_eligible ? "error" : "info"}>
-              {impact.raw_file_delete_eligible
-                ? "El PDF original tambien sera eliminado del almacenamiento."
-                : "El PDF original no sera eliminado automaticamente."}
-            </StatusNotice>
-            {impact.cash_counterpart_count > 0 ? (
-              <StatusNotice tone="error">
-                También se eliminarán {impact.cash_counterpart_count} {impact.cash_counterpart_count === 1 ? "contraparte" : "contrapartes"} de Efectivo vinculadas a esta cartola. Los movimientos manuales independientes se conservarán.
-              </StatusNotice>
-            ) : null}
-
-            <p className="rounded-2xl border border-danger/20 bg-danger-soft/50 px-4 py-3 text-sm leading-6 text-danger">
-              Esta accion no se puede deshacer y las categorizaciones manuales de estos
-              movimientos se perderan.
-            </p>
-          </div>
-        ) : null}
-
-        <div className="mt-8 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
-          <Button tone="secondary" onClick={onCancel} disabled={busy}>
-            Cancelar
-          </Button>
-          <Button
-            className="border-danger bg-danger text-white hover:bg-[#9d4337]"
-            onClick={onConfirm}
-            disabled={busy || impact === null || error !== null}
-          >
-            <TrashIcon className="h-5 w-5" />
-            {deleting ? "Eliminando..." : "Deshacer importacion"}
-          </Button>
-        </div>
+        <details className="rounded-xl border border-outline">
+          <summary className="cursor-pointer rounded-xl px-4 py-3 text-sm font-semibold text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary">Ver detalle del impacto</summary>
+          <dl className="space-y-3 border-t border-outline px-4 py-3 text-sm">
+            <div className="flex justify-between gap-3"><dt className="text-muted">Ingresos</dt><dd className="font-medium">{formatCurrency(impact.income_total_clp)}</dd></div>
+            <div className="flex justify-between gap-3"><dt className="text-muted">Gastos</dt><dd className="font-medium">{formatCurrency(impact.expense_total_clp)}</dd></div>
+            <div className="flex justify-between gap-3"><dt className="text-muted">Transferencias afectadas</dt><dd className="font-medium">{impact.internal_transfer_match_count}</dd></div>
+            <div className="flex justify-between gap-3"><dt className="shrink-0 text-muted">Meses afectados</dt><dd className="text-right capitalize">{impact.affected_periods.length ? impact.affected_periods.map(formatPeriod).join(", ") : "Ninguno"}</dd></div>
+          </dl>
+          {impact.cash_counterpart_count > 0 ? <p className="px-4 pb-3 text-sm text-muted">Los movimientos manuales independientes de Efectivo se conservarán.</p> : null}
+          {!impact.raw_file_delete_eligible ? <p className="px-4 pb-3 text-sm text-muted">El PDF original no se eliminará automáticamente.</p> : null}
+        </details>
+      </div> : null}
+      <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+        <Button data-modal-cancel tone="secondary" onClick={onCancel} disabled={deleting}>Cancelar</Button>
+        <Button className="!border-danger !bg-danger text-white hover:!bg-danger/90" onClick={onConfirm}
+          disabled={loadingImpact || deleting || impact === null || error !== null}>
+          <TrashIcon className="h-5 w-5" />{deleting ? "Eliminando..." : "Deshacer importación"}
+        </Button>
       </div>
-    </div>
-  );
-}
-
-type ImpactValueProps = {
-  label: string;
-  value: string;
-  valueClassName?: string;
-};
-
-function ImpactValue({ label, value, valueClassName }: ImpactValueProps) {
-  return (
-    <div className="rounded-2xl border border-outline/70 bg-white px-4 py-4">
-      <p className="text-xs font-semibold uppercase tracking-[0.14em] text-muted">{label}</p>
-      <p className={cn("mt-2 text-xl font-semibold text-ink", valueClassName)}>{value}</p>
-    </div>
+    </ModalDialog>
   );
 }

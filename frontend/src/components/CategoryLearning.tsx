@@ -4,8 +4,8 @@ import { CategoryService, type CategoryPattern } from "../services/categoryServi
 import type { Category } from "../types";
 import { CategoryProposalDetails } from "./CategoryProposalDetails";
 
-export function CategoryLearning({ categories, onRuleCreated, categoryId }: {
-  categories: Category[]; onRuleCreated: () => void; categoryId?: number | null;
+export function CategoryLearning({ categories, onRuleCreated, categoryId, embedded = false }: {
+  categories: Category[]; onRuleCreated: () => void; categoryId?: number | null; embedded?: boolean;
 }) {
   const [patterns, setPatterns] = useState<CategoryPattern[]>([]);
   const [loading, setLoading] = useState(true);
@@ -40,8 +40,8 @@ export function CategoryLearning({ categories, onRuleCreated, categoryId }: {
   const visiblePatterns = categoryId == null ? patterns : patterns.filter(item => item.category_id === categoryId);
   const pending = visiblePatterns.filter(item => item.state === "pending");
   const dismissed = visiblePatterns.filter(item => item.state === "rejected" || item.state === "snoozed");
-  return <Panel className="space-y-4 scroll-mt-24 !p-4 sm:!p-6 md:!p-8" id="personalizacion">
-    <h2 className="text-xl font-medium">Propuestas de reglas</h2>
+  return <Panel className={embedded ? "space-y-4 !rounded-none !border-0 !p-4 !shadow-none" : "space-y-4 scroll-mt-24 !p-4 sm:!p-6 md:!p-8"} id="personalizacion">
+    <h2 className={embedded ? "sr-only" : "text-xl font-medium"}>Propuestas de reglas</h2>
     <p className="text-sm text-muted">Te avisaremos cuando podamos sugerirte una regla. Tú decides si crearla.</p>
     {error ? <p role="alert" className="text-sm text-danger">{error} <button className="underline" onClick={() => void load().then(() => setError(null)).catch(() => {})}>Reintentar</button></p> : null}
     {notice ? <p role="status" className="text-sm text-primary">{notice}</p> : null}
