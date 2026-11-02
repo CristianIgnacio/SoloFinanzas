@@ -2,6 +2,7 @@ import { expect, test, type Locator, type Page } from "@playwright/test";
 const ownerA = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 
 test("modal de filtros aplica la selección múltiple y cancela cambios pendientes", async ({ page }, info) => {
+  if (info.project.name === "mobile") await page.setViewportSize({ width: 320, height: 640 });
   await setupAnalysis(page);
   await page.getByRole("tab", { name: "Movimientos", exact: true }).click();
   const filters = page.getByRole("dialog", { name: "Filtros del análisis", exact: true });
@@ -49,6 +50,56 @@ test("modal de filtros aplica la selección múltiple y cancela cambios pendient
   await expect(filters).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Filtros", exact: true })).toBeFocused();
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(page.viewportSize()!.width);
+});
+
+test("los errores iniciales permiten reintentar sin presentar importes vacíos", async ({ page }) => {
+  await setupAnalysis(page);
+  for (const endpoint of ["**/api/v1/reports/periods", "**/api/v1/transactions?*"]) {
+    const failure = async (route: import("@playwright/test").Route) => route.fulfill({ status: 503, json: { detail: "Servicio temporalmente no disponible" } });
+    await page.route(endpoint, failure);
+    await page.reload();
+    await expect(page.getByRole("alert")).toContainText("Servicio temporalmente no disponible");
+    await expect(page.getByRole("heading", { name: "Análisis", exact: true })).toBeVisible();
+    await expect(page.getByRole("tabpanel")).toHaveCount(0);
+    await page.unroute(endpoint, failure);
+    await page.getByRole("button", { name: "Reintentar", exact: true }).click();
+    await expect(page.getByRole("alert")).toHaveCount(0);
+    await expect(page.getByRole("tabpanel")).toContainText("3 movimientos");
+  }
+});
+
+test("un error al cambiar de mes conserva datos y búsqueda y permite recuperar la carga", async ({ page }, info) => {
+  await setupAnalysis(page);
+  await page.getByRole("tab", { name: "Movimientos", exact: true }).click();
+  await expect(page.getByRole("cell", { name: "Compra semanal", exact: true })).toBeVisible();
+  await page.getByRole("searchbox").fill("Compra");
+  let failing = true;
+  await page.route("**/api/v1/transactions?*", route => failing
+    ? route.fulfill({ status: 503, json: { detail: "No se pudo conectar" } })
+    : route.fulfill({ json: [{ id: 9, account_id: 1, category_id: 2, date: "2026-09-08", description: "Compra de septiembre", amount_clp: -4500, transaction_type: "expense", origin: "pdf" }] }));
+  await page.getByRole("button", { name: "Filtros", exact: true }).click();
+  const filters = page.getByRole("dialog", { name: "Filtros del análisis", exact: true });
+  await filters.getByRole("button", { name: "Períodos", exact: true }).click();
+  await filters.getByRole("checkbox", { name: "octubre de 2026", exact: true }).uncheck();
+  await filters.getByRole("checkbox", { name: "septiembre de 2026", exact: true }).check();
+  await filters.getByRole("button", { name: "Aplicar filtros", exact: true }).click();
+  await expect(page.getByRole("alert")).toContainText("No se pudieron cargar los meses seleccionados");
+  await expect(page.getByRole("status")).toContainText("Sigues viendo los datos de octubre de 2026");
+  await expect(page.getByRole("searchbox")).toHaveValue("Compra");
+  await expect(page.getByRole("cell", { name: "Compra semanal", exact: true })).toBeVisible();
+  await page.screenshot({ path: info.outputPath("analysis-load-error.png"), fullPage: true });
+  failing = false;
+  await page.getByRole("button", { name: "Reintentar", exact: true }).click();
+  await expect(page.getByRole("alert")).toHaveCount(0);
+  await expect(page.getByText(/Sigues viendo los datos/)).toHaveCount(0);
+  await expect(page.getByRole("cell", { name: "Compra de septiembre", exact: true })).toBeVisible();
+  await expect(page.getByRole("cell", { name: "Compra semanal", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("searchbox")).toHaveValue("Compra");
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(page.viewportSize()!.width);
+  await page.getByRole("button", { name: "Quitar filtro Periodo: septiembre de 2026", exact: true }).click();
+  await expect(page.getByRole("tabpanel")).toContainText("0 movimientos");
+  await expect(page.getByRole("cell", { name: "Compra de septiembre", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("alert")).toHaveCount(0);
 });
 
 test("Resumen y Movimientos conservan filtros, búsqueda y omisiones", async ({ page }, info) => {
@@ -277,6 +328,9 @@ test("la evolución agrupa por semana y los nuevos gráficos se pueden personali
   await expect(panel).toContainText("1–4 oct");
   await expect(panel).toContainText("15.000");
   await page.screenshot({ path: info.outputPath("weekly-evolution.png") });
+  await evolution.getByRole("button", { name: "Líneas", exact: true }).click();
+  await waitForChartToSettle(canvas);
+  await evolution.screenshot({ path: info.outputPath("weekly-evolution-smooth.png") });
 
   await page.getByRole("button", { name: "Personalizar", exact: true }).click();
   const customize = page.getByRole("dialog", { name: "Personalizar gráficos", exact: true });

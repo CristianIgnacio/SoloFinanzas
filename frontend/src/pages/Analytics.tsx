@@ -16,7 +16,6 @@ import {
   ChevronRightIcon,
   EChart,
   EmptyState,
-  ErrorState,
   EyeIcon,
   EyeOffIcon,
   FilterIcon,
@@ -316,7 +315,12 @@ export function AnalyticsPage() {
   const [showStickyBulkActions, setShowStickyBulkActions] = useState(false);
   const transactionTableRef = useRef<HTMLDivElement>(null);
   const bulkActionsRef = useRef<HTMLDivElement>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<{ message: string; scope: "initial" | "periods" } | null>(null);
+  const [initialAttempt, setInitialAttempt] = useState(0);
+  const [periodAttempt, setPeriodAttempt] = useState(0);
+  const [loadedPeriods, setLoadedPeriods] = useState<Set<string> | null>(null);
+  // Keep chart labels and date filtering aligned with the last successful response.
+  const displayedPeriods = loadedPeriods ?? selectedPeriods;
 
   useEffect(() => {
     const navigation = navigationRef.current;
@@ -332,6 +336,8 @@ export function AnalyticsPage() {
     let cancelled = false;
 
     async function loadAnalyticsData() {
+      setLoading(true);
+      setError(null);
       try {
         const [accountData, cashData, categoryData, periods] = await Promise.all([
           AccountService.getAccounts(),
@@ -349,7 +355,7 @@ export function AnalyticsPage() {
         setSelectedPeriods(new Set(sortedPeriods.slice(0, 1)));
       } catch (err) {
         if (!cancelled) {
-          setError(err instanceof Error ? err.message : "No fue posible cargar el an\u00e1lisis.");
+          setError({ message: err instanceof Error ? err.message : "No fue posible cargar el análisis.", scope: "initial" });
         }
       } finally {
         if (!cancelled) setLoading(false);
@@ -360,11 +366,21 @@ export function AnalyticsPage() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [initialAttempt]);
 
   useEffect(() => {
+    if (loading) return;
+    // Removing the last period chip must clear the view without fetching all history.
+    if (selectedPeriods.size === 0) {
+      setTransactions([]);
+      setLoadedPeriods(null);
+      setLoadingPeriods(false);
+      setError(current => current?.scope === "periods" ? null : current);
+      return;
+    }
     let cancelled = false;
-    setLoadingPeriods(true); setTransactions([]);
+    setLoadingPeriods(true);
+    setError(null);
     // An empty period selection means no data, never an implicit full-history fetch.
     void (async () => {
       const data: Transaction[] = [];
@@ -372,11 +388,16 @@ export function AnalyticsPage() {
         if (cancelled) return;
         data.push(...await loadPeriodTransactions(period));
       }
-      if (!cancelled) setTransactions(data);
-    })().catch(err => { if (!cancelled) setError(err.message); })
+      if (!cancelled) {
+        setTransactions(data);
+        setLoadedPeriods(selectedPeriods);
+      }
+    })().catch(err => {
+      if (!cancelled) setError({ message: err instanceof Error ? err.message : "No fue posible cargar los movimientos.", scope: "periods" });
+    })
       .finally(() => { if (!cancelled) setLoadingPeriods(false); });
     return () => { cancelled = true; };
-  }, [selectedPeriods]);
+  }, [selectedPeriods, periodAttempt, loading]);
 
   useEffect(() => {
     window.localStorage.setItem(
@@ -531,7 +552,7 @@ export function AnalyticsPage() {
           : UNCATEGORIZED_KEY;
         const scope = transaction.is_internal_transfer || transaction.origin === "cash_transfer" ? "internal" : "regular";
         return (
-          (selectedPeriods.size === 0 || selectedPeriods.has(period)) &&
+          (displayedPeriods.size === 0 || displayedPeriods.has(period)) &&
           (selectedAccountIds.size === 0 ||
             selectedAccountIds.has(String(transaction.account_id))) &&
           (selectedCategoryKeys.size === 0 ||
@@ -564,7 +585,7 @@ export function AnalyticsPage() {
       categoryMap,
       chartDrilldown,
       selectedCategoryKeys,
-      selectedPeriods,
+      displayedPeriods,
       selectedScopes,
       selectedTypes,
       transactions,
@@ -608,10 +629,10 @@ export function AnalyticsPage() {
     };
   }, [metricTransactions]);
 
-  const weeklyEvolution = selectedPeriods.size === 1;
+  const weeklyEvolution = displayedPeriods.size === 1;
   const evolutionData = useMemo(() => {
     const totals = new Map<string, { income: number; expenses: number }>();
-    [...selectedPeriods].sort().forEach((period) => {
+    [...displayedPeriods].sort().forEach((period) => {
       if (weeklyEvolution) {
         const [year, month] = period.split("-").map(Number);
         const days = new Date(year, month, 0).getDate();
@@ -633,7 +654,7 @@ export function AnalyticsPage() {
       totals.set(period, current);
     });
     return [...totals.entries()].sort(([left], [right]) => left.localeCompare(right));
-  }, [weeklyEvolution, metricTransactions, selectedPeriods]);
+  }, [weeklyEvolution, metricTransactions, displayedPeriods]);
 
   const evolutionLabels = useMemo(() => evolutionData.map(([period]) => weeklyEvolution
     ? formatWeekRange(period)
@@ -737,7 +758,8 @@ export function AnalyticsPage() {
             {
               name: "Ingresos",
               type: "line" as const,
-              smooth: false,
+              smooth: 0.3,
+              smoothMonotone: "x" as const,
               symbolSize: 8,
               data: income,
               lineStyle: { color: "#344b2e", width: 3 },
@@ -746,7 +768,8 @@ export function AnalyticsPage() {
             {
               name: "Gastos",
               type: "line" as const,
-              smooth: false,
+              smooth: 0.3,
+              smoothMonotone: "x" as const,
               symbolSize: 8,
               data: expenses,
               lineStyle: { color: "#d77b68", width: 3 },
@@ -1161,7 +1184,6 @@ export function AnalyticsPage() {
   };
 
   if (loading) return <LoadingState message={"Preparando tu espacio de an\u00e1lisis..."} />;
-  if (error) return <ErrorState message={error} />;
 
   return (
     <div className="analytics-view space-y-6 sm:space-y-8">
@@ -1218,7 +1240,14 @@ export function AnalyticsPage() {
             </div>
           )}
 
-        {loadingPeriods && <LoadingState message="Cargando los meses seleccionados…" />}
+        {error && <div role="alert" className="flex flex-col gap-3 rounded-2xl border border-danger/20 bg-danger/5 px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="min-w-0"><p className="font-semibold text-ink">{error.scope === "initial" ? "No se pudo preparar el análisis" : "No se pudieron cargar los meses seleccionados"}</p><p className="mt-1 break-words text-sm text-muted">{error.message}</p></div>
+          <Button tone="secondary" compactOnMobile className="shrink-0" onClick={() => error.scope === "initial" ? setInitialAttempt(value => value + 1) : setPeriodAttempt(value => value + 1)}>Reintentar</Button>
+        </div>}
+        {loadingPeriods && <p role="status" className="text-sm text-muted">Cargando los meses seleccionados…</p>}
+        {loadedPeriods && (loadingPeriods || error?.scope === "periods") && <p role="status" className="rounded-xl bg-paper-soft px-4 py-3 text-sm text-muted">
+          Sigues viendo los datos de {[...loadedPeriods].sort().map(formatPeriodLabel).join(", ")} hasta que se complete la carga.
+        </p>}
         {customizeOpen && <AnalysisCustomizeDialog visibleWidgets={visibleWidgets} onToggle={toggleWidget} onClose={() => setCustomizeOpen(false)} />}
         {filtersOpen && <AnalysisFiltersDialog
           initial={{ periods: selectedPeriods, accounts: selectedAccountIds, categories: selectedCategoryKeys, types: selectedTypes, scopes: selectedScopes }}
@@ -1235,7 +1264,7 @@ export function AnalyticsPage() {
           }}
         />}
 
-        <div id="analysis-view-panel" role="tabpanel" aria-labelledby={`analysis-tab-${analysisView}`} tabIndex={0} className="min-w-0 space-y-6">
+        {(loadedPeriods !== null || (!loadingPeriods && !error && selectedPeriods.size === 0)) && <div id="analysis-view-panel" role="tabpanel" aria-labelledby={`analysis-tab-${analysisView}`} tabIndex={0} className="min-w-0 space-y-6">
           <p className="text-sm text-muted">
             {analyzedTransactions.length} {analyzedTransactions.length === 1 ? "movimiento" : "movimientos"}
           </p>
@@ -1246,9 +1275,9 @@ export function AnalyticsPage() {
                   </div>}
           {analysisView === "summary" && <>
             <section className="grid grid-cols-2 gap-2 xl:grid-cols-4 sm:gap-4" aria-label="Indicadores del análisis">
+              <CompactMetric prominent label="Balance" value={formatCurrency(summary.balance)} icon={<BalanceIcon className="h-5 w-5" />} tone={summary.balance >= 0 ? "income" : "expense"} />
               <CompactMetric prominent label="Ingresos" value={formatCurrency(summary.income)} icon={<MoneyIcon className="h-5 w-5" />} tone="income" />
               <CompactMetric prominent label="Gastos" value={formatCurrency(summary.expenses)} icon={<ReceiptIcon className="h-5 w-5" />} tone="expense" />
-              <CompactMetric prominent label="Balance" value={formatCurrency(summary.balance)} icon={<BalanceIcon className="h-5 w-5" />} tone={summary.balance >= 0 ? "income" : "expense"} />
               <CompactMetric prominent label="Gasto mensual promedio" value={formatCurrency(summary.averageExpenses)} icon={<CalendarIcon className="h-5 w-5" />} />
             </section>
           </>}
@@ -1444,6 +1473,11 @@ export function AnalyticsPage() {
                       </p>
                       <div className="mt-2 grid grid-cols-2 gap-2 lg:grid-cols-4">
                         <CompactMetric
+                          label="Balance"
+                          value={formatCurrency(summary.balance)}
+                          tone={summary.balance >= 0 ? "income" : "expense"}
+                        />
+                        <CompactMetric
                           label="Ingresos"
                           value={formatCurrency(summary.income)}
                           tone="income"
@@ -1452,11 +1486,6 @@ export function AnalyticsPage() {
                           label="Gastos"
                           value={formatCurrency(summary.expenses)}
                           tone="expense"
-                        />
-                        <CompactMetric
-                          label="Balance"
-                          value={formatCurrency(summary.balance)}
-                          tone={summary.balance >= 0 ? "income" : "expense"}
                         />
                         <CompactMetric
                           label="Promedio mensual"
@@ -1733,7 +1762,7 @@ export function AnalyticsPage() {
               ) : null}
             </>
           )}
-        </div>
+        </div>}
       </div>
     </div>
   );
