@@ -174,6 +174,7 @@ async def preview_pdf_statement(
             institution=account.institution,
             parser_key=parser_key,
             expected_last4=account.account_last4,
+            expected_account_type=account.account_type,
             password=password or None,
         )
         return preview.model_copy(
@@ -210,6 +211,7 @@ async def import_pdf_statement(
             institution=account.institution,
             parser_key=parser_key,
             expected_last4=account.account_last4,
+            expected_account_type=account.account_type,
             password=password or None,
         )
         _accept_pdf_issues(preview, accepted_issues)
@@ -254,6 +256,7 @@ async def import_reviewed_pdf_statement(
             institution=account.institution,
             parser_key=parser_key,
             expected_last4=account.account_last4,
+            expected_account_type=account.account_type,
             password=password or None,
         )
         _accept_pdf_issues(preview, accepted_issues)

@@ -4,6 +4,7 @@ import { PlusIcon } from "./icons";
 import { AccountVisualCard } from "./AccountVisualCard";
 import { Button } from "./ui";
 import { useAccountProducts } from "../hooks/useAccountProducts";
+import { getProductSelectionError } from "../lib/accountProductSelection";
 import {
   CurrencyCode,
   InstitutionCode,
@@ -59,7 +60,7 @@ export function AccountFormModal({
   const overlayRef = useRef<HTMLDivElement>(null);
   const panelRef = useRef<HTMLFormElement>(null);
   const errorRef = useRef<HTMLDivElement>(null);
-  const original = useRef({ accountType: form.account_type, institution: form.institution }).current;
+  const original = useRef({ ...form }).current;
   const { products, loading: loadingCatalog, error: catalogError } = useAccountProducts();
   const selectedProduct = products.find((product) => product.code === form.product_code);
   const selectedKind = selectedProduct?.kind ?? form.account_type;
@@ -69,11 +70,9 @@ export function AccountFormModal({
   );
   const legacyKind = selectedKind && !availableKinds.some((kind) => kind.value === selectedKind);
   const showLegacyType = isEditing && form.institution === original.institution
-    && original.accountType && !accountKinds.some((kind) => kind.value === original.accountType);
+    && original.account_type && !accountKinds.some((kind) => kind.value === original.account_type);
   const availableProducts = institutionProducts.filter((product) => product.kind === selectedKind);
-  const originalCredit = isEditing && ["credito", "tarjeta de credito", "tarjeta de crédito"].includes(original.accountType.toLowerCase());
-  const creditPreviewOnly = selectedKind === "credito" && !originalCredit
-    && (!selectedProduct || selectedProduct.pdf_support === "no_soportado");
+  const productError = getProductSelectionError(form, products, isEditing ? original : undefined);
   const selectorsDisabled = loadingCatalog || Boolean(catalogError);
 
   const changeInstitution = (institution: string) => {
@@ -150,7 +149,7 @@ export function AccountFormModal({
       <form ref={panelRef} tabIndex={-1} noValidate
         onSubmit={(event) => {
           event.preventDefault();
-          if (!saving && !selectorsDisabled && !creditPreviewOnly) onSubmit();
+          if (!saving && !selectorsDisabled && !productError) onSubmit();
         }}
         className="surface-card flex max-h-full w-full max-w-[820px] min-w-0 flex-col overflow-hidden outline-none"
       >
@@ -195,7 +194,7 @@ export function AccountFormModal({
                   <span className="flex items-center gap-2 text-sm font-semibold text-ink"><span className="grid h-5 w-5 place-items-center rounded-full bg-primary text-xs text-white">2</span> Tipo de cuenta</span>
                   <select value={selectedKind} onChange={(event) => changeKind(event.target.value)} disabled={selectorsDisabled} className={fieldClassName}>
                     <option value="">Selecciona un tipo de cuenta</option>
-                    {showLegacyType ? <option value={original.accountType}>Tipo anterior: {kindLabels[original.accountType] ?? original.accountType}</option> : null}
+                    {showLegacyType ? <option value={original.account_type}>Tipo anterior: {kindLabels[original.account_type] ?? original.account_type}</option> : null}
                     {availableKinds.map((kind) => <option key={kind.value} value={kind.value}>{kind.label}</option>)}
                   </select>
                 </label>
@@ -204,11 +203,15 @@ export function AccountFormModal({
                   <span className="flex items-center gap-2 text-sm font-semibold text-ink"><span className="grid h-5 w-5 place-items-center rounded-full bg-primary text-xs text-white">3</span> Producto</span>
                   <select value={form.product_code} onChange={(event) => changeProduct(event.target.value)} disabled={selectorsDisabled || !selectedKind || Boolean(legacyKind)} className={fieldClassName}>
                     <option value="">{isEditing ? "Sin producto asignado" : "Selecciona un producto"}</option>
-                    {availableProducts.map((product) => <option key={product.code} value={product.code}>{product.name}</option>)}
+                    {availableProducts.map((product) => <option key={product.code} value={product.code}
+                      disabled={Boolean(getProductSelectionError({ ...form, product_code: product.code }, products, isEditing ? original : undefined))}>
+                      {product.name}{product.pdf_support === "no_soportado" ? " — No soportado" : ""}
+                    </option>)}
                   </select>
                 </label>
             {loadingCatalog ? <p className="text-sm text-muted">Cargando productos...</p> : null}
             {catalogError ? <p className="text-sm text-danger">{catalogError}</p> : null}
+            {productError && !selectorsDisabled ? <p role="status" className="text-sm text-muted">{productError}</p> : null}
 
           </div>
 
@@ -243,7 +246,7 @@ export function AccountFormModal({
 
         <div className="flex shrink-0 justify-end gap-2 border-t border-outline/70 bg-white px-4 py-3 sm:px-5">
           <Button compactOnMobile className="!text-sm" tone="secondary" onClick={onClose} disabled={saving}>Cancelar</Button>
-          <Button compactOnMobile type="submit" className="min-w-0 flex-1 !text-sm sm:flex-none" disabled={saving || selectorsDisabled || creditPreviewOnly}>
+          <Button compactOnMobile type="submit" className="min-w-0 flex-1 !text-sm sm:flex-none" disabled={saving || selectorsDisabled || Boolean(productError)}>
             <PlusIcon className="h-4 w-4 shrink-0" />
             {saving ? (isEditing ? "Guardando..." : "Creando...") : (isEditing ? "Guardar cambios" : "Agregar cuenta")}
           </Button>

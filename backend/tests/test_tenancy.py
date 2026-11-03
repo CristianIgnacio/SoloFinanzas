@@ -126,8 +126,16 @@ class TenancyTests(unittest.TestCase):
         self.assertEqual(products['banco_estado_cuenta_rut']['pdf_support'], 'muestra_probada')
         self.assertNotIn('parser_key', products['banco_estado_cuenta_rut'])
         for code, kind in (
+            ('banco_de_chile_vista_general', 'vista'),
+            ('banco_de_chile_ahorro_general', 'ahorro'),
             ('banco_de_chile_corriente_tradicional', 'corriente'),
+            ('banco_santander_vista_general', 'vista'),
             ('banco_estado_cuenta_pro', 'vista'),
+            ('banco_estado_vista_general', 'vista'),
+            ('banco_estado_corriente_tradicional', 'corriente'),
+            ('banco_estado_ahorro_platino', 'ahorro'),
+            ('banco_estado_ahorro_general', 'ahorro'),
+            ('banco_santander_corriente_tradicional', 'corriente'),
             ('banco_falabella_vista', 'vista'),
         ):
             with self.subTest(code=code):
@@ -153,18 +161,16 @@ class TenancyTests(unittest.TestCase):
         self.assertEqual(transactions['items'][0]['account_id'], account_id)
 
     def test_pdf_routes_reject_credit_before_parsing(self):
-        created = self.client.post('/api/v1/accounts', json={
-            'name': 'Crédito demo', 'institution': 'banco_estado',
-            'account_type': 'credito', 'product_code': 'banco_estado_visa_smart',
-        })
-        self.assertEqual(created.status_code, 201)
-        legacy = self.client.post('/api/v1/accounts', json={
-            'name': 'Crédito antiguo', 'institution': 'banco_de_chile',
-            'account_type': 'credito',
-        })
-        self.assertEqual(legacy.status_code, 201)
+        # Persist historical records directly: new unsupported accounts are rejected.
+        with TenantSession(self.engine, user_id=A) as session:
+            created = AccountModel(name='Crédito demo', institution='banco_estado',
+                                   account_type='credito', product_code='banco_estado_visa_smart')
+            legacy = AccountModel(name='Crédito antiguo', institution='banco_de_chile', account_type='credito')
+            session.add_all([created, legacy])
+            session.commit()
+            account_ids = (created.id, legacy.id)
         with patch('app.main.limiter.check'), patch('app.api.routes.statements.inspect_pdf_isolated') as parser:
-            for account_id in (created.json()['id'], legacy.json()['id']):
+            for account_id in account_ids:
                 for suffix in ('/preview', '', '/reviewed'):
                     data = {'account_id': account_id}
                     if suffix == '/reviewed':

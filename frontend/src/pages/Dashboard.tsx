@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { getProductSelectionError } from "../lib/accountProductSelection";
 import { Link, useNavigate } from "react-router-dom";
 
 import {
@@ -399,10 +400,9 @@ export function DashboardPage() {
       return;
     }
 
-    const selectedProduct = products.find((item) => item.code === newAccountForm.product_code);
-    if (newAccountForm.account_type === "credito"
-      && (!selectedProduct || selectedProduct.pdf_support === "no_soportado")) {
-      setCreateAccountError("Este producto de crédito aún no admite importación de estados de cuenta.");
+    const productError = getProductSelectionError(newAccountForm, products);
+    if (productError) {
+      setCreateAccountError(productError);
       return;
     }
 

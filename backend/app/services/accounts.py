@@ -5,7 +5,8 @@ from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 from app.models.user import UserModel
 
-from app.domain.account_products import get_financial_product, kind_for_account_type
+from app.domain.account_products import PdfSupport, get_financial_product, kind_for_account_type
+from app.domain.product_types import ProductKind
 from app.domain.enums import AccountKind, CurrencyCode, InstitutionCode
 from app.models.account import AccountModel
 from app.schemas.account import Account, AccountCreate, AccountUpdate
@@ -60,12 +61,23 @@ def _validated_product_code(
     return product.code
 
 
+def _require_available_product(code: str | None, account_type: str) -> None:
+    product = get_financial_product(code) if code else None
+    if product and product.pdf_support == PdfSupport.UNSUPPORTED:
+        raise AccountProductValidationError(
+            f"{product.name} aún no está soportado. Selecciona otro producto."
+        )
+    if code is None and kind_for_account_type(account_type) == ProductKind.CREDIT:
+        raise AccountProductValidationError("Selecciona un producto de crédito soportado.")
+
+
 def create_account(session: Session, payload: AccountCreate) -> Account:
     """Crea una cuenta y normaliza los ultimos cuatro digitos opcionales."""
     normalized_last4 = payload.account_last4.strip() if payload.account_last4 else None
     product_code = _validated_product_code(
         payload.product_code, payload.institution, payload.account_type,
     )
+    _require_available_product(product_code, payload.account_type)
     account = AccountModel(
         name=payload.name,
         institution=payload.institution,
@@ -117,6 +129,10 @@ def update_account(session: Session, account_id: int, payload: AccountUpdate) ->
             raise
         # An older client may change institution/type without knowing product_code.
         product_code = None
+    if (payload.institution, payload.account_type, product_code) != (
+        account.institution, account.account_type, account.product_code,
+    ):
+        _require_available_product(product_code, payload.account_type)
     account.name = payload.name
     account.institution = payload.institution
     account.account_type = payload.account_type

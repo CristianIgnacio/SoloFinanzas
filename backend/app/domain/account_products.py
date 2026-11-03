@@ -34,6 +34,10 @@ FINANCIAL_PRODUCTS: tuple[FinancialProduct, ...] = (
         "Cuenta FAN", ProductKind.SIGHT, PdfSupport.NOT_VERIFIED,
     ),
     FinancialProduct(
+        "banco_de_chile_vista_general", InstitutionCode.BANCO_DE_CHILE,
+        "Cuenta Vista (sin plan específico)", ProductKind.SIGHT, PdfSupport.NOT_VERIFIED,
+    ),
+    FinancialProduct(
         "banco_de_chile_corriente_digital", InstitutionCode.BANCO_DE_CHILE,
         "Cuenta Corriente Digital", ProductKind.CURRENT, PdfSupport.NOT_VERIFIED,
     ),
@@ -48,6 +52,10 @@ FINANCIAL_PRODUCTS: tuple[FinancialProduct, ...] = (
     FinancialProduct(
         "banco_de_chile_fan_ahorro", InstitutionCode.BANCO_DE_CHILE,
         "FAN Ahorro", ProductKind.SAVINGS, PdfSupport.NOT_VERIFIED,
+    ),
+    FinancialProduct(
+        "banco_de_chile_ahorro_general", InstitutionCode.BANCO_DE_CHILE,
+        "Cuenta de Ahorro (sin plan específico)", ProductKind.SAVINGS, PdfSupport.NOT_VERIFIED,
     ),
     FinancialProduct(
         "banco_de_chile_visa_fan", InstitutionCode.BANCO_DE_CHILE,
@@ -90,12 +98,20 @@ FINANCIAL_PRODUCTS: tuple[FinancialProduct, ...] = (
         "Cuenta Vista Más Lucas", ProductKind.SIGHT, PdfSupport.NOT_VERIFIED,
     ),
     FinancialProduct(
+        "banco_santander_vista_general", InstitutionCode.BANCO_SANTANDER,
+        "Cuenta Vista (sin plan específico)", ProductKind.SIGHT, PdfSupport.NOT_VERIFIED,
+    ),
+    FinancialProduct(
         "banco_santander_corriente_digital", InstitutionCode.BANCO_SANTANDER,
         "Cuenta Corriente Digital", ProductKind.CURRENT, PdfSupport.NOT_VERIFIED,
     ),
     FinancialProduct(
         "banco_santander_corriente_life", InstitutionCode.BANCO_SANTANDER,
         "Cuenta Corriente Life", ProductKind.CURRENT, PdfSupport.NOT_VERIFIED,
+    ),
+    FinancialProduct(
+        "banco_santander_corriente_tradicional", InstitutionCode.BANCO_SANTANDER,
+        "Cuenta Corriente (plan tradicional)", ProductKind.CURRENT, PdfSupport.NOT_VERIFIED,
     ),
     FinancialProduct(
         "banco_santander_ahorro", InstitutionCode.BANCO_SANTANDER,
@@ -132,6 +148,10 @@ FINANCIAL_PRODUCTS: tuple[FinancialProduct, ...] = (
         ParserKey.BANCO_ESTADO,
     ),
     FinancialProduct(
+        "banco_estado_vista_general", InstitutionCode.BANCO_ESTADO,
+        "Cuenta Vista (sin plan específico)", ProductKind.SIGHT, PdfSupport.NOT_VERIFIED,
+    ),
+    FinancialProduct(
         "banco_estado_cuenta_pro", InstitutionCode.BANCO_ESTADO,
         "Cuenta Pro (Chequera Electrónica)", ProductKind.SIGHT, PdfSupport.NOT_VERIFIED,
     ),
@@ -140,8 +160,20 @@ FINANCIAL_PRODUCTS: tuple[FinancialProduct, ...] = (
         "Cuenta Corriente Digital", ProductKind.CURRENT, PdfSupport.NOT_VERIFIED,
     ),
     FinancialProduct(
+        "banco_estado_corriente_tradicional", InstitutionCode.BANCO_ESTADO,
+        "Cuenta Corriente (plan tradicional)", ProductKind.CURRENT, PdfSupport.NOT_VERIFIED,
+    ),
+    FinancialProduct(
         "banco_estado_ahorro_premium", InstitutionCode.BANCO_ESTADO,
         "Cuenta de Ahorro Premium", ProductKind.SAVINGS, PdfSupport.NOT_VERIFIED,
+    ),
+    FinancialProduct(
+        "banco_estado_ahorro_platino", InstitutionCode.BANCO_ESTADO,
+        "Cuenta de Ahorro Platino", ProductKind.SAVINGS, PdfSupport.NOT_VERIFIED,
+    ),
+    FinancialProduct(
+        "banco_estado_ahorro_general", InstitutionCode.BANCO_ESTADO,
+        "Cuenta de Ahorro (sin plan específico)", ProductKind.SAVINGS, PdfSupport.NOT_VERIFIED,
     ),
     FinancialProduct(
         "banco_estado_ahorro_vivienda", InstitutionCode.BANCO_ESTADO,

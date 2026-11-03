@@ -71,7 +71,16 @@ obtenidos nuevamente desde los bytes enviados.
 - Totales coincidentes en perfiles que los declaran.
 
 Las filas individuales fallidas se devuelven en `parsing_errors` hasta un
-maximo de diez. Un fallo estructural o de cuadratura aborta toda la preview.
+máximo de diez. Si se obtuvieron movimientos, las diferencias de filas y
+totales se presentan para revisión sin cambiar de parser.
+
+Si el formato esperado falla o no obtiene movimientos, se revisa el tipo
+indicado en los encabezados de la cartola y se busca una única alternativa
+registrada que reconozca el documento. Si esta funciona, la vista previa
+informa el cambio de formato y exige aceptar sus avisos antes de importar.
+Si no hay una alternativa válida, se explica el fallo junto con el tipo
+detectado o la imposibilidad de comprobarlo. Esta comprobación del tipo solo
+se realiza en la recuperación, no cuando el formato esperado funciona.
 
 ### Persistencia y deduplicacion
 

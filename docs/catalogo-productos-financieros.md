@@ -35,12 +35,24 @@ modelo propio.
 | Mercado Pago | `mercadopago_cuenta` | Billetera prepago |
 | Copec Pay | `copecpay_cuenta_digital` | Billetera prepago |
 
-BancoEstado ofrece distintas cuentas de ahorro. No se agrega una opción
-genérica que mezcle productos distintos; se incorporarán variantes concretas
-cuando se defina el alcance de ahorro y monedas (hoy SoloFinanzas opera en CLP).
+El catálogo también incluye `banco_estado_corriente_tradicional`,
+`banco_estado_ahorro_platino` y `banco_santander_corriente_tradicional`.
+Además, ofrece una opción **sin plan específico** para las cuentas vista de
+Banco de Chile, Santander y BancoEstado, y las cuentas de ahorro de Banco de
+Chile y BancoEstado. Son opciones explícitas del selector, con códigos propios;
+no atribuyen a la cuenta un producto comercial distinto. Todas estas opciones
+tienen estado PDF `pendiente_verificacion`: usan provisionalmente el parser de
+movimientos de su institución y requieren revisar una cartola real antes de
+considerar probado su formato.
+
+BancoEstado ofrece distintas cuentas de ahorro. La opción sin plan específico
+permite registrar una cuenta aún no identificada, sin afirmar que comparte el
+formato PDF de Premium, Platino o Vivienda. Se incorporarán otras variantes
+concretas cuando se defina el alcance de ahorro y monedas (hoy SoloFinanzas
+opera en CLP).
 La cuenta corriente tradicional de Banco de Chile identifica cuentas ligadas a
 planes que no son la Cuenta Corriente Digital; el plan comercial no se modela
-como otra cuenta. Cuenta Pro de BancoEstado es una cuenta vista. Los tres
+como otra cuenta. Cuenta Pro de BancoEstado es una cuenta vista. Los
 productos añadidos después del catálogo inicial conservan sus códigos estables;
 las cuentas antiguas sin producto pueden vincularse al editarlas.
 
@@ -101,15 +113,20 @@ se vincula a una tarjeta. Si alguien ingresó dígitos de una tarjeta en el
 formulario anterior, tendrá que corregirlos manualmente más adelante.
 
 El servicio de cuentas valida el código, institución y tipo en altas y ediciones.
+Los productos `no_soportado` aparecen deshabilitados para nuevas selecciones;
+el backend también rechaza crearlos o asignarlos al cambiar una cuenta.
+Las cuentas históricas pueden conservar su producto no soportado al editar
+sus datos, o cambiarlo a un producto probado o pendiente de verificación.
 El endpoint `GET /api/v1/account-products` entrega el catálogo al formulario.
 Al crear una cuenta se elige institución, tipo de cuenta y producto. El tipo
 filtra los productos de esa institución y se guarda junto con el código del
-producto. El formulario muestra una tarjeta conceptual que cambia con la
-selección, sin crear una entidad de tarjeta. WorldMember Santander se puede
-registrar e importar con su formato nacional probado. En
-edición, una cuenta antigua sin producto puede conservar esa condición si no
-cambia de institución. El importador consulta el estado PDF del producto antes
-de procesar el archivo. La resolución del parser combina institución y tipo de
+producto. Las opciones generales aparecen como productos seleccionables. El
+formulario muestra una tarjeta conceptual que cambia con la selección, sin
+crear una entidad de tarjeta. WorldMember Santander se puede registrar e
+importar con su formato nacional probado. En edición, una cuenta antigua sin
+producto puede conservar esa condición si no cambia de institución. El
+importador consulta el estado PDF del producto antes de procesar el archivo.
+La resolución del parser combina institución y tipo de
 producto mediante `domain/parsers.py`. Los parsers de cuenta leen movimientos;
 WorldMember Santander tiene además un parser de estado nacional. Cada perfil
 de institución

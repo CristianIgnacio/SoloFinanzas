@@ -1,4 +1,5 @@
 import { DeleteAccountModal } from "../components/DeleteAccountModal";
+import { getProductSelectionError } from "../lib/accountProductSelection";
 import { AccountTablePagination } from "../components/AccountTablePagination";
 import { ReportService, type AccountTotal } from '../services/reportService';
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -352,11 +353,9 @@ export function AccountsPage() {
       setAccountFormError("Selecciona un producto para la cuenta.");
       return;
     }
-    const originalCredit = original && ["credito", "tarjeta de credito", "tarjeta de crédito"].includes(original.account_type.toLowerCase());
-    const selectedProduct = products.find((item) => item.code === accountForm.product_code);
-    if (accountForm.account_type === "credito" && !originalCredit
-      && (!selectedProduct || selectedProduct.pdf_support === "no_soportado")) {
-      setAccountFormError("Este producto de crédito aún no admite importación de estados de cuenta.");
+    const productError = getProductSelectionError(accountForm, products, modalMode === "edit" ? original : undefined);
+    if (productError) {
+      setAccountFormError(productError);
       return;
     }
     if (accountForm.account_last4 && accountForm.account_last4.length !== 4) {

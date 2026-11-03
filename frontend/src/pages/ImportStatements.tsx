@@ -42,6 +42,10 @@ const currencyFormatter = new Intl.NumberFormat("es-CL", {
 const issueTitles: Record<string, string> = {
   BANK_MISMATCH: "El banco es distinto",
   DOCUMENT_TYPE_MISMATCH: "El tipo de documento es distinto",
+  ACCOUNT_TYPE_MISMATCH: "El tipo de cuenta es distinto",
+  ACCOUNT_TYPE_UNVERIFIED: "No pudimos comprobar el tipo de cuenta",
+  PARSER_FALLBACK: "Se usó un formato alternativo",
+  AMBIGUOUS_FORMAT: "No pudimos elegir un formato único",
   CARD_LAST4_MISMATCH: "La tarjeta es distinta",
   CARD_LAST4_UNREADABLE: "No pudimos comprobar la tarjeta",
   CARD_LAST4_NOT_CONFIGURED: "Falta identificar la tarjeta",
