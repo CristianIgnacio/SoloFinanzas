@@ -1,0 +1,1602 @@
+{
+  "mode": "production",
+  "capturedAt": "2026-11-07T07:41:03.065Z",
+  "fixture": "v1-500-transactions-20ms",
+  "runs": [
+    {
+      "mode": "production",
+      "fixture": "v1-500-transactions-20ms",
+      "date": "2026-11-07",
+      "measurements": [
+        {
+          "name": "dashboard-cold",
+          "uiCheckpointMs": 308,
+          "apiCompleteMs": 262,
+          "started": 16,
+          "decodedBytes": 55666,
+          "endpoints": {
+            "GET /api/v1/me": {
+              "started": 3,
+              "completed": 3,
+              "cancelled": 0,
+              "failed": 0,
+              "pending": 0,
+              "decodedBytes": 216
+            },
+            "GET /api/v1/dashboard": {
+              "started": 1,
+              "completed": 1,
+              "cancelled": 0,
+              "failed": 0,
+              "pending": 0,
+              "decodedBytes": 150
+            },
+            "GET /api/v1/account-products": {
+              "started": 1,
+              "completed": 1,
+              "cancelled": 0,
+              "failed": 0,
+              "pending": 0,
+              "decodedBytes": 2
+            },
+            "GET /api/v1/transactions": {
+              "started": 2,
+              "completed": 2,
+              "cancelled": 0,
+              "failed": 0,
+              "pending": 0,
+              "decodedBytes": 54162
+            },
+            "GET /api/v1/accounts": {
+              "started": 2,
+              "completed": 2,
+              "cancelled": 0,
+              "failed": 0,
+              "pending": 0,
+              "decodedBytes": 288
+            },
+            "GET /api/v1/categories": {
+              "started": 2,
+              "completed": 2,
+              "cancelled": 0,
+              "failed": 0,
+              "pending": 0,
+              "decodedBytes": 296
+            },
+            "GET /api/v1/cash-account": {
+              "started": 2,
+              "completed": 2,
+              "cancelled": 0,
+              "failed": 0,
+              "pending": 0,
+              "decodedBytes": 52
+            },
+            "GET /api/v1/cash-account/balance": {
+              "started": 2,
+              "completed": 2,
+              "cancelled": 0,
+              "failed": 0,
+              "pending": 0,
+              "decodedBytes": 242
+            },
+            "GET /api/v1/transaction-pages": {
+              "started": 1,
+              "completed": 1,
+              "cancelled": 0,
+              "failed": 0,
+              "pending": 0,
+              "decodedBytes": 258
+            }
+          }
+        },
+        {
+          "name": "navigation-Cuentas",
+          "uiCheckpointMs": 175,
+          "apiCompleteMs": 141,
+          "started": 8,
+          "decodedBytes": 11374,
+          "endpoints": {
+            "GET /api/v1/account-products": {
+              "started": 1,
+              "completed": 1,
+              "cancelled": 0,
+              "failed": 0,
+              "pending": 0,
+              "decodedBytes": 2
+            },
+            "GET /api/v1/accounts": {
+              "started": 1,
+              "completed": 1,
+              "cancelled": 0,
+              "failed": 0,
+              "pending": 0,
+              "decodedBytes": 144
+            },
+            "GET /api/v1/categories": {
+              "started": 1,
+              "completed": 1,
+              "cancelled": 0,
+              "failed": 0,
+              "pending": 0,
+              "decodedBytes": 148
+            },
+            "GET /api/v1/cash-account": {
+              "started": 1,
+              "completed": 1,
+              "cancelled": 0,
+              "failed": 0,
+              "pending": 0,
+              "decodedBytes": 26
+            },
+            "GET /api/v1/cash-account/balance": {
+              "started": 1,
+              "completed": 1,
+              "cancelled": 0,
+              "failed": 0,
+              "pending": 0,
+              "decodedBytes": 121
+            },
+            "GET /api/v1/statements": {
+              "started": 1,
+              "completed": 1,
+              "cancelled": 0,
+              "failed": 0,
+              "pending": 0,
+              "decodedBytes": 2
+            },
+            "GET /api/v1/transaction-pages": {
+              "started": 1,
+              "completed": 1,
+              "cancelled": 0,
+              "failed": 0,
+              "pending": 0,
+              "decodedBytes": 10786
+            },
+            "GET /api/v1/reports/accounts": {
+              "started": 1,
+              "completed": 1,
+              "cancelled": 0,
+              "failed": 0,
+              "pending": 0,
+              "decodedBytes": 145
+            }
+          }
+        },
+        {
+          "name": "navigation-Movimientos",
+          "uiCheckpointMs": 239,
+          "apiCompleteMs": 125,
+          "started": 6,
+          "decodedBytes": 11127,
+          "endpoints": {
+            "GET /api/v1/categorization-rules/proposals": {
+              "started": 1,
+              "completed": 1,
+              "cancelled": 0,
+              "failed": 0,
+              "pending": 0,
+              "decodedBytes": 2
+            },
+            "GET /api/v1/accounts": {
+              "started": 1,
+              "completed": 1,
+              "cancelled": 0,
+              "failed": 0,
+              "pending": 0,
+              "decodedBytes": 144
+            },
+            "GET /api/v1/cash-account": {
+              "started": 1,
+              "completed": 1,
+              "cancelled": 0,
+              "failed": 0,
+              "pending": 0,
+              "decodedBytes": 26
+            },
+            "GET /api/v1/categories": {
+              "started": 1,
+              "completed": 1,
+              "cancelled": 0,
+              "failed": 0,
+              "pending": 0,
+              "decodedBytes": 148
+            },
+            "GET /api/v1/reports/periods": {
+              "started": 1,
+              "completed": 1,
+              "cancelled": 0,
+              "failed": 0,
+              "pending": 0,
+              "decodedBytes": 21
+            },
+            "GET /api/v1/transaction-pages": {
+              "started": 1,
+              "completed": 1,
+              "cancelled": 0,
+              "failed": 0,
+              "pending": 0,
+              "decodedBytes": 10786
+            }
+          }
+        },
+        {
+          "name": "navigation-Análisis",
+          "uiCheckpointMs": 294,
+          "apiCompleteMs": 161,
+          "started": 5,
+          "decodedBytes": 54499,
+          "endpoints": {
+            "GET /api/v1/accounts": {
+              "started": 1,
+              "completed": 1,
+              "cancelled": 0,
+              "failed": 0,
+              "pending": 0,
+              "decodedBytes": 144
+            },
+            "GET /api/v1/cash-account": {
+              "started": 1,
+              "completed": 1,
+              "cancelled": 0,
+              "failed": 0,
+              "pending": 0,
+              "decodedBytes": 26
+            },
+            "GET /api/v1/categories": {
+              "started": 1,
+              "completed": 1,
+              "cancelled": 0,
+              "failed": 0,
+              "pending": 0,
+              "decodedBytes": 148
+            },
+            "GET /api/v1/reports/periods": {
+              "started": 1,
+              "completed": 1,
+              "cancelled": 0,
+              "failed": 0,
+              "pending": 0,
+              "decodedBytes": 21
+            },
+            "GET /api/v1/transactions": {
+              "started": 1,
+              "completed": 1,
+              "cancelled": 0,
+              "failed": 0,
+              "pending": 0,
+              "decodedBytes": 54160
+            }
+          }
+        },
+        {
+          "name": "navigation-Inicio",
+          "uiCheckpointMs": 135,
+          "apiCompleteMs": 108,
+          "started": 15,
+          "decodedBytes": 55594,
+          "endpoints": {
+            "GET /api/v1/dashboard": {
+              "started": 1,
+              "completed": 1,
+              "cancelled": 0,
+              "failed": 0,
+              "pending": 0,
+              "decodedBytes": 150
+            },
+            "GET /api/v1/account-products": {
+              "started": 1,
+              "completed": 1,
+              "cancelled": 0,
+              "failed": 0,
+              "pending": 0,
+              "decodedBytes": 2
+            },
+            "GET /api/v1/transactions": {
+              "started": 2,
+              "completed": 2,
+              "cancelled": 0,
+              "failed": 0,
+              "pending": 0,
+              "decodedBytes": 54162
+            },
+            "GET /api/v1/accounts": {
+              "started": 2,
+              "completed": 2,
+              "cancelled": 0,
+              "failed": 0,
+              "pending": 0,
+              "decodedBytes": 288
+            },
+            "GET /api/v1/categories": {
+              "started": 2,
+              "completed": 2,
+              "cancelled": 0,
+              "failed": 0,
+              "pending": 0,
+              "decodedBytes": 296
+            },
+            "GET /api/v1/cash-account": {
+              "started": 2,
+              "completed": 2,
+              "cancelled": 0,
+              "failed": 0,
+              "pending": 0,
+              "decodedBytes": 52
+            },
+            "GET /api/v1/cash-account/balance": {
+              "started": 2,
+              "completed": 2,
+              "cancelled": 0,
+              "failed": 0,
+              "pending": 0,
+              "decodedBytes": 242
+            },
+            "GET /api/v1/me": {
+              "started": 2,
+              "completed": 2,
+              "cancelled": 0,
+              "failed": 0,
+              "pending": 0,
+              "decodedBytes": 144
+            },
+            "GET /api/v1/transaction-pages": {
+              "started": 1,
+              "completed": 1,
+              "cancelled": 0,
+              "failed": 0,
+              "pending": 0,
+              "decodedBytes": 258
+            }
+          }
+        },
+        {
+          "name": "pagination-1",
+          "uiCheckpointMs": 197,
+          "apiCompleteMs": 108,
+          "started": 3,
+          "decodedBytes": 10944,
+          "endpoints": {
+            "GET /api/v1/statements": {
+              "started": 1,
+              "completed": 1,
+              "cancelled": 0,
+              "failed": 0,
+              "pending": 0,
+              "decodedBytes": 2
+            },
+            "GET /api/v1/transaction-pages": {
+              "started": 1,
+              "completed": 1,
+              "cancelled": 0,
+              "failed": 0,
+              "pending": 0,
+              "decodedBytes": 10797
+            },
+            "GET /api/v1/reports/accounts": {
+              "started": 1,
+              "completed": 1,
+              "cancelled": 0,
+              "failed": 0,
+              "pending": 0,
+              "decodedBytes": 145
+            }
+          }
+        },
+        {
+          "name": "pagination-3",
+          "uiCheckpointMs": 143,
+          "apiCompleteMs": 114,
+          "started": 3,
+          "decodedBytes": 11213,
+          "endpoints": {
+            "GET /api/v1/transaction-pages": {
+              "started": 1,
+              "completed": 1,
+              "cancelled": 0,
+              "failed": 0,
+              "pending": 0,
+              "decodedBytes": 10947
+            },
+            "GET /api/v1/cash-account/balance": {
+              "started": 1,
+              "completed": 1,
+              "cancelled": 0,
+              "failed": 0,
+              "pending": 0,
+              "decodedBytes": 121
+            },
+            "GET /api/v1/reports/accounts": {
+              "started": 1,
+              "completed": 1,
+              "cancelled": 0,
+              "failed": 0,
+              "pending": 0,
+              "decodedBytes": 145
+            }
+          }
+        },
+        {
+          "name": "add-month",
+          "uiCheckpointMs": 108,
+          "apiCompleteMs": 139,
+          "started": 2,
+          "decodedBytes": 108320,
+          "endpoints": {
+            "GET /api/v1/transactions": {
+              "started": 2,
+              "completed": 2,
+              "cancelled": 0,
+              "failed": 0,
+              "pending": 0,
+              "decodedBytes": 108320
+            }
+          }
+        },
+        {
+          "name": "remove-month",
+          "uiCheckpointMs": 80,
+          "apiCompleteMs": 87,
+          "started": 1,
+          "decodedBytes": 54160,
+          "endpoints": {
+            "GET /api/v1/transactions": {
+              "started": 1,
+              "completed": 1,
+              "cancelled": 0,
+              "failed": 0,
+              "pending": 0,
+              "decodedBytes": 54160
+            }
+          }
+        },
+        {
+          "name": "save-category",
+          "uiCheckpointMs": 171,
+          "apiCompleteMs": 176,
+          "started": 3,
+          "decodedBytes": 11020,
+          "endpoints": {
+            "PATCH /api/v1/transactions/1000/category": {
+              "started": 1,
+              "completed": 1,
+              "cancelled": 0,
+              "failed": 0,
+              "pending": 0,
+              "decodedBytes": 235
+            },
+            "GET /api/v1/transaction-pages": {
+              "started": 1,
+              "completed": 1,
+              "cancelled": 0,
+              "failed": 0,
+              "pending": 0,
+              "decodedBytes": 10783
+            },
+            "GET /api/v1/categorization-rules/proposals": {
+              "started": 1,
+              "completed": 1,
+              "cancelled": 0,
+              "failed": 0,
+              "pending": 0,
+              "decodedBytes": 2
+            }
+          }
+        }
+      ]
+    },
+    {
+      "mode": "production",
+      "fixture": "v1-500-transactions-20ms",
+      "date": "2026-11-07",
+      "measurements": [
+        {
+          "name": "dashboard-cold",
+          "uiCheckpointMs": 533,
+          "apiCompleteMs": 298,
+          "started": 16,
+          "decodedBytes": 55666,
+          "endpoints": {
+            "GET /api/v1/me": {
+              "started": 3,
+              "completed": 3,
+              "cancelled": 0,
+              "failed": 0,
+              "pending": 0,
+              "decodedBytes": 216
+            },
+            "GET /api/v1/dashboard": {
+              "started": 1,
+              "completed": 1,
+              "cancelled": 0,
+              "failed": 0,
+              "pending": 0,
+              "decodedBytes": 150
+            },
+            "GET /api/v1/account-products": {
+              "started": 1,
+              "completed": 1,
+              "cancelled": 0,
+              "failed": 0,
+              "pending": 0,
+              "decodedBytes": 2
+            },
+            "GET /api/v1/transactions": {
+              "started": 2,
+              "completed": 2,
+              "cancelled": 0,
+              "failed": 0,
+              "pending": 0,
+              "decodedBytes": 54162
+            },
+            "GET /api/v1/accounts": {
+              "started": 2,
+              "completed": 2,
+              "cancelled": 0,
+              "failed": 0,
+              "pending": 0,
+              "decodedBytes": 288
+            },
+            "GET /api/v1/categories": {
+              "started": 2,
+              "completed": 2,
+              "cancelled": 0,
+              "failed": 0,
+              "pending": 0,
+              "decodedBytes": 296
+            },
+            "GET /api/v1/cash-account": {
+              "started": 2,
+              "completed": 2,
+              "cancelled": 0,
+              "failed": 0,
+              "pending": 0,
+              "decodedBytes": 52
+            },
+            "GET /api/v1/cash-account/balance": {
+              "started": 2,
+              "completed": 2,
+              "cancelled": 0,
+              "failed": 0,
+              "pending": 0,
+              "decodedBytes": 242
+            },
+            "GET /api/v1/transaction-pages": {
+              "started": 1,
+              "completed": 1,
+              "cancelled": 0,
+              "failed": 0,
+              "pending": 0,
+              "decodedBytes": 258
+            }
+          }
+        },
+        {
+          "name": "navigation-Cuentas",
+          "uiCheckpointMs": 237,
+          "apiCompleteMs": 183,
+          "started": 8,
+          "decodedBytes": 11374,
+          "endpoints": {
+            "GET /api/v1/account-products": {
+              "started": 1,
+              "completed": 1,
+              "cancelled": 0,
+              "failed": 0,
+              "pending": 0,
+              "decodedBytes": 2
+            },
+            "GET /api/v1/accounts": {
+              "started": 1,
+              "completed": 1,
+              "cancelled": 0,
+              "failed": 0,
+              "pending": 0,
+              "decodedBytes": 144
+            },
+            "GET /api/v1/categories": {
+              "started": 1,
+              "completed": 1,
+              "cancelled": 0,
+              "failed": 0,
+              "pending": 0,
+              "decodedBytes": 148
+            },
+            "GET /api/v1/cash-account": {
+              "started": 1,
+              "completed": 1,
+              "cancelled": 0,
+              "failed": 0,
+              "pending": 0,
+              "decodedBytes": 26
+            },
+            "GET /api/v1/cash-account/balance": {
+              "started": 1,
+              "completed": 1,
+              "cancelled": 0,
+              "failed": 0,
+              "pending": 0,
+              "decodedBytes": 121
+            },
+            "GET /api/v1/statements": {
+              "started": 1,
+              "completed": 1,
+              "cancelled": 0,
+              "failed": 0,
+              "pending": 0,
+              "decodedBytes": 2
+            },
+            "GET /api/v1/transaction-pages": {
+              "started": 1,
+              "completed": 1,
+              "cancelled": 0,
+              "failed": 0,
+              "pending": 0,
+              "decodedBytes": 10786
+            },
+            "GET /api/v1/reports/accounts": {
+              "started": 1,
+              "completed": 1,
+              "cancelled": 0,
+              "failed": 0,
+              "pending": 0,
+              "decodedBytes": 145
+            }
+          }
+        },
+        {
+          "name": "navigation-Movimientos",
+          "uiCheckpointMs": 140,
+          "apiCompleteMs": 90,
+          "started": 6,
+          "decodedBytes": 11127,
+          "endpoints": {
+            "GET /api/v1/categorization-rules/proposals": {
+              "started": 1,
+              "completed": 1,
+              "cancelled": 0,
+              "failed": 0,
+              "pending": 0,
+              "decodedBytes": 2
+            },
+            "GET /api/v1/accounts": {
+              "started": 1,
+              "completed": 1,
+              "cancelled": 0,
+              "failed": 0,
+              "pending": 0,
+              "decodedBytes": 144
+            },
+            "GET /api/v1/cash-account": {
+              "started": 1,
+              "completed": 1,
+              "cancelled": 0,
+              "failed": 0,
+              "pending": 0,
+              "decodedBytes": 26
+            },
+            "GET /api/v1/categories": {
+              "started": 1,
+              "completed": 1,
+              "cancelled": 0,
+              "failed": 0,
+              "pending": 0,
+              "decodedBytes": 148
+            },
+            "GET /api/v1/reports/periods": {
+              "started": 1,
+              "completed": 1,
+              "cancelled": 0,
+              "failed": 0,
+              "pending": 0,
+              "decodedBytes": 21
+            },
+            "GET /api/v1/transaction-pages": {
+              "started": 1,
+              "completed": 1,
+              "cancelled": 0,
+              "failed": 0,
+              "pending": 0,
+              "decodedBytes": 10786
+            }
+          }
+        },
+        {
+          "name": "navigation-Análisis",
+          "uiCheckpointMs": 317,
+          "apiCompleteMs": 181,
+          "started": 5,
+          "decodedBytes": 54499,
+          "endpoints": {
+            "GET /api/v1/accounts": {
+              "started": 1,
+              "completed": 1,
+              "cancelled": 0,
+              "failed": 0,
+              "pending": 0,
+              "decodedBytes": 144
+            },
+            "GET /api/v1/cash-account": {
+              "started": 1,
+              "completed": 1,
+              "cancelled": 0,
+              "failed": 0,
+              "pending": 0,
+              "decodedBytes": 26
+            },
+            "GET /api/v1/categories": {
+              "started": 1,
+              "completed": 1,
+              "cancelled": 0,
+              "failed": 0,
+              "pending": 0,
+              "decodedBytes": 148
+            },
+            "GET /api/v1/reports/periods": {
+              "started": 1,
+              "completed": 1,
+              "cancelled": 0,
+              "failed": 0,
+              "pending": 0,
+              "decodedBytes": 21
+            },
+            "GET /api/v1/transactions": {
+              "started": 1,
+              "completed": 1,
+              "cancelled": 0,
+              "failed": 0,
+              "pending": 0,
+              "decodedBytes": 54160
+            }
+          }
+        },
+        {
+          "name": "navigation-Inicio",
+          "uiCheckpointMs": 211,
+          "apiCompleteMs": 126,
+          "started": 15,
+          "decodedBytes": 55594,
+          "endpoints": {
+            "GET /api/v1/dashboard": {
+              "started": 1,
+              "completed": 1,
+              "cancelled": 0,
+              "failed": 0,
+              "pending": 0,
+              "decodedBytes": 150
+            },
+            "GET /api/v1/account-products": {
+              "started": 1,
+              "completed": 1,
+              "cancelled": 0,
+              "failed": 0,
+              "pending": 0,
+              "decodedBytes": 2
+            },
+            "GET /api/v1/transactions": {
+              "started": 2,
+              "completed": 2,
+              "cancelled": 0,
+              "failed": 0,
+              "pending": 0,
+              "decodedBytes": 54162
+            },
+            "GET /api/v1/accounts": {
+              "started": 2,
+              "completed": 2,
+              "cancelled": 0,
+              "failed": 0,
+              "pending": 0,
+              "decodedBytes": 288
+            },
+            "GET /api/v1/categories": {
+              "started": 2,
+              "completed": 2,
+              "cancelled": 0,
+              "failed": 0,
+              "pending": 0,
+              "decodedBytes": 296
+            },
+            "GET /api/v1/cash-account": {
+              "started": 2,
+              "completed": 2,
+              "cancelled": 0,
+              "failed": 0,
+              "pending": 0,
+              "decodedBytes": 52
+            },
+            "GET /api/v1/cash-account/balance": {
+              "started": 2,
+              "completed": 2,
+              "cancelled": 0,
+              "failed": 0,
+              "pending": 0,
+              "decodedBytes": 242
+            },
+            "GET /api/v1/me": {
+              "started": 2,
+              "completed": 2,
+              "cancelled": 0,
+              "failed": 0,
+              "pending": 0,
+              "decodedBytes": 144
+            },
+            "GET /api/v1/transaction-pages": {
+              "started": 1,
+              "completed": 1,
+              "cancelled": 0,
+              "failed": 0,
+              "pending": 0,
+              "decodedBytes": 258
+            }
+          }
+        },
+        {
+          "name": "pagination-1",
+          "uiCheckpointMs": 134,
+          "apiCompleteMs": 96,
+          "started": 3,
+          "decodedBytes": 10944,
+          "endpoints": {
+            "GET /api/v1/statements": {
+              "started": 1,
+              "completed": 1,
+              "cancelled": 0,
+              "failed": 0,
+              "pending": 0,
+              "decodedBytes": 2
+            },
+            "GET /api/v1/transaction-pages": {
+              "started": 1,
+              "completed": 1,
+              "cancelled": 0,
+              "failed": 0,
+              "pending": 0,
+              "decodedBytes": 10797
+            },
+            "GET /api/v1/reports/accounts": {
+              "started": 1,
+              "completed": 1,
+              "cancelled": 0,
+              "failed": 0,
+              "pending": 0,
+              "decodedBytes": 145
+            }
+          }
+        },
+        {
+          "name": "pagination-3",
+          "uiCheckpointMs": 131,
+          "apiCompleteMs": 102,
+          "started": 3,
+          "decodedBytes": 11213,
+          "endpoints": {
+            "GET /api/v1/transaction-pages": {
+              "started": 1,
+              "completed": 1,
+              "cancelled": 0,
+              "failed": 0,
+              "pending": 0,
+              "decodedBytes": 10947
+            },
+            "GET /api/v1/cash-account/balance": {
+              "started": 1,
+              "completed": 1,
+              "cancelled": 0,
+              "failed": 0,
+              "pending": 0,
+              "decodedBytes": 121
+            },
+            "GET /api/v1/reports/accounts": {
+              "started": 1,
+              "completed": 1,
+              "cancelled": 0,
+              "failed": 0,
+              "pending": 0,
+              "decodedBytes": 145
+            }
+          }
+        },
+        {
+          "name": "add-month",
+          "uiCheckpointMs": 127,
+          "apiCompleteMs": 156,
+          "started": 2,
+          "decodedBytes": 108320,
+          "endpoints": {
+            "GET /api/v1/transactions": {
+              "started": 2,
+              "completed": 2,
+              "cancelled": 0,
+              "failed": 0,
+              "pending": 0,
+              "decodedBytes": 108320
+            }
+          }
+        },
+        {
+          "name": "remove-month",
+          "uiCheckpointMs": 120,
+          "apiCompleteMs": 97,
+          "started": 1,
+          "decodedBytes": 54160,
+          "endpoints": {
+            "GET /api/v1/transactions": {
+              "started": 1,
+              "completed": 1,
+              "cancelled": 0,
+              "failed": 0,
+              "pending": 0,
+              "decodedBytes": 54160
+            }
+          }
+        },
+        {
+          "name": "save-category",
+          "uiCheckpointMs": 205,
+          "apiCompleteMs": 179,
+          "started": 3,
+          "decodedBytes": 11020,
+          "endpoints": {
+            "PATCH /api/v1/transactions/1000/category": {
+              "started": 1,
+              "completed": 1,
+              "cancelled": 0,
+              "failed": 0,
+              "pending": 0,
+              "decodedBytes": 235
+            },
+            "GET /api/v1/transaction-pages": {
+              "started": 1,
+              "completed": 1,
+              "cancelled": 0,
+              "failed": 0,
+              "pending": 0,
+              "decodedBytes": 10783
+            },
+            "GET /api/v1/categorization-rules/proposals": {
+              "started": 1,
+              "completed": 1,
+              "cancelled": 0,
+              "failed": 0,
+              "pending": 0,
+              "decodedBytes": 2
+            }
+          }
+        }
+      ]
+    },
+    {
+      "mode": "production",
+      "fixture": "v1-500-transactions-20ms",
+      "date": "2026-11-07",
+      "measurements": [
+        {
+          "name": "dashboard-cold",
+          "uiCheckpointMs": 559,
+          "apiCompleteMs": 326,
+          "started": 16,
+          "decodedBytes": 55666,
+          "endpoints": {
+            "GET /api/v1/me": {
+              "started": 3,
+              "completed": 3,
+              "cancelled": 0,
+              "failed": 0,
+              "pending": 0,
+              "decodedBytes": 216
+            },
+            "GET /api/v1/dashboard": {
+              "started": 1,
+              "completed": 1,
+              "cancelled": 0,
+              "failed": 0,
+              "pending": 0,
+              "decodedBytes": 150
+            },
+            "GET /api/v1/account-products": {
+              "started": 1,
+              "completed": 1,
+              "cancelled": 0,
+              "failed": 0,
+              "pending": 0,
+              "decodedBytes": 2
+            },
+            "GET /api/v1/transactions": {
+              "started": 2,
+              "completed": 2,
+              "cancelled": 0,
+              "failed": 0,
+              "pending": 0,
+              "decodedBytes": 54162
+            },
+            "GET /api/v1/accounts": {
+              "started": 2,
+              "completed": 2,
+              "cancelled": 0,
+              "failed": 0,
+              "pending": 0,
+              "decodedBytes": 288
+            },
+            "GET /api/v1/categories": {
+              "started": 2,
+              "completed": 2,
+              "cancelled": 0,
+              "failed": 0,
+              "pending": 0,
+              "decodedBytes": 296
+            },
+            "GET /api/v1/cash-account": {
+              "started": 2,
+              "completed": 2,
+              "cancelled": 0,
+              "failed": 0,
+              "pending": 0,
+              "decodedBytes": 52
+            },
+            "GET /api/v1/cash-account/balance": {
+              "started": 2,
+              "completed": 2,
+              "cancelled": 0,
+              "failed": 0,
+              "pending": 0,
+              "decodedBytes": 242
+            },
+            "GET /api/v1/transaction-pages": {
+              "started": 1,
+              "completed": 1,
+              "cancelled": 0,
+              "failed": 0,
+              "pending": 0,
+              "decodedBytes": 258
+            }
+          }
+        },
+        {
+          "name": "navigation-Cuentas",
+          "uiCheckpointMs": 225,
+          "apiCompleteMs": 213,
+          "started": 8,
+          "decodedBytes": 11374,
+          "endpoints": {
+            "GET /api/v1/account-products": {
+              "started": 1,
+              "completed": 1,
+              "cancelled": 0,
+              "failed": 0,
+              "pending": 0,
+              "decodedBytes": 2
+            },
+            "GET /api/v1/accounts": {
+              "started": 1,
+              "completed": 1,
+              "cancelled": 0,
+              "failed": 0,
+              "pending": 0,
+              "decodedBytes": 144
+            },
+            "GET /api/v1/categories": {
+              "started": 1,
+              "completed": 1,
+              "cancelled": 0,
+              "failed": 0,
+              "pending": 0,
+              "decodedBytes": 148
+            },
+            "GET /api/v1/cash-account": {
+              "started": 1,
+              "completed": 1,
+              "cancelled": 0,
+              "failed": 0,
+              "pending": 0,
+              "decodedBytes": 26
+            },
+            "GET /api/v1/cash-account/balance": {
+              "started": 1,
+              "completed": 1,
+              "cancelled": 0,
+              "failed": 0,
+              "pending": 0,
+              "decodedBytes": 121
+            },
+            "GET /api/v1/statements": {
+              "started": 1,
+              "completed": 1,
+              "cancelled": 0,
+              "failed": 0,
+              "pending": 0,
+              "decodedBytes": 2
+            },
+            "GET /api/v1/transaction-pages": {
+              "started": 1,
+              "completed": 1,
+              "cancelled": 0,
+              "failed": 0,
+              "pending": 0,
+              "decodedBytes": 10786
+            },
+            "GET /api/v1/reports/accounts": {
+              "started": 1,
+              "completed": 1,
+              "cancelled": 0,
+              "failed": 0,
+              "pending": 0,
+              "decodedBytes": 145
+            }
+          }
+        },
+        {
+          "name": "navigation-Movimientos",
+          "uiCheckpointMs": 158,
+          "apiCompleteMs": 96,
+          "started": 6,
+          "decodedBytes": 11127,
+          "endpoints": {
+            "GET /api/v1/categorization-rules/proposals": {
+              "started": 1,
+              "completed": 1,
+              "cancelled": 0,
+              "failed": 0,
+              "pending": 0,
+              "decodedBytes": 2
+            },
+            "GET /api/v1/accounts": {
+              "started": 1,
+              "completed": 1,
+              "cancelled": 0,
+              "failed": 0,
+              "pending": 0,
+              "decodedBytes": 144
+            },
+            "GET /api/v1/cash-account": {
+              "started": 1,
+              "completed": 1,
+              "cancelled": 0,
+              "failed": 0,
+              "pending": 0,
+              "decodedBytes": 26
+            },
+            "GET /api/v1/categories": {
+              "started": 1,
+              "completed": 1,
+              "cancelled": 0,
+              "failed": 0,
+              "pending": 0,
+              "decodedBytes": 148
+            },
+            "GET /api/v1/reports/periods": {
+              "started": 1,
+              "completed": 1,
+              "cancelled": 0,
+              "failed": 0,
+              "pending": 0,
+              "decodedBytes": 21
+            },
+            "GET /api/v1/transaction-pages": {
+              "started": 1,
+              "completed": 1,
+              "cancelled": 0,
+              "failed": 0,
+              "pending": 0,
+              "decodedBytes": 10786
+            }
+          }
+        },
+        {
+          "name": "navigation-Análisis",
+          "uiCheckpointMs": 327,
+          "apiCompleteMs": 151,
+          "started": 5,
+          "decodedBytes": 54499,
+          "endpoints": {
+            "GET /api/v1/accounts": {
+              "started": 1,
+              "completed": 1,
+              "cancelled": 0,
+              "failed": 0,
+              "pending": 0,
+              "decodedBytes": 144
+            },
+            "GET /api/v1/cash-account": {
+              "started": 1,
+              "completed": 1,
+              "cancelled": 0,
+              "failed": 0,
+              "pending": 0,
+              "decodedBytes": 26
+            },
+            "GET /api/v1/categories": {
+              "started": 1,
+              "completed": 1,
+              "cancelled": 0,
+              "failed": 0,
+              "pending": 0,
+              "decodedBytes": 148
+            },
+            "GET /api/v1/reports/periods": {
+              "started": 1,
+              "completed": 1,
+              "cancelled": 0,
+              "failed": 0,
+              "pending": 0,
+              "decodedBytes": 21
+            },
+            "GET /api/v1/transactions": {
+              "started": 1,
+              "completed": 1,
+              "cancelled": 0,
+              "failed": 0,
+              "pending": 0,
+              "decodedBytes": 54160
+            }
+          }
+        },
+        {
+          "name": "navigation-Inicio",
+          "uiCheckpointMs": 201,
+          "apiCompleteMs": 141,
+          "started": 15,
+          "decodedBytes": 55594,
+          "endpoints": {
+            "GET /api/v1/dashboard": {
+              "started": 1,
+              "completed": 1,
+              "cancelled": 0,
+              "failed": 0,
+              "pending": 0,
+              "decodedBytes": 150
+            },
+            "GET /api/v1/account-products": {
+              "started": 1,
+              "completed": 1,
+              "cancelled": 0,
+              "failed": 0,
+              "pending": 0,
+              "decodedBytes": 2
+            },
+            "GET /api/v1/transactions": {
+              "started": 2,
+              "completed": 2,
+              "cancelled": 0,
+              "failed": 0,
+              "pending": 0,
+              "decodedBytes": 54162
+            },
+            "GET /api/v1/accounts": {
+              "started": 2,
+              "completed": 2,
+              "cancelled": 0,
+              "failed": 0,
+              "pending": 0,
+              "decodedBytes": 288
+            },
+            "GET /api/v1/categories": {
+              "started": 2,
+              "completed": 2,
+              "cancelled": 0,
+              "failed": 0,
+              "pending": 0,
+              "decodedBytes": 296
+            },
+            "GET /api/v1/cash-account": {
+              "started": 2,
+              "completed": 2,
+              "cancelled": 0,
+              "failed": 0,
+              "pending": 0,
+              "decodedBytes": 52
+            },
+            "GET /api/v1/cash-account/balance": {
+              "started": 2,
+              "completed": 2,
+              "cancelled": 0,
+              "failed": 0,
+              "pending": 0,
+              "decodedBytes": 242
+            },
+            "GET /api/v1/me": {
+              "started": 2,
+              "completed": 2,
+              "cancelled": 0,
+              "failed": 0,
+              "pending": 0,
+              "decodedBytes": 144
+            },
+            "GET /api/v1/transaction-pages": {
+              "started": 1,
+              "completed": 1,
+              "cancelled": 0,
+              "failed": 0,
+              "pending": 0,
+              "decodedBytes": 258
+            }
+          }
+        },
+        {
+          "name": "pagination-1",
+          "uiCheckpointMs": 129,
+          "apiCompleteMs": 90,
+          "started": 3,
+          "decodedBytes": 10944,
+          "endpoints": {
+            "GET /api/v1/statements": {
+              "started": 1,
+              "completed": 1,
+              "cancelled": 0,
+              "failed": 0,
+              "pending": 0,
+              "decodedBytes": 2
+            },
+            "GET /api/v1/transaction-pages": {
+              "started": 1,
+              "completed": 1,
+              "cancelled": 0,
+              "failed": 0,
+              "pending": 0,
+              "decodedBytes": 10797
+            },
+            "GET /api/v1/reports/accounts": {
+              "started": 1,
+              "completed": 1,
+              "cancelled": 0,
+              "failed": 0,
+              "pending": 0,
+              "decodedBytes": 145
+            }
+          }
+        },
+        {
+          "name": "pagination-3",
+          "uiCheckpointMs": 133,
+          "apiCompleteMs": 106,
+          "started": 3,
+          "decodedBytes": 11213,
+          "endpoints": {
+            "GET /api/v1/transaction-pages": {
+              "started": 1,
+              "completed": 1,
+              "cancelled": 0,
+              "failed": 0,
+              "pending": 0,
+              "decodedBytes": 10947
+            },
+            "GET /api/v1/cash-account/balance": {
+              "started": 1,
+              "completed": 1,
+              "cancelled": 0,
+              "failed": 0,
+              "pending": 0,
+              "decodedBytes": 121
+            },
+            "GET /api/v1/reports/accounts": {
+              "started": 1,
+              "completed": 1,
+              "cancelled": 0,
+              "failed": 0,
+              "pending": 0,
+              "decodedBytes": 145
+            }
+          }
+        },
+        {
+          "name": "add-month",
+          "uiCheckpointMs": 76,
+          "apiCompleteMs": 104,
+          "started": 2,
+          "decodedBytes": 108320,
+          "endpoints": {
+            "GET /api/v1/transactions": {
+              "started": 2,
+              "completed": 2,
+              "cancelled": 0,
+              "failed": 0,
+              "pending": 0,
+              "decodedBytes": 108320
+            }
+          }
+        },
+        {
+          "name": "remove-month",
+          "uiCheckpointMs": 88,
+          "apiCompleteMs": 96,
+          "started": 1,
+          "decodedBytes": 54160,
+          "endpoints": {
+            "GET /api/v1/transactions": {
+              "started": 1,
+              "completed": 1,
+              "cancelled": 0,
+              "failed": 0,
+              "pending": 0,
+              "decodedBytes": 54160
+            }
+          }
+        },
+        {
+          "name": "save-category",
+          "uiCheckpointMs": 112,
+          "apiCompleteMs": 117,
+          "started": 3,
+          "decodedBytes": 11020,
+          "endpoints": {
+            "PATCH /api/v1/transactions/1000/category": {
+              "started": 1,
+              "completed": 1,
+              "cancelled": 0,
+              "failed": 0,
+              "pending": 0,
+              "decodedBytes": 235
+            },
+            "GET /api/v1/transaction-pages": {
+              "started": 1,
+              "completed": 1,
+              "cancelled": 0,
+              "failed": 0,
+              "pending": 0,
+              "decodedBytes": 10783
+            },
+            "GET /api/v1/categorization-rules/proposals": {
+              "started": 1,
+              "completed": 1,
+              "cancelled": 0,
+              "failed": 0,
+              "pending": 0,
+              "decodedBytes": 2
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "summary": [
+    {
+      "name": "dashboard-cold",
+      "started": [
+        16,
+        16,
+        16
+      ],
+      "decodedBytes": [
+        55666,
+        55666,
+        55666
+      ],
+      "medianUiCheckpointMs": 533,
+      "medianApiCompleteMs": 298
+    },
+    {
+      "name": "navigation-Cuentas",
+      "started": [
+        8,
+        8,
+        8
+      ],
+      "decodedBytes": [
+        11374,
+        11374,
+        11374
+      ],
+      "medianUiCheckpointMs": 225,
+      "medianApiCompleteMs": 183
+    },
+    {
+      "name": "navigation-Movimientos",
+      "started": [
+        6,
+        6,
+        6
+      ],
+      "decodedBytes": [
+        11127,
+        11127,
+        11127
+      ],
+      "medianUiCheckpointMs": 158,
+      "medianApiCompleteMs": 96
+    },
+    {
+      "name": "navigation-Análisis",
+      "started": [
+        5,
+        5,
+        5
+      ],
+      "decodedBytes": [
+        54499,
+        54499,
+        54499
+      ],
+      "medianUiCheckpointMs": 317,
+      "medianApiCompleteMs": 161
+    },
+    {
+      "name": "navigation-Inicio",
+      "started": [
+        15,
+        15,
+        15
+      ],
+      "decodedBytes": [
+        55594,
+        55594,
+        55594
+      ],
+      "medianUiCheckpointMs": 201,
+      "medianApiCompleteMs": 126
+    },
+    {
+      "name": "pagination-1",
+      "started": [
+        3,
+        3,
+        3
+      ],
+      "decodedBytes": [
+        10944,
+        10944,
+        10944
+      ],
+      "medianUiCheckpointMs": 134,
+      "medianApiCompleteMs": 96
+    },
+    {
+      "name": "pagination-3",
+      "started": [
+        3,
+        3,
+        3
+      ],
+      "decodedBytes": [
+        11213,
+        11213,
+        11213
+      ],
+      "medianUiCheckpointMs": 133,
+      "medianApiCompleteMs": 106
+    },
+    {
+      "name": "add-month",
+      "started": [
+        2,
+        2,
+        2
+      ],
+      "decodedBytes": [
+        108320,
+        108320,
+        108320
+      ],
+      "medianUiCheckpointMs": 108,
+      "medianApiCompleteMs": 139
+    },
+    {
+      "name": "remove-month",
+      "started": [
+        1,
+        1,
+        1
+      ],
+      "decodedBytes": [
+        54160,
+        54160,
+        54160
+      ],
+      "medianUiCheckpointMs": 88,
+      "medianApiCompleteMs": 96
+    },
+    {
+      "name": "save-category",
+      "started": [
+        3,
+        3,
+        3
+      ],
+      "decodedBytes": [
+        11020,
+        11020,
+        11020
+      ],
+      "medianUiCheckpointMs": 171,
+      "medianApiCompleteMs": 176
+    }
+  ]
+}

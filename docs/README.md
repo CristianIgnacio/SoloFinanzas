@@ -9,6 +9,8 @@ punto de partida recomendado depende de lo que necesites hacer:
 | --- | --- |
 | Publicar la beta multiusuario | [Vercel, Supabase y Render](despliegue-beta.md) |
 | Ver pruebas realizadas y pendientes | [Verificación de la beta](verificacion-beta.md) |
+| Revisar la migración a TanStack Query | [Plan](plan-migracion-tanstack-query.md) y [aceptación](aceptacion-tanstack-query.md) |
+| Preparar entregas y revertir la migración | [Entregas, dependencias y reversión](entregas-reversion-tanstack-query.md) |
 | Entender que resuelve el producto | [Vision, alcance y conceptos](01-vision-y-alcance.md) |
 | Ubicarse en el repositorio | [Arquitectura y estructura](02-arquitectura-y-estructura.md) |
 | Modificar la API o la logica de negocio | [Backend](03-backend.md) |

@@ -1,0 +1,998 @@
+diff --git a/frontend/src/components/CategoryLearning.tsx b/frontend/src/components/CategoryLearning.tsx
+--- a/frontend/src/components/CategoryLearning.tsx
++++ b/frontend/src/components/CategoryLearning.tsx
+@@ -1,7 +1,11 @@
++import { useQuery } from "@tanstack/react-query";
++import { learningQueries } from "../query/learning";
++import { emptyList, useQueryOwner } from "../query/shared";
++import { useExplicitAction } from "../query/useExplicitAction";
+ import { useWriteActions } from "../query/writes";
+-import { useEffect, useRef, useState } from "react";
++import { useRef, useState } from "react";
+ import { Button, Panel } from "./index";
+-import { CategoryService, type CategoryPattern } from "../services/categoryService";
++import { type CategoryPattern } from "../services/categoryService";
+ import type { Category } from "../types";
+ import { CategoryProposalDetails } from "./CategoryProposalDetails";
+ 
+@@ -9,34 +13,27 @@
+   categories: Category[]; onRuleCreated?: () => void; categoryId?: number | null; embedded?: boolean;
+ }) {
+   const writes = useWriteActions();
+-  const [patterns, setPatterns] = useState<CategoryPattern[]>([]);
+-  const [loading, setLoading] = useState(true);
++  const patternsQuery = useQuery(learningQueries.patterns(useQueryOwner()));
++  const patterns = patternsQuery.data ?? emptyList;
++  const loading = patternsQuery.isPending;
++  const decision = useExplicitAction(writes.categories.decidePattern);
+   const [busy, setBusy] = useState(false);
+   const busyRef = useRef(false);
+   const [error, setError] = useState<string | null>(null);
+   const [notice, setNotice] = useState<string | null>(null);
+-  const load = async () => setPatterns(await CategoryService.patterns());
+-  useEffect(() => {
+-    let active = true;
+-    CategoryService.patterns().then(items => { if (active) setPatterns(items); })
+-      .catch(cause => { if (active) setError(cause instanceof Error ? cause.message : "No se pudieron cargar las propuestas."); })
+-      .finally(() => { if (active) setLoading(false); });
+-    return () => { active = false; };
+-  }, [categories]);
++  const load = () => patternsQuery.refetch({ throwOnError: true });
+ 
+   const decide = async (item: CategoryPattern, action: "accept" | "reject" | "snooze" | "reactivate") => {
+     if (busyRef.current) return;
+     busyRef.current = true;
+     setBusy(true); setError(null); setNotice(null);
+     try {
+-      await writes.categories.decidePattern(item.id, action, item.version);
++      await decision.run(item.id, action, item.version);
+       setNotice({ accept: "Regla creada para futuras importaciones.", reject: "No volveremos a mostrar esta sugerencia.",
+         snooze: "Propuesta pospuesta durante 30 días.", reactivate: "Sugerencia recuperada. Aparecerá cuando haya suficientes coincidencias." }[action]);
+-      await load();
+       if (action === "accept") onRuleCreated?.();
+     } catch (cause) {
+       setError(cause instanceof Error ? cause.message : "No se pudo guardar la decisión.");
+-      try { await load(); } catch { /* Keep the original actionable error. */ }
+     } finally { busyRef.current = false; setBusy(false); }
+   };
+   const visiblePatterns = categoryId == null ? patterns : patterns.filter(item => item.category_id === categoryId);
+@@ -45,7 +42,7 @@
+   return <Panel className={embedded ? "space-y-4 !rounded-none !border-0 !p-4 !shadow-none" : "space-y-4 scroll-mt-24 !p-4 sm:!p-6 md:!p-8"} id="personalizacion">
+     <h2 className={embedded ? "sr-only" : "text-xl font-medium"}>Propuestas de reglas</h2>
+     <p className="text-sm text-muted">Te avisaremos cuando podamos sugerirte una regla. Tú decides si crearla.</p>
+-    {error ? <p role="alert" className="text-sm text-danger">{error} <button className="underline" onClick={() => void load().then(() => setError(null)).catch(() => {})}>Reintentar</button></p> : null}
++    {error || patternsQuery.error ? <p role="alert" className="text-sm text-danger">{error ?? patternsQuery.error?.message} <button className="underline" onClick={() => void load().then(() => setError(null)).catch(() => {})}>Reintentar</button></p> : null}
+     {notice ? <p role="status" className="text-sm text-primary">{notice}</p> : null}
+     {loading ? <p className="text-sm text-muted">Cargando propuestas…</p> : null}
+     {pending.map(item => <div key={item.id} className="space-y-3 rounded-xl border border-primary/30 p-3 text-sm">
+diff --git a/frontend/src/components/CategoryProposalModal.tsx b/frontend/src/components/CategoryProposalModal.tsx
+--- a/frontend/src/components/CategoryProposalModal.tsx
++++ b/frontend/src/components/CategoryProposalModal.tsx
+@@ -1,7 +1,11 @@
++import { useQueryClient } from "@tanstack/react-query";
++import { learningQueries } from "../query/learning";
++import { useQueryOwner } from "../query/shared";
++import { useExplicitAction } from "../query/useExplicitAction";
+ import { useWriteActions } from "../query/writes";
+ import { useEffect, useRef, useState } from "react";
+ import { createPortal } from "react-dom";
+-import { CategoryService, type CategoryPattern } from "../services/categoryService";
++import { type CategoryPattern } from "../services/categoryService";
+ import type { Category } from "../types";
+ import { Button } from "./ui";
+ import { CategoryProposalDetails } from "./CategoryProposalDetails";
+@@ -11,6 +15,9 @@
+   onDecided: (message: string) => void;
+ }) {
+   const writes = useWriteActions();
++  const client = useQueryClient();
++  const owner = useQueryOwner();
++  const decision = useExplicitAction(writes.categories.decidePattern);
+   const dialogRef = useRef<HTMLDialogElement>(null);
+   const busyRef = useRef(false);
+   const [busy, setBusy] = useState(false);
+@@ -35,14 +42,14 @@
+     busyRef.current = true;
+     setBusy(true); setError(null);
+     try {
+-      await writes.categories.decidePattern(currentProposal.id, action, currentProposal.version);
++      await decision.run(currentProposal.id, action, currentProposal.version);
+       onDecided({ accept: "Regla creada para futuras importaciones.",
+         snooze: "Propuesta pospuesta durante 30 días.", reject: "No volveremos a mostrar esta sugerencia." }[action]);
+     } catch (cause) {
+       setError(cause instanceof Error ? cause.message : "No se pudo guardar la decisión. Puedes volver a intentarlo.");
+       // Recheck a stale proposal before allowing another explicit decision.
+       try {
+-        const items = await CategoryService.ruleProposals();
++        const items = await client.fetchQuery(learningQueries.proposals(owner));
+         const updated = items.find(item => item.id === currentProposal.id) ?? null;
+         setCurrentProposal(updated);
+         if (!updated) setError("Esta propuesta ya no está pendiente. Tu cambio de categoría sigue guardado.");
+diff --git a/frontend/src/components/CashMovementFormModal.tsx b/frontend/src/components/CashMovementFormModal.tsx
+--- a/frontend/src/components/CashMovementFormModal.tsx
++++ b/frontend/src/components/CashMovementFormModal.tsx
+@@ -1,3 +1,4 @@
++import { useExplicitAction } from "../query/useExplicitAction";
+ import { useWriteActions } from "../query/writes";
+ import { useState } from "react";
+ import { CategoryType, TransactionType } from "../types";
+@@ -23,6 +24,9 @@
+ 
+ export function CashMovementFormModal({ categories, transaction, initialDelete = false, onClose, onChanged }: Props) {
+   const writes = useWriteActions();
++  const createAction = useExplicitAction(writes.transactions.createCashTransaction);
++  const updateAction = useExplicitAction(writes.transactions.updateCashTransaction);
++  const deleteAction = useExplicitAction(writes.transactions.deleteCashTransaction);
+   const [type, setType] = useState<TransactionType>(transaction?.transaction_type ?? TransactionType.EXPENSE);
+   const [amount, setAmount] = useState(transaction ? String(Math.abs(transaction.amount_clp)) : "");
+   const [date, setDate] = useState(transaction?.date ?? localToday());
+@@ -57,8 +61,8 @@
+     setSaving(true);
+     setError(null);
+     try {
+-      if (transaction) await writes.transactions.updateCashTransaction(transaction.id, payload);
+-      else await writes.transactions.createCashTransaction(payload);
++      if (transaction) await updateAction.run(transaction.id, payload);
++      else await createAction.run(payload);
+       onChanged();
+       onClose();
+     } catch (cause) {
+@@ -73,7 +77,7 @@
+     setSaving(true);
+     setError(null);
+     try {
+-      await writes.transactions.deleteCashTransaction(transaction.id);
++      await deleteAction.run(transaction.id);
+       onChanged();
+       onClose();
+     } catch (cause) {
+diff --git a/frontend/src/pages/Transactions.tsx b/frontend/src/pages/Transactions.tsx
+--- a/frontend/src/pages/Transactions.tsx
++++ b/frontend/src/pages/Transactions.tsx
+@@ -1,4 +1,4 @@
+-import { hashKey, useInfiniteQuery, useMutation } from "@tanstack/react-query";
++import { hashKey, useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+ import { transactionsQueries } from "../query/transactions";
+ import { useQueryOwner } from "../query/shared";
+ import { emptyList, useAccounts, useCashAccount, useCategories, usePeriods } from "../query/shared";
+@@ -26,7 +26,7 @@
+   cn,
+ } from "../components";
+ import { createCategoryMap, getCategoryPath, groupCategories, parseLocalDate } from "../lib";
+-import { CategoryService } from "../services";
++import { learningQueries } from "../query/learning";
+ import { CashLinkModal } from "../components/CashLinkModal";
+ import { CategoryIcon } from "../components/CategoryIcon";
+ import { CategoryPicker } from "../components/CategoryPicker";
+@@ -109,7 +109,10 @@
+   const categories = categoriesQuery.data ?? emptyList;
+   const [savingCategoryIds, setSavingCategoryIds] = useState<Set<number>>(() => new Set());
+   const [categoryErrors, setCategoryErrors] = useState<Record<number, string>>({});
+-  const [proposals, setProposals] = useState<CategoryPattern[]>([]);
++  const proposalsClient = useQueryClient();
++  const proposalOptions = learningQueries.proposals(useQueryOwner());
++  const proposalsQuery = useQuery(proposalOptions);
++  const proposals = proposalsQuery.data ?? emptyList;
+   const [proposalQueue, setProposalQueue] = useState<CategoryPattern[]>([]);
+   const shownProposals = useRef(new Set<number>());
+   const changedForProposals = useRef(new Map<number, Transaction>());
+@@ -118,9 +121,8 @@
+     if (changed) changedForProposals.current.set(changed.id, changed);
+     const request = ++proposalRequest.current;
+     try {
+-      const items = await CategoryService.ruleProposals();
++      const items = await proposalsClient.fetchQuery(proposalOptions);
+       if (request !== proposalRequest.current) return;
+-      setProposals(items);
+       // Only interrupt for patterns related to the user's saved changes, not
+       // unrelated proposals that happened to be waiting when this page opened.
+       const relevant = items.filter(item => !shownProposals.current.has(item.id) &&
+@@ -130,14 +132,14 @@
+             (item.match_type === "exact" ? item.pattern === description : ` ${description} `.includes(` ${item.pattern} `));
+         }));
+       relevant.forEach(item => shownProposals.current.add(item.id));
+-      changedForProposals.current.clear();
++      // Keep saved changes until undo/unmount: a concurrent write may reconcile
++      // the shared proposals after this write has already completed.
+       setProposalQueue(current => [...current.flatMap(queued => {
+         const updated = items.find(item => item.id === queued.id);
+         return updated ? [updated] : [];
+       }), ...relevant.filter(item => !current.some(queued => queued.id === item.id))]);
+     } catch { /* A proposal fetch failure must never undo a saved category. */ }
+   };
+-  useEffect(() => { void refreshProposals(); }, []);
+   const [categoryNotice, setCategoryNotice] = useState<CategoryNotice | null>(null);
+   const updateFilters = (values: Record<string, string | undefined>) => {
+     setSearchParams(previous => {
+@@ -800,7 +802,6 @@
+         onDecided={message => {
+           const decidedId = proposalQueue[0].id;
+           setProposalQueue(current => current.filter(item => item.id !== decidedId));
+-          setProposals(current => current.filter(item => item.id !== decidedId));
+           const noticeId = ++noticeSequenceRef.current;
+           setCategoryNotice(current => ({ id: noticeId, tone: "success", message, undo: current?.undo }));
+           void refreshProposals();
+diff --git a/frontend/src/pages/Categories.tsx b/frontend/src/pages/Categories.tsx
+--- a/frontend/src/pages/Categories.tsx
++++ b/frontend/src/pages/Categories.tsx
+@@ -1,3 +1,4 @@
++import { useExplicitAction } from "../query/useExplicitAction";
+ import { emptyList, useCategories, useRules, useCategoryCatalog } from "../query/shared";
+ import { useWriteActions } from "../query/writes";
+ import { CategoryLearning } from "../components/CategoryLearning";
+@@ -521,6 +522,10 @@
+ 
+ export function CategoriesPage() {
+   const writes = useWriteActions();
++  const createRuleAction = useExplicitAction(writes.categories.createCategorizationRule);
++  const updateRuleAction = useExplicitAction(writes.categories.updateCategorizationRule);
++  const deleteRuleAction = useExplicitAction(writes.categories.deleteCategorizationRule);
++  const previewRuleAction = useExplicitAction(CategoryService.previewCategorizationRule);
+   const categoriesQuery = useCategories();
+   const rulesQuery = useRules();
+   const catalogQuery = useCategoryCatalog();
+@@ -546,6 +551,9 @@
+   const [rulePreview, setRulePreview] = useState<{ match_count: number; examples: string[] } | null>(null);
+   const [editingRuleId, setEditingRuleId] = useState<number | null>(null);
+   const [ruleFormOpen, setRuleFormOpen] = useState(false);
++  const rulePreviewVersion = useRef(0);
++  useEffect(() => { rulePreviewVersion.current++; setRulePreview(null); },
++    [selectedCategoryId, ruleKeyword, rulePriority, ruleMatchType, ruleFormOpen]);
+   const [ruleError, setRuleError] = useState<string | null>(null);
+   const [ruleFeedback, setRuleFeedback] = useState<string | null>(null);
+   const ruleInputRef = useRef<HTMLInputElement>(null);
+@@ -857,8 +865,8 @@
+         keyword: ruleKeyword.trim(), category_id: selectedCategory.id,
+         priority: parsedRulePriority, match_type: ruleMatchType,
+       };
+-      if (editingRuleId) await writes.categories.updateCategorizationRule(editingRuleId, payload);
+-      else await writes.categories.createCategorizationRule(payload);
++      if (editingRuleId) await updateRuleAction.run(editingRuleId, payload);
++      else await createRuleAction.run(payload);
+       closeRuleForm();
+       setRuleFeedback(editingRuleId ? "Regla actualizada correctamente." : "Regla creada correctamente.");
+     } catch (err) {
+@@ -868,20 +876,24 @@
+ 
+   const previewRule = async () => {
+     if (!selectedCategory || !ruleKeyword.trim() || !validRulePriority) return;
++    const version = rulePreviewVersion.current;
+     try {
+-      setRulePreview(await CategoryService.previewCategorizationRule({
++      const result = await previewRuleAction.run({
+         keyword: ruleKeyword.trim(), category_id: selectedCategory.id,
+         priority: parsedRulePriority, match_type: ruleMatchType,
+-      }));
++      });
++      if (version !== rulePreviewVersion.current) return;
++      setRulePreview(result);
+       setRuleError(null);
+     } catch (err) {
++      if (version !== rulePreviewVersion.current) return;
+       setRuleError(err instanceof Error ? err.message : "No fue posible revisar la regla.");
+     }
+   };
+ 
+   const removeRule = async (ruleId: number) => {
+     try {
+-      await writes.categories.deleteCategorizationRule(ruleId);
++      await deleteRuleAction.run(ruleId);
+       setRuleFeedback("Regla eliminada.");
+     } catch (err) {
+       setRuleError(err instanceof Error ? err.message : "No fue posible eliminar la regla.");
+@@ -1274,7 +1286,7 @@
+                     </details>
+                       <Button
+                         className="w-full min-w-0"
+-                        disabled={!ruleKeyword.trim() || !selectedCategory.is_active || !validRulePriority}
++                        disabled={createRuleAction.isPending || updateRuleAction.isPending || !ruleKeyword.trim() || !selectedCategory.is_active || !validRulePriority}
+                         onClick={() => void createRule()}
+                       >
+                         {editingRuleId ? "Guardar regla" : "Agregar regla"}
+@@ -1284,7 +1296,7 @@
+                         onClick={closeRuleForm}>
+                         {editingRuleId ? "Cancelar edición" : "Cancelar"}
+                       </button> : null}
+-                      <button type="button" className="min-h-11 text-sm text-primary underline" disabled={!ruleKeyword.trim() || !validRulePriority}
++                      <button type="button" className="min-h-11 text-sm text-primary underline" disabled={previewRuleAction.isPending || !ruleKeyword.trim() || !validRulePriority}
+                         onClick={() => void previewRule()}>Vista previa de coincidencias</button>
+                     </div>
+                     {rulePreview ? <p className="text-sm text-muted">
+diff --git a/frontend/src/pages/ImportStatements.tsx b/frontend/src/pages/ImportStatements.tsx
+--- a/frontend/src/pages/ImportStatements.tsx
++++ b/frontend/src/pages/ImportStatements.tsx
+@@ -1,3 +1,7 @@
++import { useExplicitAction } from "../query/useExplicitAction";
++import { useQueryClient } from "@tanstack/react-query";
++import { financialResources } from "../query/invalidation";
++import { useQueryOwner } from "../query/shared";
+ import { emptyList, useAccounts, useProducts, useCategories } from "../query/shared";
+ import { useWriteActions } from "../query/writes";
+ import { useEffect, useMemo, useRef, useState } from "react";
+@@ -76,6 +80,12 @@
+ 
+ export function ImportStatementsPage() {
+   const writes = useWriteActions();
++  const client = useQueryClient();
++  const owner = useQueryOwner();
++  const previewAction = useExplicitAction(StatementService.previewPdf.bind(StatementService));
++  const importAction = useExplicitAction(writes.statements.importReviewedPdf);
++  const operationPending = useRef(false);
++  const uncertainImport = useRef<{ accountId: number; checksum: string } | null>(null);
+   const accountsQuery = useAccounts();
+   const productsQuery = useProducts();
+   const categoriesQuery = useCategories();
+@@ -223,11 +233,12 @@
+   };
+ 
+   const analyzeDocument = async () => {
+-    if (busy || !selectedFile || !selectedAccount || !pdfAvailability?.allowed) return;
++    if (operationPending.current || busy || !selectedFile || !selectedAccount || !pdfAvailability?.allowed) return;
++    operationPending.current = true;
+     setAnalyzing(true);
+     resetAnalysis();
+     try {
+-      const payload = await StatementService.previewPdf(
++      const payload = await previewAction.run(
+         Number(selectedAccount),
+         selectedFile,
+         password || undefined,
+@@ -249,18 +260,39 @@
+         : new ApiRequestError("No fue posible analizar el PDF.", "PROCESSING_FAILED", "Intenta nuevamente con otro archivo."));
+       setFeedbackModal("error");
+     } finally {
++      operationPending.current = false;
+       setAnalyzing(false);
+     }
+   };
+ 
+   const importDocument = async () => {
+-    if (busy || editableTransactions.length === 0 || !selectedFile || !selectedAccount || !preview || !pdfAvailability?.allowed
++    if (operationPending.current || busy || editableTransactions.length === 0 || !selectedFile || !selectedAccount || !preview || !pdfAvailability?.allowed
+       || (preview.issues.length > 0 && !issuesAccepted)) return;
++    operationPending.current = true;
+     setImporting(true);
+     setError(null);
+     setCodedError(null);
+     try {
+-      const response = await writes.statements.importReviewedPdf(
++      // A lost response may hide a committed import. Check its exact identity
++      // before another POST; if verification fails, keep the retry blocked.
++      if (uncertainImport.current) {
++        const pending = uncertainImport.current;
++        const statements = await StatementService.getStatements(pending.accountId);
++        const existing = statements.find(item => item.file_checksum === pending.checksum);
++        if (existing) {
++          await client.invalidateQueries({ predicate: query => query.queryKey[0] === "user"
++            && query.queryKey[1] === owner
++            && (financialResources as readonly string[]).includes(String(query.queryKey[2])) });
++          setPassword(""); setSelectedFile(null); setPreview(null); setEditableTransactions([]);
++          navigate(`/app/transactions?statement_id=${existing.id}`, {
++            state: { importMessage: "La cartola ya se importó. Se verificó el resultado anterior." },
++          });
++          return;
++        }
++        uncertainImport.current = null;
++      }
++      uncertainImport.current = { accountId: Number(selectedAccount), checksum: preview.file_checksum };
++      const response = await importAction.run(
+         Number(selectedAccount),
+         selectedFile,
+         editableTransactions.map((transaction) => ({
+@@ -273,6 +305,8 @@
+         password || undefined,
+         preview.issues.map((issue) => issue.code),
+       );
++      uncertainImport.current = null;
++      setPassword(""); setSelectedFile(null); setPreview(null); setEditableTransactions([]);
+       navigate(`/app/transactions?statement_id=${response.statement.id}`, {
+         state: {
+           importMessage: `${response.result.inserted_count} movimientos importados correctamente.`,
+@@ -281,9 +315,10 @@
+     } catch (err) {
+       setCodedError(err instanceof ApiRequestError
+         ? err
+-        : new ApiRequestError("No fue posible importar la cartola.", "IMPORT_FAILED", "Revisa el PDF e inténtalo nuevamente."));
++        : new ApiRequestError("No fue posible confirmar el resultado de la importación.", "IMPORT_FAILED", "Al volver a confirmar verificaremos primero si la cartola ya se guardó."));
+       setFeedbackModal("error");
+     } finally {
++      operationPending.current = false;
+       setImporting(false);
+     }
+   };
+diff --git a/frontend/src/pages/Profile.tsx b/frontend/src/pages/Profile.tsx
+--- a/frontend/src/pages/Profile.tsx
++++ b/frontend/src/pages/Profile.tsx
+@@ -1,14 +1,20 @@
++import { useExplicitAction } from "../query/useExplicitAction";
++import { ProfileService } from "../services/profileService";
+ import { useWriteActions } from "../query/writes";
+-import { useState } from "react";
++import { useEffect, useRef, useState } from "react";
+ import { useNavigate } from "react-router-dom";
+ import { useAuth } from "../auth/AuthProvider";
+-import { apiClient } from "../lib/apiClient";
+ import { createProfileExport } from "../lib/profileExport";
+ import { supabase, signInWithGoogle } from "../lib/supabase";
+ import { Button, PageIntro, Panel } from "../components";
+ 
+ export function ProfilePage() {
+   const writes = useWriteActions();
++  const exportAction = useExplicitAction(ProfileService.exportData);
++  const deleteAction = useExplicitAction(writes.profile.deleteProfile);
++  const exportController = useRef<AbortController | null>(null);
++  const actionRunning = useRef(false);
++  useEffect(() => () => exportController.current?.abort(), []);
+   const { session } = useAuth();
+   const navigate = useNavigate();
+   const [confirmation, setConfirmation] = useState("");
+@@ -56,12 +62,15 @@
+         <Button
+           disabled={busy}
+           onClick={async () => {
++            if (actionRunning.current) return;
++            actionRunning.current = true;
+             setBusy(true);
+             setExporting(true);
+             setExportStatus("");
+             setExportError("");
+             try {
+-              const data = await apiClient.get<Record<string, unknown>>("/me/export");
++              exportController.current = new AbortController();
++              const data = await exportAction.run(exportController.current.signal);
+               const url = URL.createObjectURL(
+                 new Blob([JSON.stringify(createProfileExport(data), null, 2)], {
+                   type: "application/json",
+@@ -76,15 +85,18 @@
+               setExportStatus("Archivo JSON preparado. La descarga se inició en tu navegador.");
+               setTimeout(() => URL.revokeObjectURL(url), 1000);
+             } catch (err) {
+-              setExportError(err instanceof Error ? err.message : "No se pudieron descargar tus datos. Inténtalo de nuevo.");
++              if (!exportController.current?.signal.aborted) setExportError(err instanceof Error ? err.message : "No se pudieron descargar tus datos. Inténtalo de nuevo.");
+             } finally {
+               setBusy(false);
+               setExporting(false);
++              exportController.current = null;
++              actionRunning.current = false;
+             }
+           }}
+         >
+           {exporting ? "Preparando JSON…" : "Exportar mis datos (JSON)"}
+         </Button>
++        {exporting && <Button tone="secondary" onClick={() => exportController.current?.abort()}>Cancelar descarga</Button>}
+         <p role="status" aria-live="polite" className="mt-3 text-sm text-muted">{exporting ? "Preparando tus cuentas, movimientos, categorías y reglas…" : exportStatus}</p>
+         {exportError && <p role="alert" className="mt-3 text-danger">{exportError}</p>}
+       </Panel>
+@@ -119,15 +131,18 @@
+           disabled={confirmation !== "ELIMINAR" || busy}
+           className="border-danger bg-danger"
+           onClick={async () => {
++            if (actionRunning.current) return;
++            actionRunning.current = true;
+             setBusy(true);
+             setDeleteError("");
+             try {
+-              await writes.profile.deleteProfile();
++              await deleteAction.run();
+               navigate("/", { replace: true });
+             } catch (err) {
+               setDeleteError(err instanceof Error ? err.message : "No se pudo eliminar tu cuenta. Inténtalo de nuevo.");
+             } finally {
+               setBusy(false);
++              actionRunning.current = false;
+             }
+           }}
+         >
+diff --git a/frontend/src/services/profileService.ts b/frontend/src/services/profileService.ts
+--- a/frontend/src/services/profileService.ts
++++ b/frontend/src/services/profileService.ts
+@@ -2,6 +2,10 @@
+ import type { UserProfile } from "../types";
+ 
+ export class ProfileService {
++  static exportData(signal?: AbortSignal): Promise<Record<string, unknown>> {
++    return apiClient.get<Record<string, unknown>>("/me/export", { signal });
++  }
++
+   static getProfile(signal?: AbortSignal): Promise<UserProfile> {
+     return apiClient.get<UserProfile>("/me", { signal });
+   }
+diff --git a/frontend/src/query/README.md b/frontend/src/query/README.md
+--- a/frontend/src/query/README.md
++++ b/frontend/src/query/README.md
+@@ -35,4 +35,8 @@
+ 
+ Paso 8: Movimientos usa `transactionsQueries.infinite`, offset inicial cero y siguiente offset derivado de la respuesta. Termina con una página vacía o al alcanzar total. No hay maxPages: se conservan todas las páginas cargadas y su scroll durante revalidaciones. Cambiar filtros utiliza otra clave, reinicia el scroll y no mezcla filas. La búsqueda mantiene 300 ms de debounce; el observador solo carga más con hasNextPage y sin isFetching, usando cancelRefetch:false para deduplicar llamadas simultáneas.
+ 
+-Cambiar/confirmar/deshacer categoría usa useMutation con retry:false y los wrappers existentes. `categoryMutations.ts` bloquea por ID y cliente, cancela lecturas, conserva originales por fila y revierte únicamente la edición fallida. `transactionCache.ts` aplica respuestas completas respetando category_version y protege previsualizaciones pendientes frente a lecturas por foco/reconexión. El 409 renueva datos con la política del usuario, sin volver a enviar la escritura. La última escritura concurrente reconcilia las páginas activas, corrigiendo filtros/totales y sin recargas adicionales del componente. Las propuestas siguen pendientes de centralización en el paso 9.
++Cambiar/confirmar/deshacer categoría usa useMutation con retry:false y los wrappers existentes. `categoryMutations.ts` bloquea por ID y cliente, cancela lecturas, conserva originales por fila y revierte únicamente la edición fallida. `transactionCache.ts` aplica respuestas completas respetando category_version y protege previsualizaciones pendientes frente a lecturas por foco/reconexión. El 409 renueva datos con la política del usuario, sin volver a enviar la escritura. La última escritura concurrente reconcilia las páginas activas, corrigiendo filtros/totales y sin recargas adicionales del componente.
++
++Paso 9: patrones y propuestas consumen `learningQueries` en CategoryLearning, Movimientos y su modal. La invalidación central renueva aprendizaje; fetchQuery reutiliza la respuesta vigente después de guardar o cerrar propuestas. `useExplicitAction` envuelve acciones imperativas en mutaciones sin reintento, bloqueo síncrono por instancia y gcTime:0/reset para liberar variables y resultados al terminar. Reglas, decisiones, PDF, modal de efectivo y perfil lo utilizan. No sustituye los bloqueos por ID compartidos de categorización ni la coordinación de invalidaciones.
++
++Importación mantiene PDF/contraseña solo durante su flujo, nunca en claves o almacenamiento persistente. Ante un resultado incierto verifica cuenta y checksum antes de reenviar; un error de verificación impide el POST. Esta protección complementa la comprobación de duplicados del backend. Perfil exporta mediante su servicio con AbortController, sin cachear el historial. Las previews de reglas ignoran resultados de formularios modificados. Ver `docs/verificacion-query-consumidores.md`.
+diff --git a/docs/plan-migracion-tanstack-query.md b/docs/plan-migracion-tanstack-query.md
+--- a/docs/plan-migracion-tanstack-query.md
++++ b/docs/plan-migracion-tanstack-query.md
+@@ -1,6 +1,6 @@
+ **Plan de migración de SoloFinanzas a TanStack Query**
+ 
+-Fecha: 7 de noviembre de 2026. Estado: puntos 1, 3, 4, 5, 6, 7 y 8 implementados; punto 2 con inventario y línea base de frontend simulada registrados. Medición del servidor real y migración de los demás consumidores pendientes.
++Fecha: 7 de noviembre de 2026. Estado: puntos 1, 3, 4, 5, 6, 7, 8 y 9 implementados; punto 2 con inventario y línea base de frontend simulada registrados. Medición del servidor real y validación global del punto 10 pendientes.
+ 
+ Objetivo: reducir solicitudes repetidas, reutilizar datos al navegar y mantener coherencia después de guardar cambios, conservando los flujos actuales de autenticación, categorización, efectivo, importación y análisis.
+ 
+@@ -186,6 +186,8 @@
+ 
+ **10. Validación y condiciones de aceptación**
+ 
++Avance del punto 9: patrones/propuestas comparten opciones Query entre consumidores; reglas, decisiones, importación, modal de efectivo y perfil usan acciones explícitas sin reintento. Las mutaciones temporales se liberan al finalizar. Importación verifica cuenta/checksum tras una respuesta incierta antes de reenviar. Perfil exporta a través de su servicio y permite cancelar. Detalle en [verificación de fase 9](verificacion-query-consumidores.md) y [diff exclusivo de fase 9](changes/fase-9.patch).
++
+ Ampliar Playwright existente con interceptación y contadores de solicitudes. Añadir pruebas focalizadas de QueryClient/políticas si los casos de concurrencia no quedan cubiertos de forma fiable en navegador; no incorporar otro framework por defecto.
+ 
+ | Caso | Resultado exigido |
+diff --git a/frontend/tests/import-responsive.spec.ts b/frontend/tests/import-responsive.spec.ts
+--- a/frontend/tests/import-responsive.spec.ts
++++ b/frontend/tests/import-responsive.spec.ts
+@@ -1,6 +1,39 @@
+ import { expect, test, type Page } from "@playwright/test";
+ 
+ const pdf = { name: "cartola_septiembre_2026_cuenta_principal.pdf", mimeType: "application/pdf", buffer: Buffer.from("%PDF-test") };
++
++for (const committed of [true, false]) {
++  test(`respuesta de importación perdida: verifica antes de reenviar (${committed ? "guardada" : "pendiente"})`, async ({ page }) => {
++    await prepare(page);
++    await page.route("**/statement-imports/pdf/preview", route => route.fulfill({ json: preview }));
++    let posts = 0, checks = 0;
++    await page.route("**/statement-imports/pdf/reviewed", async route => {
++      posts++;
++      if (posts === 1) return route.abort("timedout");
++      expect(checks).toBe(2);
++      return route.fulfill({ json: { statement: { id: 88 }, result: { inserted_count: 3 } } });
++    });
++    await page.route("**/statements?account_id=1", route => {
++      checks++;
++      if (checks === 1) return route.fulfill({ status: 503, json: { detail: "Verificación no disponible" } });
++      return route.fulfill({ json: committed ? [{ id: 88, account_id: 1, file_checksum: preview.file_checksum }] : [] });
++    });
++    await page.locator('input[type="file"]').setInputFiles(pdf);
++    await page.getByRole("button", { name: "Analizar Documento", exact: true }).click();
++    const confirm = page.getByRole("button", { name: "Confirmar importación", exact: true });
++    await confirm.click();
++    await expect(page.getByRole("dialog")).toBeVisible();
++    expect(posts).toBe(1);
++    await page.getByRole("button", { name: "Cerrar", exact: true }).click();
++    await confirm.click();
++    await expect(page.getByRole("dialog")).toBeVisible();
++    expect(checks).toBe(1); expect(posts).toBe(1);
++    await page.getByRole("button", { name: "Cerrar", exact: true }).click();
++    await confirm.click();
++    await expect(page).toHaveURL(/statement_id=88/);
++    expect(checks).toBe(2); expect(posts).toBe(committed ? 1 : 2);
++  });
++}
+ const preview = {
+   parser_key: "banco_estado", file_name: pdf.name, file_checksum: "test", page_count: 2,
+   is_encrypted: false, used_password: false, period_month: "2026-09", extracted_text_length: 500,
+diff --git a/frontend/src/query/useExplicitAction.ts b/frontend/src/query/useExplicitAction.ts
+new file mode 100644
+--- /dev/null
++++ b/frontend/src/query/useExplicitAction.ts
+@@ -0,0 +1,15 @@
++import { useMutation } from "@tanstack/react-query";
++import { useRef } from "react";
++
++/** User-triggered actions never retry or retain their payload after completion. */
++export function useExplicitAction<A extends unknown[], R>(action: (...args: A) => Promise<R>) {
++  const running = useRef(false);
++  const mutation = useMutation({ mutationFn: (args: A) => action(...args), retry: false, gcTime: 0 });
++  const run = async (...args: A): Promise<R> => {
++    if (running.current) throw new Error("Esta operación ya está en curso.");
++    running.current = true;
++    try { return await mutation.mutateAsync(args); }
++    finally { running.current = false; mutation.reset(); }
++  };
++  return { run, isPending: mutation.isPending };
++}
+diff --git a/frontend/tests/query-actions.spec.ts b/frontend/tests/query-actions.spec.ts
+new file mode 100644
+--- /dev/null
++++ b/frontend/tests/query-actions.spec.ts
+@@ -0,0 +1,59 @@
++import { expect, test } from "@playwright/test";
++import { setupFixture } from "../benchmarks/fixture";
++
++test("perfil cancela la exportación sin descargar ni mostrar un error", async ({ page }) => {
++  await setupFixture(page);
++  let release!: () => void;
++  const pending = new Promise<void>(resolve => { release = resolve; });
++  await page.route("**/api/v1/me/export", async route => {
++    await pending;
++    await route.fulfill({ json: { accounts: [], transactions: [], categories: [], categorization_rules: [] } }).catch(() => {});
++  });
++  let downloads = 0;
++  page.on("download", () => downloads++);
++  await page.goto("/app/profile");
++  const request = page.waitForRequest("**/api/v1/me/export");
++  await page.getByRole("button", { name: "Exportar mis datos (JSON)", exact: true }).click();
++  await request;
++  const cancelled = page.waitForEvent("requestfailed", request => request.url().endsWith("/me/export"));
++  await page.getByRole("button", { name: "Cancelar descarga", exact: true }).click();
++  await cancelled;
++  release();
++  await expect(page.getByRole("button", { name: "Exportar mis datos (JSON)", exact: true })).toBeEnabled();
++  await expect(page.getByRole("alert")).toHaveCount(0);
++  expect(downloads).toBe(0);
++});
++
++test("acciones explícitas bloquean doble envío, no reintentan y liberan variables sensibles", async ({ page }) => {
++  await page.goto("/");
++  const result = await page.evaluate(async () => {
++    const path = "/tests/helpers/actionHarness.ts";
++    const h = await import(path);
++    const { useExplicitAction } = h;
++    const client = new h.QueryClient();
++    const host = document.createElement("div"); document.body.append(host);
++    const root = h.createRoot(host);
++    let run!: (secret: string) => Promise<string>, finish!: () => void, calls = 0;
++    function Probe() {
++      const action = useExplicitAction((secret: string) => {
++        calls++;
++        if (secret === "failure") return Promise.reject(new Error("failed"));
++        return new Promise<string>(resolve => { finish = () => resolve("done"); });
++      });
++      run = action.run;
++      return null;
++    }
++    root.render(h.createElement(h.QueryClientProvider, { client }, h.createElement(Probe)));
++    while (!run) await new Promise(resolve => setTimeout(resolve, 10));
++    const first = run("private-password");
++    const blocked = await run("private-password").then(() => false, () => true);
++    while (!finish) await new Promise(resolve => setTimeout(resolve, 10));
++    finish(); await first;
++    await run("failure").catch(() => {});
++    await new Promise(resolve => setTimeout(resolve, 50));
++    const retained = client.getMutationCache().getAll().length;
++    root.unmount(); host.remove(); client.clear();
++    return { blocked, calls, retained };
++  });
++  expect(result).toEqual({ blocked: true, calls: 2, retained: 0 });
++});
+diff --git a/frontend/tests/helpers/actionHarness.ts b/frontend/tests/helpers/actionHarness.ts
+new file mode 100644
+--- /dev/null
++++ b/frontend/tests/helpers/actionHarness.ts
+@@ -0,0 +1,5 @@
++// Browser-only imports; never included in the application bundle.
++export { createElement } from "react";
++export { createRoot } from "react-dom/client";
++export { QueryClient, QueryClientProvider } from "@tanstack/react-query";
++export { useExplicitAction } from "../../src/query/useExplicitAction";
+diff --git a/docs/verificacion-query-consumidores.md b/docs/verificacion-query-consumidores.md
+new file mode 100644
+--- /dev/null
++++ b/docs/verificacion-query-consumidores.md
+@@ -0,0 +1,24 @@
++# Fase 9: categorías, reglas, importación, modales y perfil
++
++Implementación local del 7 de noviembre de 2026. El [diff de esta fase](changes/fase-9.patch) compara contra el estado al comenzar este prompt, incluyendo archivos ya modificados en fases anteriores. No se crearon commits.
++
++## Cambios
++
++- Categorías conserva consultas independientes de categorías, reglas y catálogo. CategoryLearning consume `learningQueries.patterns`; Movimientos consume `learningQueries.proposals`. El modal resuelve versiones obsoletas mediante esas mismas opciones y la invalidación de escrituras. Desaparece la carga de patrones ligada a cada cambio del catálogo. `fetchQuery` reutiliza propuestas vigentes al cerrar/reabrir y después de reconciliar una escritura.
++- Crear/editar/eliminar/previsualizar reglas, decidir propuestas y guardar/eliminar efectivo usan `useExplicitAction`. Este hook ejecuta `useMutation`, bloquea invocaciones simultáneas de la misma acción, desactiva reintentos y hace reset al terminar con `gcTime: 0`. Las escrituras conservan la invalidación central de `useWriteActions`; las previews no invalidan navegación. La preview de reglas descarta respuestas si cambió el formulario.
++- Importación conserva catálogo compartido, revisión, advertencias, correcciones y contraseña. Preview y confirmación usan mutaciones temporales y un bloqueo síncrono común. PDF/contraseña no forman parte de claves ni se persisten. Las variables se liberan al terminar cada petición; el formulario mantiene lo necesario durante la revisión y los errores recuperables, y limpia archivo, contraseña y revisión al completar. Al desmontar se liberan los estados del flujo.
++- Antes de repetir una confirmación cuyo resultado no se recibió, se consulta `/statements?account_id=...` y se compara `file_checksum`. Si la cartola existe, se invalidan las familias financieras del usuario y se abren sus movimientos sin otro POST. Si la comprobación falla, se bloquea el POST; si no existe, se permite el envío explícito. Se mantienen los controles de duplicados del backend. Esta comprobación vive en el flujo montado: no añade persistencia ni idempotencia del servidor; tras recargar sigue aplicándose la protección de duplicados del backend.
++- Perfil mueve `/me/export` a `ProfileService`, lo ejecuta bajo demanda y permite cancelar mediante AbortController, también al desmontar. Conserva la confirmación de identidad reciente para eliminar y la limpieza de sesión de la capa de escrituras. El historial exportado no entra en la caché de navegación. La exportación de Movimientos conserva su cancelación, progreso y comprobación de integridad.
++- El impacto de eliminar cartolas continúa como consulta habilitada solo al abrir su modal. La eliminación de categorías conserva contadores compartidos y validación definitiva del backend; no se inventó un endpoint de impacto inexistente.
++
++## Validación
++
++- Build de producción y comprobación TypeScript de las pruebas modificadas.
++- Regresión dirigida de beta/importación: **33 aprobadas, 1 omitida** (editor exclusivo de escritorio).
++- Respuesta perdida de importación: **4 aprobadas**, cubriendo cartola guardada/no guardada y fallo previo de verificación, en escritorio/móvil.
++- Acciones temporales y categorización concurrente: **18 aprobadas**, incluyendo doble invocación, ausencia de reintentos y caché de mutaciones vacía después de completar/fallar.
++- Verificación final de perfil, cancelación, acciones y editor: **9 aprobadas, 1 omitida**; comparte casos con las ejecuciones anteriores. En total hay **57 casos distintos aprobados y 1 omitido** en estas selecciones.
++- Benchmark de producción simulado: **1 aprobado**. [Registro](measurements/http-phase9-production.json): Inicio frío 9 solicitudes; navegación Cuentas 3, Movimientos 3, Análisis 0, Inicio 0; paginación 1; añadir mes 1/quitar mes 0; guardar categoría 7 (una lectura de propuestas). Estos conteos no cambian respecto de la fase 8: no se atribuye una reducción adicional a este escenario.
++- `git diff --check` y `git apply --reverse --check docs/changes/fase-9.patch` verifican formato y correspondencia del diff con los archivos actuales, sin revertirlos.
++
++No se ejecutó nuevamente toda la suite beta: los 14 fallos previos documentados en fases anteriores no se declaran resueltos. Las mediciones usan API simulada, no tráfico del servidor real. Persiste el aviso de bundles mayores a 500 kB.
+diff --git a/docs/measurements/http-phase9-production.json b/docs/measurements/http-phase9-production.json
+new file mode 100644
+--- /dev/null
++++ b/docs/measurements/http-phase9-production.json
+@@ -0,0 +1,294 @@
++{
++  "mode": "production",
++  "fixture": "v1-500-transactions-20ms",
++  "date": "2026-11-07",
++  "measurements": [
++    {
++      "name": "dashboard-cold",
++      "uiCheckpointMs": 546,
++      "apiCompleteMs": 339,
++      "started": 9,
++      "decodedBytes": 55081,
++      "endpoints": {
++        "GET /api/v1/me": {
++          "started": 1,
++          "completed": 1,
++          "cancelled": 0,
++          "failed": 0,
++          "pending": 0,
++          "decodedBytes": 72
++        },
++        "GET /api/v1/dashboard": {
++          "started": 1,
++          "completed": 1,
++          "cancelled": 0,
++          "failed": 0,
++          "pending": 0,
++          "decodedBytes": 150
++        },
++        "GET /api/v1/accounts": {
++          "started": 1,
++          "completed": 1,
++          "cancelled": 0,
++          "failed": 0,
++          "pending": 0,
++          "decodedBytes": 144
++        },
++        "GET /api/v1/cash-account": {
++          "started": 1,
++          "completed": 1,
++          "cancelled": 0,
++          "failed": 0,
++          "pending": 0,
++          "decodedBytes": 26
++        },
++        "GET /api/v1/cash-account/balance": {
++          "started": 1,
++          "completed": 1,
++          "cancelled": 0,
++          "failed": 0,
++          "pending": 0,
++          "decodedBytes": 121
++        },
++        "GET /api/v1/categories": {
++          "started": 1,
++          "completed": 1,
++          "cancelled": 0,
++          "failed": 0,
++          "pending": 0,
++          "decodedBytes": 148
++        },
++        "GET /api/v1/account-products": {
++          "started": 1,
++          "completed": 1,
++          "cancelled": 0,
++          "failed": 0,
++          "pending": 0,
++          "decodedBytes": 2
++        },
++        "GET /api/v1/transaction-pages": {
++          "started": 1,
++          "completed": 1,
++          "cancelled": 0,
++          "failed": 0,
++          "pending": 0,
++          "decodedBytes": 258
++        },
++        "GET /api/v1/transactions": {
++          "started": 1,
++          "completed": 1,
++          "cancelled": 0,
++          "failed": 0,
++          "pending": 0,
++          "decodedBytes": 54160
++        }
++      }
++    },
++    {
++      "name": "navigation-Cuentas",
++      "uiCheckpointMs": 154,
++      "apiCompleteMs": 120,
++      "started": 3,
++      "decodedBytes": 10933,
++      "endpoints": {
++        "GET /api/v1/reports/accounts": {
++          "started": 1,
++          "completed": 1,
++          "cancelled": 0,
++          "failed": 0,
++          "pending": 0,
++          "decodedBytes": 145
++        },
++        "GET /api/v1/statements": {
++          "started": 1,
++          "completed": 1,
++          "cancelled": 0,
++          "failed": 0,
++          "pending": 0,
++          "decodedBytes": 2
++        },
++        "GET /api/v1/transaction-pages": {
++          "started": 1,
++          "completed": 1,
++          "cancelled": 0,
++          "failed": 0,
++          "pending": 0,
++          "decodedBytes": 10786
++        }
++      }
++    },
++    {
++      "name": "navigation-Movimientos",
++      "uiCheckpointMs": 270,
++      "apiCompleteMs": 157,
++      "started": 3,
++      "decodedBytes": 10809,
++      "endpoints": {
++        "GET /api/v1/reports/periods": {
++          "started": 1,
++          "completed": 1,
++          "cancelled": 0,
++          "failed": 0,
++          "pending": 0,
++          "decodedBytes": 21
++        },
++        "GET /api/v1/categorization-rules/proposals": {
++          "started": 1,
++          "completed": 1,
++          "cancelled": 0,
++          "failed": 0,
++          "pending": 0,
++          "decodedBytes": 2
++        },
++        "GET /api/v1/transaction-pages": {
++          "started": 1,
++          "completed": 1,
++          "cancelled": 0,
++          "failed": 0,
++          "pending": 0,
++          "decodedBytes": 10786
++        }
++      }
++    },
++    {
++      "name": "navigation-Análisis",
++      "uiCheckpointMs": 411,
++      "apiCompleteMs": 0,
++      "started": 0,
++      "decodedBytes": 0,
++      "endpoints": {}
++    },
++    {
++      "name": "navigation-Inicio",
++      "uiCheckpointMs": 165,
++      "apiCompleteMs": 0,
++      "started": 0,
++      "decodedBytes": 0,
++      "endpoints": {}
++    },
++    {
++      "name": "pagination-1",
++      "uiCheckpointMs": 159,
++      "apiCompleteMs": 89,
++      "started": 1,
++      "decodedBytes": 10797,
++      "endpoints": {
++        "GET /api/v1/transaction-pages": {
++          "started": 1,
++          "completed": 1,
++          "cancelled": 0,
++          "failed": 0,
++          "pending": 0,
++          "decodedBytes": 10797
++        }
++      }
++    },
++    {
++      "name": "pagination-3",
++      "uiCheckpointMs": 301,
++      "apiCompleteMs": 185,
++      "started": 1,
++      "decodedBytes": 10947,
++      "endpoints": {
++        "GET /api/v1/transaction-pages": {
++          "started": 1,
++          "completed": 1,
++          "cancelled": 0,
++          "failed": 0,
++          "pending": 0,
++          "decodedBytes": 10947
++        }
++      }
++    },
++    {
++      "name": "add-month",
++      "uiCheckpointMs": 176,
++      "apiCompleteMs": 124,
++      "started": 1,
++      "decodedBytes": 54160,
++      "endpoints": {
++        "GET /api/v1/transactions": {
++          "started": 1,
++          "completed": 1,
++          "cancelled": 0,
++          "failed": 0,
++          "pending": 0,
++          "decodedBytes": 54160
++        }
++      }
++    },
++    {
++      "name": "remove-month",
++      "uiCheckpointMs": 158,
++      "apiCompleteMs": 0,
++      "started": 0,
++      "decodedBytes": 0,
++      "endpoints": {}
++    },
++    {
++      "name": "save-category",
++      "uiCheckpointMs": 193,
++      "apiCompleteMs": 124,
++      "started": 7,
++      "decodedBytes": 11359,
++      "endpoints": {
++        "PATCH /api/v1/transactions/1000/category": {
++          "started": 1,
++          "completed": 1,
++          "cancelled": 0,
++          "failed": 0,
++          "pending": 0,
++          "decodedBytes": 235
++        },
++        "GET /api/v1/accounts": {
++          "started": 1,
++          "completed": 1,
++          "cancelled": 0,
++          "failed": 0,
++          "pending": 0,
++          "decodedBytes": 144
++        },
++        "GET /api/v1/cash-account": {
++          "started": 1,
++          "completed": 1,
++          "cancelled": 0,
++          "failed": 0,
++          "pending": 0,
++          "decodedBytes": 26
++        },
++        "GET /api/v1/categories": {
++          "started": 1,
++          "completed": 1,
++          "cancelled": 0,
++          "failed": 0,
++          "pending": 0,
++          "decodedBytes": 148
++        },
++        "GET /api/v1/reports/periods": {
++          "started": 1,
++          "completed": 1,
++          "cancelled": 0,
++          "failed": 0,
++          "pending": 0,
++          "decodedBytes": 21
++        },
++        "GET /api/v1/categorization-rules/proposals": {
++          "started": 1,
++          "completed": 1,
++          "cancelled": 0,
++          "failed": 0,
++          "pending": 0,
++          "decodedBytes": 2
++        },
++        "GET /api/v1/transaction-pages": {
++          "started": 1,
++          "completed": 1,
++          "cancelled": 0,
++          "failed": 0,
++          "pending": 0,
++          "decodedBytes": 10783
++        }
++      }
++    }
++  ]
++}
+\ No newline at end of file
