@@ -1,4 +1,9 @@
-import { ReportService } from '../services/reportService';
+import { hashKey, useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { transactionsQueries } from "../query/transactions";
+import { useQueryOwner } from "../query/shared";
+import { emptyList, useAccounts, useCashAccount, useCategories, usePeriods } from "../query/shared";
+import { useWriteActions } from "../query/writes";
+
 import { useEffect, useMemo, useState } from "react";
 import { Link, useLocation, useSearchParams } from "react-router-dom";
 import { useRef } from "react";
@@ -20,13 +25,8 @@ import {
   StatusNotice,
   cn,
 } from "../components";
-import {
-  createCategoryMap,
-  getCategoryPath,
-  groupCategories,
-  parseLocalDate,
-} from "../lib";
-import { AccountService, CategoryService, TransactionService } from "../services";
+import { createCategoryMap, getCategoryPath, groupCategories, parseLocalDate } from "../lib";
+import { learningQueries } from "../query/learning";
 import { CashLinkModal } from "../components/CashLinkModal";
 import { CategoryIcon } from "../components/CategoryIcon";
 import { CategoryPicker } from "../components/CategoryPicker";
@@ -80,23 +80,39 @@ function formatDateLabel(date: string) {
 }
 
 export function TransactionsPage() {
+  const writes = useWriteActions();
+  const owner = useQueryOwner();
+  const categoryMutation = useMutation({
+    mutationFn: (args: Parameters<typeof writes.transactions.updateCategory>) => writes.transactions.updateCategory(...args),
+    retry: false,
+  });
+  const undoMutation = useMutation({
+    mutationFn: (args: Parameters<typeof writes.transactions.undoCategory>) => writes.transactions.undoCategory(...args),
+    retry: false,
+  });
   const [searchParams, setSearchParams] = useSearchParams();
   const location = useLocation();
   const statementId = searchParams.get("statement_id")
     ? Number(searchParams.get("statement_id"))
     : undefined;
-  const [transactions, setTransactions] = useState<Transaction[]>([]);
-  const [accounts, setAccounts] = useState<Account[]>([]);
-  const [cashAccount, setCashAccount] = useState<CashAccount | null>(null);
+  const accountsQuery = useAccounts();
+  const cashQuery = useCashAccount();
+  const categoriesQuery = useCategories();
+  const periodsQuery = usePeriods(statementId);
+  const accounts = accountsQuery.data ?? emptyList;
+  const cashAccount = cashQuery.data ?? null;
   const [cashFormOpen, setCashFormOpen] = useState(false);
   const [editingCashTransaction, setEditingCashTransaction] = useState<Transaction | null>(null);
-  const [cashRefreshKey, setCashRefreshKey] = useState(0);
   const [linkingTransaction, setLinkingTransaction] = useState<Transaction | null>(null);
   const [linkSaving, setLinkSaving] = useState(false);
   const [linkError, setLinkError] = useState<string | null>(null);
-  const [categories, setCategories] = useState<Category[]>([]);
+  const categories = categoriesQuery.data ?? emptyList;
   const [savingCategoryIds, setSavingCategoryIds] = useState<Set<number>>(() => new Set());
-  const [proposals, setProposals] = useState<CategoryPattern[]>([]);
+  const [categoryErrors, setCategoryErrors] = useState<Record<number, string>>({});
+  const proposalsClient = useQueryClient();
+  const proposalOptions = learningQueries.proposals(useQueryOwner());
+  const proposalsQuery = useQuery(proposalOptions);
+  const proposals = proposalsQuery.data ?? emptyList;
   const [proposalQueue, setProposalQueue] = useState<CategoryPattern[]>([]);
   const shownProposals = useRef(new Set<number>());
   const changedForProposals = useRef(new Map<number, Transaction>());
@@ -105,9 +121,8 @@ export function TransactionsPage() {
     if (changed) changedForProposals.current.set(changed.id, changed);
     const request = ++proposalRequest.current;
     try {
-      const items = await CategoryService.ruleProposals();
+      const items = await proposalsClient.fetchQuery(proposalOptions);
       if (request !== proposalRequest.current) return;
-      setProposals(items);
       // Only interrupt for patterns related to the user's saved changes, not
       // unrelated proposals that happened to be waiting when this page opened.
       const relevant = items.filter(item => !shownProposals.current.has(item.id) &&
@@ -117,14 +132,14 @@ export function TransactionsPage() {
             (item.match_type === "exact" ? item.pattern === description : ` ${description} `.includes(` ${item.pattern} `));
         }));
       relevant.forEach(item => shownProposals.current.add(item.id));
-      changedForProposals.current.clear();
+      // Keep saved changes until undo/unmount: a concurrent write may reconcile
+      // the shared proposals after this write has already completed.
       setProposalQueue(current => [...current.flatMap(queued => {
         const updated = items.find(item => item.id === queued.id);
         return updated ? [updated] : [];
       }), ...relevant.filter(item => !current.some(queued => queued.id === item.id))]);
     } catch { /* A proposal fetch failure must never undo a saved category. */ }
   };
-  useEffect(() => { void refreshProposals(); }, []);
   const [categoryNotice, setCategoryNotice] = useState<CategoryNotice | null>(null);
   const updateFilters = (values: Record<string, string | undefined>) => {
     setSearchParams(previous => {
@@ -159,25 +174,15 @@ export function TransactionsPage() {
   const setSelectedMonth = (value: string) => updateFilters({ month: value === ALL_PERIODS ? undefined : value });
   const setSelectedAccount = (value: string) => updateFilters({ account_id: value === ALL_ACCOUNTS ? undefined : value });
   const setSelectedCategory = (value: string) => updateFilters({ category: value === ALL_CATEGORIES ? undefined : value });
-  const [hasLoaded, setHasLoaded] = useState(false);
-  const [total, setTotal] = useState(0);
-  const [months, setMonths] = useState<string[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [loadingMore, setLoadingMore] = useState(false);
-  const [loadMoreFailed, setLoadMoreFailed] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const months = periodsQuery.data ?? emptyList;
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [exportRequest, setExportRequest] = useState<TransactionExportRequest | null>(null);
   const [expandedTransactionIds, setExpandedTransactionIds] = useState<Set<number>>(() => new Set());
   const loadMoreRef = useRef<HTMLDivElement>(null);
-  const requestGenerationRef = useRef(0);
-  const nextOffsetRef = useRef(0);
   const fetchingMoreRef = useRef(false);
   const savingCategoryIdsRef = useRef(new Set<number>());
-  const categoryOverridesRef = useRef(new Map<number, number | null>());
   const noticeSequenceRef = useRef(0);
   const latestCategoryActionRef = useRef(0);
-  const latestCategoryRefreshRef = useRef(0);
 
   useEffect(() => {
     if (searchParams.get("new_movement") !== "1" || !cashAccount) return;
@@ -210,41 +215,6 @@ export function TransactionsPage() {
     setCategoryNotice({ id: noticeSequenceRef.current, ...notice });
   };
 
-  const withCategoryOverrides = (items: Transaction[]) => items.map(transaction =>
-    categoryOverridesRef.current.has(transaction.id)
-      ? { ...transaction, category_id: categoryOverridesRef.current.get(transaction.id) ?? null }
-      : transaction,
-  );
-
-  const refreshVisibleTransactions = async () => {
-    const generation = requestGenerationRef.current;
-    latestCategoryRefreshRef.current += 1;
-    const refreshId = latestCategoryRefreshRef.current;
-    try {
-      const page = await TransactionService.getPage({
-        ...query,
-        limit: Math.min(Math.max(nextOffsetRef.current, VISIBLE_TRANSACTION_STEP), 1000),
-        offset: 0,
-      });
-      if (generation !== requestGenerationRef.current || refreshId !== latestCategoryRefreshRef.current) return;
-      if (selectedCategory !== ALL_CATEGORIES) {
-        requestGenerationRef.current += 1;
-        fetchingMoreRef.current = false;
-        setLoadingMore(false);
-        setLoadMoreFailed(false);
-        setTransactions(withCategoryOverrides(page.items));
-        setTotal(page.total);
-        nextOffsetRef.current = page.items.length;
-        return;
-      }
-      const refreshed = new Map(withCategoryOverrides(page.items).map(item => [item.id, item]));
-      setTransactions(current => current.map(item => refreshed.get(item.id) ?? item));
-      if (selectedCategory === ALL_CATEGORIES) setTotal(page.total);
-    } catch {
-      // El cambio ya se guardó; se conservan las tarjetas actuales si falla esta actualización secundaria.
-    }
-  };
-
   const query = {
     search: debouncedSearch || undefined,
     statement_id: statementId,
@@ -257,63 +227,45 @@ export function TransactionsPage() {
     date_to: selectedMonth === ALL_PERIODS ? undefined : `${selectedMonth}-${new Date(Number(selectedMonth.slice(0, 4)), Number(selectedMonth.slice(5, 7)), 0).getDate()}`,
     limit: VISIBLE_TRANSACTION_STEP,
   };
+  const infiniteOptions = transactionsQueries.infinite(owner, query);
+  const transactionQuery = useInfiniteQuery(infiniteOptions);
+  const filterKey = hashKey(infiniteOptions.queryKey);
+  const previousFilters = useRef(filterKey);
+  const transactions = useMemo(() => {
+    const rows = new Map<number, Transaction>();
+    for (const page of transactionQuery.data?.pages ?? []) {
+      for (const row of page.items) if (!rows.has(row.id)) rows.set(row.id, row);
+    }
+    return [...rows.values()];
+  }, [transactionQuery.data]);
+  const pages = transactionQuery.data?.pages;
+  const total = pages?.[pages.length - 1]?.total ?? 0;
+  const hasLoaded = !!transactionQuery.data;
+  const loading = transactionQuery.isPending || (transactionQuery.isFetching && !transactionQuery.isFetchingNextPage);
+  const loadingMore = transactionQuery.isFetchingNextPage;
+  const loadMoreFailed = transactionQuery.isFetchNextPageError;
+  const error = transactionQuery.error?.message
+    ?? [accountsQuery, cashQuery, categoriesQuery, periodsQuery].find(query => query.error)?.error?.message ?? null;
+
   useEffect(() => {
-    let cancelled = false;
-    void Promise.all([AccountService.getAccounts(), AccountService.getCashAccount(), CategoryService.getCategories(), ReportService.periods(statementId)])
-      .then(([a, cash, c, p]) => { if (!cancelled) { setAccounts(a); setCashAccount(cash); setCategories(c); setMonths(p); } })
-      .catch(err => { if (!cancelled) setError(err.message); });
-    return () => { cancelled = true; };
-  }, [statementId, cashRefreshKey]);
-  useEffect(() => {
-    let cancelled = false;
-    requestGenerationRef.current += 1;
-    nextOffsetRef.current = 0;
-    fetchingMoreRef.current = false;
-    setLoading(true); setError(null);
-    setLoadingMore(false);
-    setLoadMoreFailed(false);
-    void TransactionService.getPage({ ...query, offset: 0 }).then(page => {
-      if (!cancelled) {
-        setTransactions(withCategoryOverrides(page.items)); setTotal(page.total); setHasLoaded(true);
-        nextOffsetRef.current = page.items.length;
-      }
-    }).catch(err => { if (!cancelled) setError(err.message); })
-      .finally(() => { if (!cancelled) setLoading(false); });
-    return () => { cancelled = true; };
-  }, [statementId, selectedMonth, selectedAccount, selectedCategory, filter, excludeInternalTransfers, cashRefreshKey, debouncedSearch]);
+    if (previousFilters.current === filterKey) return;
+    previousFilters.current = filterKey;
+    setExpandedTransactionIds(new Set());
+    window.scrollTo({ top: 0, behavior: "instant" });
+  }, [filterKey]);
 
   useEffect(() => {
     const sentinel = loadMoreRef.current;
-    if (!sentinel || !hasLoaded || loading || searchPending || exportRequest || loadingMore || loadMoreFailed || nextOffsetRef.current >= total) return;
+    if (!sentinel || !transactionQuery.hasNextPage || transactionQuery.isFetching || searchPending || exportRequest || loadMoreFailed) return;
     const observer = new IntersectionObserver(([entry]) => {
       if (!entry?.isIntersecting || fetchingMoreRef.current) return;
       fetchingMoreRef.current = true;
-      setLoadingMore(true);
-      const generation = requestGenerationRef.current;
-      const offset = nextOffsetRef.current;
-      void TransactionService.getPage({ ...query, offset }).then(page => {
-        if (generation !== requestGenerationRef.current) return;
-        nextOffsetRef.current = offset + page.items.length;
-        setTransactions(current => {
-          const knownIds = new Set(current.map(transaction => transaction.id));
-          return [...current, ...withCategoryOverrides(page.items.filter(transaction => !knownIds.has(transaction.id)))];
-        });
-        setTotal(page.items.length === 0 ? offset : page.total);
-      }).catch(cause => {
-        if (generation === requestGenerationRef.current) {
-          setError(cause instanceof Error ? cause.message : "No se pudieron cargar más movimientos.");
-          setLoadMoreFailed(true);
-        }
-      }).finally(() => {
-        if (generation === requestGenerationRef.current) {
-          fetchingMoreRef.current = false;
-          setLoadingMore(false);
-        }
-      });
+      void transactionQuery.fetchNextPage({ cancelRefetch: false }).finally(() => { fetchingMoreRef.current = false; });
     }, { rootMargin: "350px 0px" });
     observer.observe(sentinel);
     return () => observer.disconnect();
-  }, [hasLoaded, loading, searchPending, exportRequest, loadingMore, loadMoreFailed, total, transactions.length, statementId, selectedMonth, selectedAccount, selectedCategory, filter, excludeInternalTransfers, cashRefreshKey, debouncedSearch]);
+  }, [filterKey, transactionQuery.hasNextPage, transactionQuery.isFetching, transactionQuery.fetchNextPage,
+    searchPending, exportRequest, loadMoreFailed]);
 
   const accountOptions = useMemo(() => {
     const accountIds = new Set(transactions.map((transaction) => transaction.account_id));
@@ -422,21 +374,14 @@ export function TransactionsPage() {
     const actionId = latestCategoryActionRef.current;
     savingCategoryIdsRef.current.add(transaction.id);
     setSavingCategoryIds(current => new Set(current).add(transaction.id));
-    categoryOverridesRef.current.set(transaction.id, categoryId);
-    setTransactions(current => current.map(item => item.id === transaction.id
-      ? { ...item, category_id: categoryId }
-      : item));
+    setCategoryErrors(current => { const next = { ...current }; delete next[transaction.id]; return next; });
     showCategoryNotice({ tone: "saving", message: "Guardando categoría…" });
 
     try {
-      const saved = await TransactionService.updateCategory(transaction.id, categoryId, {
+      const saved = await categoryMutation.mutateAsync([transaction.id, categoryId, {
         action: confirming ? "confirm" : "set",
         expected_version: transaction.category_version,
-      });
-      setTransactions(current => current.map(item => item.id === transaction.id
-        ? { ...item, ...(saved && saved.id === transaction.id ? saved : {}), category_id: categoryId }
-        : item));
-      void refreshVisibleTransactions();
+      }]);
       void refreshProposals(saved);
       const categoryName = categoryId === null ? "Sin categoría" : categoryMap.get(categoryId)?.name ?? "la categoría seleccionada";
       if (latestCategoryActionRef.current === actionId) {
@@ -450,10 +395,8 @@ export function TransactionsPage() {
         });
       }
     } catch (cause) {
-      categoryOverridesRef.current.set(transaction.id, previousCategoryId);
-      setTransactions(current => current.map(item => item.id === transaction.id
-        ? { ...item, category_id: previousCategoryId, category_source: transaction.category_source }
-        : item));
+      setCategoryErrors(current => ({ ...current, [transaction.id]: cause instanceof Error
+        ? `No se pudo guardar: ${cause.message}` : "No se pudo guardar la categoría." }));
       if (latestCategoryActionRef.current === actionId) {
         showCategoryNotice({
           tone: "error",
@@ -472,17 +415,23 @@ export function TransactionsPage() {
 
   const undoCategoryChange = async () => {
     const undo = categoryNotice?.undo;
-    if (!undo) return;
+    if (!undo || savingCategoryIdsRef.current.has(undo.transactionId)) return;
+    savingCategoryIdsRef.current.add(undo.transactionId);
+    setSavingCategoryIds(current => new Set(current).add(undo.transactionId));
+    setCategoryErrors(current => { const next = { ...current }; delete next[undo.transactionId]; return next; });
+    latestCategoryActionRef.current += 1;
+    const actionId = latestCategoryActionRef.current;
     try {
-      const restored = await TransactionService.undoCategory(undo.transactionId, undo.eventId, undo.version);
-      categoryOverridesRef.current.set(restored.id, restored.category_id);
-      setTransactions(current => current.map(item => item.id === restored.id ? restored : item));
-      showCategoryNotice({ tone: "success", message: "Cambio deshecho." });
-      void refreshVisibleTransactions();
+      const restored = await undoMutation.mutateAsync([undo.transactionId, undo.eventId, undo.version]);
+      if (latestCategoryActionRef.current === actionId) showCategoryNotice({ tone: "success", message: "Cambio deshecho." });
       changedForProposals.current.delete(restored.id);
       void refreshProposals();
     } catch (cause) {
-      showCategoryNotice({ tone: "error", message: cause instanceof Error ? cause.message : "No se pudo deshacer." });
+      setCategoryErrors(current => ({ ...current, [undo.transactionId]: cause instanceof Error ? cause.message : "No se pudo deshacer." }));
+      if (latestCategoryActionRef.current === actionId) showCategoryNotice({ tone: "error", message: cause instanceof Error ? cause.message : "No se pudo deshacer." });
+    } finally {
+      savingCategoryIdsRef.current.delete(undo.transactionId);
+      setSavingCategoryIds(current => { const next = new Set(current); next.delete(undo.transactionId); return next; });
     }
   };
 
@@ -492,13 +441,12 @@ export function TransactionsPage() {
     setLinkError(null);
     try {
       if (linkingTransaction.cash_transfer_linked || linkingTransaction.origin === "cash_transfer") {
-        await TransactionService.unlinkCash(linkingTransaction.id);
+        await writes.transactions.unlinkCash(linkingTransaction.id);
       } else {
-        await TransactionService.linkCash(linkingTransaction.id);
+        await writes.transactions.linkCash(linkingTransaction.id);
       }
       setSuccessMessage(linkingTransaction.cash_transfer_linked || linkingTransaction.origin === "cash_transfer" ? "Vínculo con Efectivo deshecho." : "Movimiento vinculado con Efectivo.");
       setLinkingTransaction(null);
-      setCashRefreshKey((value) => value + 1);
     } catch (cause) {
       setLinkError(cause instanceof Error ? cause.message : "No fue posible actualizar el vínculo.");
     } finally {
@@ -577,6 +525,7 @@ export function TransactionsPage() {
       </header>
 
       {loading && !hasLoaded ? <LoadingState message="Cargando movimientos..." /> : null}
+      {transactionQuery.isError && !loadMoreFailed ? <Button tone="secondary" onClick={() => void transactionQuery.refetch()}>Reintentar movimientos</Button> : null}
       {error ? <ErrorState message={error} /> : null}
       {typeof location.state?.importMessage === "string" ? (
         <StatusNotice tone="success">{location.state.importMessage}</StatusNotice>
@@ -691,6 +640,7 @@ export function TransactionsPage() {
                         toggleTransactionDetails(transaction.id);
                       }}
                     >
+                      {categoryErrors[transaction.id] ? <p aria-live="polite" className="text-sm text-danger">{categoryErrors[transaction.id]}</p> : null}
                       <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_minmax(0,0.75fr)] items-center gap-x-4 gap-y-3 sm:grid-cols-[minmax(0,1fr)_minmax(14rem,0.7fr)] sm:gap-x-6 lg:grid-cols-[3rem_minmax(0,1fr)_max-content_12rem] lg:gap-x-4 lg:gap-y-1 xl:grid-cols-[3rem_minmax(0,1fr)_max-content_14rem] 2xl:grid-cols-[3rem_minmax(0,1fr)_max-content_16rem]">
                         <span className="hidden lg:col-start-1 lg:row-span-2 lg:row-start-1 lg:flex lg:items-center"><CategoryIcon category={categoryMap.get(transaction.category_id ?? -1)} categoryMap={categoryMap} size="md" /></span>
                         <div className="min-w-0">
@@ -832,10 +782,10 @@ export function TransactionsPage() {
 
           <div ref={loadMoreRef} className="flex min-h-10 items-center justify-center" role="status" aria-live="polite">
             {loadingMore ? "Cargando más movimientos…" : null}
-            {loadMoreFailed ? <Button tone="secondary" onClick={() => { setError(null); setLoadMoreFailed(false); }}>Reintentar carga</Button> : null}
+            {loadMoreFailed ? <Button tone="secondary" onClick={() => void transactionQuery.fetchNextPage({ cancelRefetch: false })}>Reintentar carga</Button> : null}
           </div>
         </div>
-      ) : hasLoaded && !loading && !searchPending ? (
+      ) : hasLoaded && !loading && !searchPending && !transactionQuery.isError ? (
         <EmptyState
           title={debouncedSearch ? "No hay movimientos que coincidan con tu búsqueda" : selectedCategory === UNCATEGORIZED_CATEGORY && selectedMonth !== ALL_PERIODS && selectedAccount === ALL_ACCOUNTS && filter === "all" && !excludeInternalTransfers ? "Todo categorizado para este periodo" : "No hay movimientos para este filtro"}
           description={debouncedSearch ? "Prueba con otra descripción o ajusta los filtros actuales." : selectedCategory === UNCATEGORIZED_CATEGORY ? "No quedan movimientos sin categoría con los filtros actuales." : "Prueba cambiando el periodo o el criterio de revision."}
@@ -852,7 +802,6 @@ export function TransactionsPage() {
         onDecided={message => {
           const decidedId = proposalQueue[0].id;
           setProposalQueue(current => current.filter(item => item.id !== decidedId));
-          setProposals(current => current.filter(item => item.id !== decidedId));
           const noticeId = ++noticeSequenceRef.current;
           setCategoryNotice(current => ({ id: noticeId, tone: "success", message, undo: current?.undo }));
           void refreshProposals();
@@ -882,10 +831,7 @@ export function TransactionsPage() {
           categories={categories}
           transaction={editingCashTransaction}
           onClose={() => setCashFormOpen(false)}
-          onChanged={() => {
-            setCashRefreshKey((value) => value + 1);
-            setSuccessMessage("Movimientos de Efectivo actualizados.");
-          }}
+          onChanged={() => setSuccessMessage("Movimientos de Efectivo actualizados.")}
         />
       ) : null}
       {linkingTransaction ? (

@@ -38,9 +38,9 @@ export class TransactionService {
     category_id?: number;
     limit?: number;
     offset?: number;
-  }): Promise<Transaction[]> {
+  }, signal?: AbortSignal): Promise<Transaction[]> {
     return apiClient.get<Transaction[]>("/transactions", {
-      params: filters,
+      params: filters, signal,
     });
   }
 

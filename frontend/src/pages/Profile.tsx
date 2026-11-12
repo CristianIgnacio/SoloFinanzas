@@ -1,12 +1,20 @@
-import { useState } from "react";
+import { useExplicitAction } from "../query/useExplicitAction";
+import { ProfileService } from "../services/profileService";
+import { useWriteActions } from "../query/writes";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/AuthProvider";
-import { apiClient } from "../lib/apiClient";
 import { createProfileExport } from "../lib/profileExport";
 import { supabase, signInWithGoogle } from "../lib/supabase";
 import { Button, PageIntro, Panel } from "../components";
 
 export function ProfilePage() {
+  const writes = useWriteActions();
+  const exportAction = useExplicitAction(ProfileService.exportData);
+  const deleteAction = useExplicitAction(writes.profile.deleteProfile);
+  const exportController = useRef<AbortController | null>(null);
+  const actionRunning = useRef(false);
+  useEffect(() => () => exportController.current?.abort(), []);
   const { session } = useAuth();
   const navigate = useNavigate();
   const [confirmation, setConfirmation] = useState("");
@@ -54,12 +62,15 @@ export function ProfilePage() {
         <Button
           disabled={busy}
           onClick={async () => {
+            if (actionRunning.current) return;
+            actionRunning.current = true;
             setBusy(true);
             setExporting(true);
             setExportStatus("");
             setExportError("");
             try {
-              const data = await apiClient.get<Record<string, unknown>>("/me/export");
+              exportController.current = new AbortController();
+              const data = await exportAction.run(exportController.current.signal);
               const url = URL.createObjectURL(
                 new Blob([JSON.stringify(createProfileExport(data), null, 2)], {
                   type: "application/json",
@@ -74,15 +85,18 @@ export function ProfilePage() {
               setExportStatus("Archivo JSON preparado. La descarga se inició en tu navegador.");
               setTimeout(() => URL.revokeObjectURL(url), 1000);
             } catch (err) {
-              setExportError(err instanceof Error ? err.message : "No se pudieron descargar tus datos. Inténtalo de nuevo.");
+              if (!exportController.current?.signal.aborted) setExportError(err instanceof Error ? err.message : "No se pudieron descargar tus datos. Inténtalo de nuevo.");
             } finally {
               setBusy(false);
               setExporting(false);
+              exportController.current = null;
+              actionRunning.current = false;
             }
           }}
         >
           {exporting ? "Preparando JSON…" : "Exportar mis datos (JSON)"}
         </Button>
+        {exporting && <Button tone="secondary" onClick={() => exportController.current?.abort()}>Cancelar descarga</Button>}
         <p role="status" aria-live="polite" className="mt-3 text-sm text-muted">{exporting ? "Preparando tus cuentas, movimientos, categorías y reglas…" : exportStatus}</p>
         {exportError && <p role="alert" className="mt-3 text-danger">{exportError}</p>}
       </Panel>
@@ -117,16 +131,18 @@ export function ProfilePage() {
           disabled={confirmation !== "ELIMINAR" || busy}
           className="border-danger bg-danger"
           onClick={async () => {
+            if (actionRunning.current) return;
+            actionRunning.current = true;
             setBusy(true);
             setDeleteError("");
             try {
-              await apiClient.delete("/me");
-              await supabase?.auth.signOut({ scope: "local" });
+              await deleteAction.run();
               navigate("/", { replace: true });
             } catch (err) {
               setDeleteError(err instanceof Error ? err.message : "No se pudo eliminar tu cuenta. Inténtalo de nuevo.");
             } finally {
               setBusy(false);
+              actionRunning.current = false;
             }
           }}
         >

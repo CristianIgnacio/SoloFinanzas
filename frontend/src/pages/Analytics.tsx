@@ -1,9 +1,11 @@
+import { useCompleteMonths } from "../query/months";
+import { emptyList, useAccounts, useCashAccount, useCategories, usePeriods } from "../query/shared";
 import { createPortal } from "react-dom";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faSliders } from "@fortawesome/free-solid-svg-icons";
 import "./Analytics.css";
 import { CategoryPicker } from "../components/CategoryPicker";
-import { ReportService } from '../services/reportService';
+
 import { useAuth } from '../auth/AuthProvider';
 import { useEffect, useId, useMemo, useRef, useState, type ReactNode, type ComponentProps } from "react";
 
@@ -37,11 +39,9 @@ import {
   getRootCategory,
   parseLocalDate,
 } from "../lib";
-import { AccountService, CategoryService, TransactionService } from "../services";
 import { InstitutionLabels, TransactionType } from "../types";
-import type { Account, CashAccount, Category, Transaction } from "../types";
+import type { Account, CashAccount, Transaction } from "../types";
 
-const TRANSACTION_PAGE_SIZE = 1000;
 const TRANSACTION_PAGE_SIZE_OPTIONS = [25, 50, 100] as const;
 const UNCATEGORIZED_KEY = "uncategorized";
 const CATEGORY_SELECTION_SUMMARY = "category-selection-summary";
@@ -99,7 +99,6 @@ type TransactionSort = {
   direction: SortDirection;
 };
 
-
 type FilterOption = {
   value: string;
   label: string;
@@ -148,23 +147,6 @@ function createPaginationItems(currentPage: number, totalPages: number): Array<n
   });
 
   return items;
-}
-
-async function loadPeriodTransactions(period: string) {
-  const transactions: Transaction[] = [];
-  let offset = 0;
-
-  while (true) {
-    const page = await TransactionService.getTransactions({
-      date_from: `${period}-01`,
-      date_to: `${period}-${new Date(Number(period.slice(0, 4)), Number(period.slice(5, 7)), 0).getDate()}`,
-      limit: TRANSACTION_PAGE_SIZE,
-      offset,
-    });
-    transactions.push(...page);
-    if (page.length < TRANSACTION_PAGE_SIZE) return transactions;
-    offset += TRANSACTION_PAGE_SIZE;
-  }
 }
 
 function formatPeriodLabel(period: string) {
@@ -276,13 +258,18 @@ function readExcludedTransactionIds(owner: string): Set<number> {
 export function AnalyticsPage() {
   const { session } = useAuth();
   const owner = session!.user.id;
-  const [availablePeriods, setAvailablePeriods] = useState<string[]>([]);
-  const [loadingPeriods, setLoadingPeriods] = useState(false);
+  const accountsQuery = useAccounts();
+  const cashQuery = useCashAccount();
+  const categoriesQuery = useCategories();
+  const periodsQuery = usePeriods();
+  const sharedQueries = [accountsQuery, cashQuery, categoriesQuery, periodsQuery];
+  const availablePeriods = useMemo(() => [...(periodsQuery.data ?? emptyList)].sort((a, b) => b.localeCompare(a)), [periodsQuery.data]);
+  const initialError = sharedQueries.find(query => query.error)?.error;
+  const initializedPeriods = useRef(false);
   const formatCurrency = useFormatCurrency();
-  const [accounts, setAccounts] = useState<Account[]>([]);
-  const [cashAccount, setCashAccount] = useState<CashAccount | null>(null);
-  const [categories, setCategories] = useState<Category[]>([]);
-  const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const accounts = accountsQuery.data ?? emptyList;
+  const cashAccount = cashQuery.data ?? null;
+  const categories = categoriesQuery.data ?? emptyList;
   const [selectedPeriods, setSelectedPeriods] = useState<Set<string>>(new Set());
   const [selectedAccountIds, setSelectedAccountIds] = useState<Set<string>>(new Set());
   const [selectedCategoryKeys, setSelectedCategoryKeys] = useState<Set<string>>(new Set());
@@ -299,7 +286,7 @@ export function AnalyticsPage() {
   const [chartStyle, setChartStyle] = useState<ChartStyle>("bar");
   const [showSubcategoryDetail, setShowSubcategoryDetail] = useState(false);
   const [showFrequencySubcategories, setShowFrequencySubcategories] = useState(false);
-  const [loading, setLoading] = useState(true);
+  const loading = sharedQueries.some(query => query.isPending);
   const [transactionSort, setTransactionSort] = useState<TransactionSort>({
     key: "date",
     direction: "desc",
@@ -316,12 +303,13 @@ export function AnalyticsPage() {
   const [showStickyBulkActions, setShowStickyBulkActions] = useState(false);
   const transactionTableRef = useRef<HTMLDivElement>(null);
   const bulkActionsRef = useRef<HTMLDivElement>(null);
-  const [error, setError] = useState<{ message: string; scope: "initial" | "periods" } | null>(null);
-  const [initialAttempt, setInitialAttempt] = useState(0);
-  const [periodAttempt, setPeriodAttempt] = useState(0);
-  const [loadedPeriods, setLoadedPeriods] = useState<Set<string> | null>(null);
-  // Keep chart labels and date filtering aligned with the last successful response.
+  const months = useCompleteMonths(selectedPeriods);
+  const transactions = months.snapshot?.transactions ?? emptyList;
+  const loadingPeriods = months.loading;
+  const loadedPeriods = useMemo(() => months.snapshot?.periods.length ? new Set(months.snapshot.periods) : null, [months.snapshot?.periods]);
   const displayedPeriods = loadedPeriods ?? selectedPeriods;
+  const error = initialError ? { message: initialError.message, scope: "initial" as const }
+    : months.error ? { message: months.error.message, scope: "periods" as const } : null;
 
   useEffect(() => {
     const navigation = navigationRef.current;
@@ -334,71 +322,10 @@ export function AnalyticsPage() {
   }, [loading]);
 
   useEffect(() => {
-    let cancelled = false;
-
-    async function loadAnalyticsData() {
-      setLoading(true);
-      setError(null);
-      try {
-        const [accountData, cashData, categoryData, periods] = await Promise.all([
-          AccountService.getAccounts(),
-          AccountService.getCashAccount(),
-          CategoryService.getCategories(),
-          ReportService.periods(),
-        ]);
-        if (cancelled) return;
-
-        setAccounts(accountData);
-        setCashAccount(cashData);
-        setCategories(categoryData);
-        const sortedPeriods = [...periods].sort((left, right) => right.localeCompare(left));
-        setAvailablePeriods(sortedPeriods);
-        setSelectedPeriods(new Set(sortedPeriods.slice(0, 1)));
-      } catch (err) {
-        if (!cancelled) {
-          setError({ message: err instanceof Error ? err.message : "No fue posible cargar el análisis.", scope: "initial" });
-        }
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    }
-
-    void loadAnalyticsData();
-    return () => {
-      cancelled = true;
-    };
-  }, [initialAttempt]);
-
-  useEffect(() => {
-    if (loading) return;
-    // Removing the last period chip must clear the view without fetching all history.
-    if (selectedPeriods.size === 0) {
-      setTransactions([]);
-      setLoadedPeriods(null);
-      setLoadingPeriods(false);
-      setError(current => current?.scope === "periods" ? null : current);
-      return;
-    }
-    let cancelled = false;
-    setLoadingPeriods(true);
-    setError(null);
-    // An empty period selection means no data, never an implicit full-history fetch.
-    void (async () => {
-      const data: Transaction[] = [];
-      for (const period of selectedPeriods) {
-        if (cancelled) return;
-        data.push(...await loadPeriodTransactions(period));
-      }
-      if (!cancelled) {
-        setTransactions(data);
-        setLoadedPeriods(selectedPeriods);
-      }
-    })().catch(err => {
-      if (!cancelled) setError({ message: err instanceof Error ? err.message : "No fue posible cargar los movimientos.", scope: "periods" });
-    })
-      .finally(() => { if (!cancelled) setLoadingPeriods(false); });
-    return () => { cancelled = true; };
-  }, [selectedPeriods, periodAttempt, loading]);
+    if (loading || initialError || initializedPeriods.current) return;
+    initializedPeriods.current = true;
+    setSelectedPeriods(new Set(availablePeriods.slice(0, 1)));
+  }, [loading, initialError, availablePeriods]);
 
   useEffect(() => {
     window.localStorage.setItem(
@@ -497,7 +424,6 @@ export function AnalyticsPage() {
     ],
     [],
   );
-
 
   const activeFilters = useMemo<ActiveFilter[]>(
     () => {
@@ -989,7 +915,6 @@ export function AnalyticsPage() {
       });
   }, [accountMap, categoryMap, tableTransactions, transactionSort, transactionSearch]);
 
-
   const transactionTotalPages = Math.max(
     1,
     Math.ceil(sortedTransactions.length / transactionPageSize),
@@ -1243,7 +1168,7 @@ export function AnalyticsPage() {
 
         {error && <div role="alert" className="flex flex-col gap-3 rounded-2xl border border-danger/20 bg-danger/5 px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
           <div className="min-w-0"><p className="font-semibold text-ink">{error.scope === "initial" ? "No se pudo preparar el análisis" : "No se pudieron cargar los meses seleccionados"}</p><p className="mt-1 break-words text-sm text-muted">{error.message}</p></div>
-          <Button tone="secondary" compactOnMobile className="shrink-0" onClick={() => error.scope === "initial" ? setInitialAttempt(value => value + 1) : setPeriodAttempt(value => value + 1)}>Reintentar</Button>
+          <Button tone="secondary" compactOnMobile className="shrink-0" onClick={() => error.scope === "initial" ? void Promise.all(sharedQueries.filter(query => query.isError).map(query => query.refetch())) : void months.retry()}>Reintentar</Button>
         </div>}
         {loadingPeriods && <p role="status" className="text-sm text-muted">Cargando los meses seleccionados…</p>}
         {loadedPeriods && (loadingPeriods || error?.scope === "periods") && <p role="status" className="rounded-xl bg-paper-soft px-4 py-3 text-sm text-muted">
@@ -1296,7 +1221,6 @@ export function AnalyticsPage() {
           ) : (
             <>
               {analysisView === "summary" && !CHART_WIDGETS.some(widget => visibleWidgets.has(widget.value)) && <EmptyState title="Aún no hay gráficos seleccionados" description="Elige los gráficos que quieres ver en Personalizar." action={<Button tone="secondary" onClick={() => setCustomizeOpen(true)}>Personalizar gráficos</Button>} />}
-              {analysisView === "summary" && CHART_WIDGETS.some(widget => visibleWidgets.has(widget.value)) && <p className="text-sm text-muted">Selecciona una barra o un punto para ver sus movimientos.</p>}
               {showChart("evolution") ? (
                 <AnalysisChartPanel chart="evolution" label="Gráfico de evolución">
                   <ChartHeading

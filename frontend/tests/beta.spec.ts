@@ -1079,11 +1079,13 @@ test("movimientos no desborda el ancho móvil con descripciones largas", async (
   await page.route("**/api/v1/categories**", route => route.fulfill({ json: [
     { id: 1, name: "Compras", type: "expense", parent_id: null, is_active: true, sort_order: 1 },
   ] }));
+  let savedCategory: number | null = null;
+  let categoryVersion = 0;
   const description = "Transferencia_".repeat(12);
   await page.route("**/api/v1/transaction-pages**", route => route.fulfill({ json: {
     items: [
       { id: 2, account_id: 1, date: "2026-09-30", description: "Transf a CLEO CHILE",
-        amount_clp: -23600, transaction_type: "expense", origin: "pdf", category_id: null, is_internal_transfer: true },
+        amount_clp: -23600, transaction_type: "expense", origin: "pdf", category_id: savedCategory, category_version: categoryVersion, is_internal_transfer: true },
       { id: 1, account_id: 1, date: "2026-09-30", description,
         amount_clp: -123456789, transaction_type: "expense", origin: "pdf", category_id: null },
       { id: 3, account_id: 3, date: "2026-09-29", description: "Ingreso en efectivo",
@@ -1096,11 +1098,15 @@ test("movimientos no desborda el ancho móvil con descripciones largas", async (
   await page.route("**/api/v1/transactions/2/category", route => {
     const categoryId = route.request().postDataJSON().category_id as number | null;
     categoryUpdates.push(categoryId);
-    return route.fulfill({ json: { id: 2, category_id: categoryId,
+    savedCategory = categoryId; categoryVersion = 1;
+    return route.fulfill({ json: { id: 2, account_id: 1, date: "2026-09-30",
+      description: "Transf a CLEO CHILE", amount_clp: -23600, transaction_type: "expense",
+      origin: "pdf", is_internal_transfer: true, category_id: categoryId,
       category_version: 1, category_reviewed: true, category_event_id: 202 } });
   });
   await page.route("**/api/v1/transactions/2/category/undo", route => {
     undoEvents.push(route.request().postDataJSON().event_id);
+    savedCategory = null; categoryVersion = 2;
     return route.fulfill({ json: { id: 2, account_id: 1, date: "2026-09-30",
       description: "Transf a CLEO CHILE", amount_clp: -23600, transaction_type: "expense",
       origin: "pdf", is_internal_transfer: true, category_id: null, category_source: null,
@@ -1142,11 +1148,12 @@ test("movimientos no desborda el ancho móvil con descripciones largas", async (
   }, { times: 1 });
   await page.getByRole("button", { name: "Filtrar por categoría", exact: true }).click();
   await page.getByRole("dialog", { name: "Seleccionar categoría" }).getByRole("button", { name: "Compras", exact: true }).click();
-  await expect(page.getByRole("status").first()).toContainText("Actualizando…");
-  await expect(page.getByText("Transf a CLEO CHILE", { exact: true })).toBeVisible();
+  await expect(page.getByText("Cargando movimientos...", { exact: true })).toBeVisible();
+  await expect(page.getByText("Transf a CLEO CHILE", { exact: true })).toHaveCount(0);
   await expect.poll(() => typeof resumeFilter).toBe("function");
   resumeFilter();
-  await expect(page.getByRole("status").first()).not.toContainText("Actualizando…");
+  await expect(page.getByText("Cargando movimientos...", { exact: true })).toHaveCount(0);
+  await expect(page.getByText("Transf a CLEO CHILE", { exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "Quitar filtro: Compras" })).toBeVisible();
   await page.getByRole("button", { name: "Limpiar filtros", exact: true }).click();
   await expect(page.getByRole("button", { name: "Quitar filtro: Compras" })).toHaveCount(0);

@@ -1,5 +1,6 @@
+import { useExplicitAction } from "../query/useExplicitAction";
+import { useWriteActions } from "../query/writes";
 import { useState } from "react";
-import { TransactionService } from "../services";
 import { CategoryType, TransactionType } from "../types";
 import type { Category, ManualTransactionInput, Transaction } from "../types";
 import { Button } from "./ui";
@@ -22,6 +23,10 @@ type Props = {
 };
 
 export function CashMovementFormModal({ categories, transaction, initialDelete = false, onClose, onChanged }: Props) {
+  const writes = useWriteActions();
+  const createAction = useExplicitAction(writes.transactions.createCashTransaction);
+  const updateAction = useExplicitAction(writes.transactions.updateCashTransaction);
+  const deleteAction = useExplicitAction(writes.transactions.deleteCashTransaction);
   const [type, setType] = useState<TransactionType>(transaction?.transaction_type ?? TransactionType.EXPENSE);
   const [amount, setAmount] = useState(transaction ? String(Math.abs(transaction.amount_clp)) : "");
   const [date, setDate] = useState(transaction?.date ?? localToday());
@@ -56,8 +61,8 @@ export function CashMovementFormModal({ categories, transaction, initialDelete =
     setSaving(true);
     setError(null);
     try {
-      if (transaction) await TransactionService.updateCashTransaction(transaction.id, payload);
-      else await TransactionService.createCashTransaction(payload);
+      if (transaction) await updateAction.run(transaction.id, payload);
+      else await createAction.run(payload);
       onChanged();
       onClose();
     } catch (cause) {
@@ -72,7 +77,7 @@ export function CashMovementFormModal({ categories, transaction, initialDelete =
     setSaving(true);
     setError(null);
     try {
-      await TransactionService.deleteCashTransaction(transaction.id);
+      await deleteAction.run(transaction.id);
       onChanged();
       onClose();
     } catch (cause) {

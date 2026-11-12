@@ -1,6 +1,39 @@
 import { expect, test, type Page } from "@playwright/test";
 
 const pdf = { name: "cartola_septiembre_2026_cuenta_principal.pdf", mimeType: "application/pdf", buffer: Buffer.from("%PDF-test") };
+
+for (const committed of [true, false]) {
+  test(`respuesta de importación perdida: verifica antes de reenviar (${committed ? "guardada" : "pendiente"})`, async ({ page }) => {
+    await prepare(page);
+    await page.route("**/statement-imports/pdf/preview", route => route.fulfill({ json: preview }));
+    let posts = 0, checks = 0;
+    await page.route("**/statement-imports/pdf/reviewed", async route => {
+      posts++;
+      if (posts === 1) return route.abort("timedout");
+      expect(checks).toBe(2);
+      return route.fulfill({ json: { statement: { id: 88 }, result: { inserted_count: 3 } } });
+    });
+    await page.route("**/statements?account_id=1", route => {
+      checks++;
+      if (checks === 1) return route.fulfill({ status: 503, json: { detail: "Verificación no disponible" } });
+      return route.fulfill({ json: committed ? [{ id: 88, account_id: 1, file_checksum: preview.file_checksum }] : [] });
+    });
+    await page.locator('input[type="file"]').setInputFiles(pdf);
+    await page.getByRole("button", { name: "Analizar Documento", exact: true }).click();
+    const confirm = page.getByRole("button", { name: "Confirmar importación", exact: true });
+    await confirm.click();
+    await expect(page.getByRole("dialog")).toBeVisible();
+    expect(posts).toBe(1);
+    await page.getByRole("button", { name: "Cerrar", exact: true }).click();
+    await confirm.click();
+    await expect(page.getByRole("dialog")).toBeVisible();
+    expect(checks).toBe(1); expect(posts).toBe(1);
+    await page.getByRole("button", { name: "Cerrar", exact: true }).click();
+    await confirm.click();
+    await expect(page).toHaveURL(/statement_id=88/);
+    expect(checks).toBe(2); expect(posts).toBe(committed ? 1 : 2);
+  });
+}
 const preview = {
   parser_key: "banco_estado", file_name: pdf.name, file_checksum: "test", page_count: 2,
   is_encrypted: false, used_password: false, period_month: "2026-09", extracted_text_length: 500,

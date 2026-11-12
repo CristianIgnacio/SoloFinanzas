@@ -1,3 +1,6 @@
+import { useExplicitAction } from "../query/useExplicitAction";
+import { emptyList, useCategories, useRules, useCategoryCatalog } from "../query/shared";
+import { useWriteActions } from "../query/writes";
 import { CategoryLearning } from "../components/CategoryLearning";
 import { CategoryDetailsPanel, type CategoryDetailsView } from "../components/CategoryDetailsPanel";
 import { SubcategoryOrderModal } from "../components/SubcategoryOrderModal";
@@ -21,10 +24,8 @@ import {
 import { createCategoryMap, getCategoryPath, groupCategories } from "../lib";
 import { CategoryService } from "../services";
 import { CategoryType } from "../types";
-import type { Category, CategorizationRule } from "../types";
+import type { Category } from "../types";
 import { CategoryIcon, CATEGORY_ICONS, CATEGORY_COLORS, categoryAppearance } from "../components/CategoryIcon";
-
-type CatalogChange = { code: string; name: string; parent_code: string | null; status: string; reason?: string };
 
 type CategoryForm = {
   id: number | null;
@@ -520,11 +521,21 @@ function CategoryMergeModal({ category, categories, saving, error, onClose, onMe
 }
 
 export function CategoriesPage() {
-  const [categories, setCategories] = useState<Category[]>([]);
-  const [rules, setRules] = useState<CategorizationRule[]>([]);
-  const [loading, setLoading] = useState(true);
+  const writes = useWriteActions();
+  const createRuleAction = useExplicitAction(writes.categories.createCategorizationRule);
+  const updateRuleAction = useExplicitAction(writes.categories.updateCategorizationRule);
+  const deleteRuleAction = useExplicitAction(writes.categories.deleteCategorizationRule);
+  const previewRuleAction = useExplicitAction(CategoryService.previewCategorizationRule);
+  const categoriesQuery = useCategories();
+  const rulesQuery = useRules();
+  const catalogQuery = useCategoryCatalog();
+  const [orderPreview, setOrderPreview] = useState<Category[] | null>(null);
+  const categories = orderPreview ?? categoriesQuery.data ?? emptyList;
+  const rules = rulesQuery.data ?? emptyList;
+  const loading = [categoriesQuery, rulesQuery, catalogQuery].some(query => query.isPending);
   const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [actionError, setError] = useState<string | null>(null);
+  const error = actionError ?? [categoriesQuery, rulesQuery, catalogQuery].find(query => query.error)?.error?.message ?? null;
   const [feedback, setFeedback] = useState<string | null>(null);
   const [showArchived, setShowArchived] = useState(false);
   const [catalogSearch, setCatalogSearch] = useState("");
@@ -540,11 +551,14 @@ export function CategoriesPage() {
   const [rulePreview, setRulePreview] = useState<{ match_count: number; examples: string[] } | null>(null);
   const [editingRuleId, setEditingRuleId] = useState<number | null>(null);
   const [ruleFormOpen, setRuleFormOpen] = useState(false);
+  const rulePreviewVersion = useRef(0);
+  useEffect(() => { rulePreviewVersion.current++; setRulePreview(null); },
+    [selectedCategoryId, ruleKeyword, rulePriority, ruleMatchType, ruleFormOpen]);
   const [ruleError, setRuleError] = useState<string | null>(null);
   const [ruleFeedback, setRuleFeedback] = useState<string | null>(null);
   const ruleInputRef = useRef<HTMLInputElement>(null);
   const newRuleButtonRef = useRef<HTMLButtonElement>(null);
-  const [catalogPreview, setCatalogPreview] = useState<CatalogChange[]>([]);
+  const catalogPreview = catalogQuery.data ?? emptyList;
   const [showCatalogPreview, setShowCatalogPreview] = useState(false);
   const [catalogNoticeDismissed, setCatalogNoticeDismissed] = useState(false);
   const [mergingCategory, setMergingCategory] = useState<Category | null>(null);
@@ -585,32 +599,10 @@ export function CategoriesPage() {
     window.requestAnimationFrame(() => newRuleButtonRef.current?.focus({ preventScroll: true }));
   };
 
-  const loadData = async () => {
-    try {
-      const [categoryPayload, rulePayload, catalogPayload] = await Promise.all([
-        CategoryService.getCategories(true),
-        CategoryService.getCategorizationRules(),
-        CategoryService.catalogPreview(),
-      ]);
-      setCategories(categoryPayload);
-      setRules(rulePayload);
-      setCatalogPreview(catalogPayload);
-      setSelectedCategoryId((current) =>
-        current !== null && categoryPayload.some((item) => item.id === current)
-          ? current
-          : null,
-      );
-      setError(null);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "No fue posible cargar las categorias.");
-    } finally {
-      setLoading(false);
-    }
-  };
-
   useEffect(() => {
-    void loadData();
-  }, []);
+    if (!categoriesQuery.isSuccess) return;
+    setSelectedCategoryId(current => current !== null && categoriesQuery.data.some(item => item.id === current) ? current : null);
+  }, [categoriesQuery.data, categoriesQuery.isSuccess]);
 
   useEffect(() => {
     const media = window.matchMedia("(max-width: 1279px)");
@@ -741,8 +733,8 @@ export function CategoriesPage() {
       reordered.map((category, index) => [category.id, (index + 1) * 10]),
     );
 
-    setCategories((current) =>
-      current.map((category) => {
+    setOrderPreview(
+      categories.map((category) => {
         const sortOrder = orderById.get(category.id);
         return sortOrder === undefined ? category : { ...category, sort_order: sortOrder };
       }),
@@ -754,7 +746,7 @@ export function CategoriesPage() {
     try {
       const results = await Promise.allSettled(
         reordered.map((category, index) =>
-          CategoryService.updateCategory(category.id, { sort_order: (index + 1) * 10 }),
+          writes.categories.updateCategory(category.id, { sort_order: (index + 1) * 10 }),
         ),
       );
       if (results.some((result) => result.status === "rejected")) {
@@ -763,12 +755,12 @@ export function CategoriesPage() {
       setFeedback("Orden de subcategorias guardado.");
       return true;
     } catch (err) {
-      await loadData();
       setError(
         err instanceof Error ? err.message : "No fue posible guardar el orden de las subcategorias.",
       );
       return false;
     } finally {
+      setOrderPreview(null);
       setReorderingSubcategories(false);
     }
   };
@@ -801,10 +793,10 @@ export function CategoriesPage() {
         color: form.color || null,
       };
       if (form.id) {
-        await CategoryService.updateCategory(form.id, payload);
+        await writes.categories.updateCategory(form.id, payload);
         setFeedback("Categoria actualizada correctamente.");
       } else {
-        await CategoryService.createCategory({
+        await writes.categories.createCategory({
           ...payload,
           is_default: false,
           is_active: true,
@@ -812,7 +804,6 @@ export function CategoriesPage() {
         setFeedback("Categoria creada correctamente.");
       }
       setForm(null);
-      await loadData();
     } catch (err) {
       setError(err instanceof Error ? err.message : "No fue posible guardar la categoria.");
     } finally {
@@ -824,13 +815,12 @@ export function CategoriesPage() {
     const action = category.is_active ? "archivar" : "reactivar";
     if (!window.confirm(`¿Quieres ${action} ${category.name}?`)) return;
     try {
-      await CategoryService.updateCategory(category.id, { is_active: !category.is_active });
+      await writes.categories.updateCategory(category.id, { is_active: !category.is_active });
       setFeedback(
         category.is_active
           ? "Categoria archivada; su historial permanece intacto."
           : "Categoria reactivada.",
       );
-      await loadData();
     } catch (err) {
       setError(err instanceof Error ? err.message : `No fue posible ${action} la categoria.`);
     }
@@ -848,18 +838,17 @@ export function CategoriesPage() {
     setDeleteError(null);
     try {
       if (archive) {
-        await CategoryService.updateCategory(deletingCategory.id, { is_active: false });
+        await writes.categories.updateCategory(deletingCategory.id, { is_active: false });
         setFeedback("Categoría archivada; su historial permanece intacto.");
       } else if (destination) {
-        await CategoryService.mergeCategory(deletingCategory.id, Number(destination));
+        await writes.categories.mergeCategory(deletingCategory.id, Number(destination));
         setSelectedCategoryId(Number(destination));
         setFeedback("Categoría eliminada. Sus movimientos, reglas y aprendizaje se trasladaron al destino.");
       } else {
-        await CategoryService.deleteCategory(deletingCategory.id);
+        await writes.categories.deleteCategory(deletingCategory.id);
         setFeedback("Categoría sin uso eliminada.");
       }
       setDeletingCategory(null);
-      await loadData();
     } catch (err) {
       setDeleteError(err instanceof Error ? err.message : "No fue posible eliminar la categoría.");
     } finally {
@@ -876,11 +865,10 @@ export function CategoriesPage() {
         keyword: ruleKeyword.trim(), category_id: selectedCategory.id,
         priority: parsedRulePriority, match_type: ruleMatchType,
       };
-      if (editingRuleId) await CategoryService.updateCategorizationRule(editingRuleId, payload);
-      else await CategoryService.createCategorizationRule(payload);
+      if (editingRuleId) await updateRuleAction.run(editingRuleId, payload);
+      else await createRuleAction.run(payload);
       closeRuleForm();
       setRuleFeedback(editingRuleId ? "Regla actualizada correctamente." : "Regla creada correctamente.");
-      await loadData();
     } catch (err) {
       setRuleError(err instanceof Error ? err.message : "No fue posible crear la regla.");
     }
@@ -888,22 +876,25 @@ export function CategoriesPage() {
 
   const previewRule = async () => {
     if (!selectedCategory || !ruleKeyword.trim() || !validRulePriority) return;
+    const version = rulePreviewVersion.current;
     try {
-      setRulePreview(await CategoryService.previewCategorizationRule({
+      const result = await previewRuleAction.run({
         keyword: ruleKeyword.trim(), category_id: selectedCategory.id,
         priority: parsedRulePriority, match_type: ruleMatchType,
-      }));
+      });
+      if (version !== rulePreviewVersion.current) return;
+      setRulePreview(result);
       setRuleError(null);
     } catch (err) {
+      if (version !== rulePreviewVersion.current) return;
       setRuleError(err instanceof Error ? err.message : "No fue posible revisar la regla.");
     }
   };
 
   const removeRule = async (ruleId: number) => {
     try {
-      await CategoryService.deleteCategorizationRule(ruleId);
+      await deleteRuleAction.run(ruleId);
       setRuleFeedback("Regla eliminada.");
-      await loadData();
     } catch (err) {
       setRuleError(err instanceof Error ? err.message : "No fue posible eliminar la regla.");
     }
@@ -914,11 +905,10 @@ export function CategoriesPage() {
     setMerging(true);
     setMergeError(null);
     try {
-      await CategoryService.mergeCategory(mergingCategory.id, targetId);
+      await writes.categories.mergeCategory(mergingCategory.id, targetId);
       setSelectedCategoryId(targetId);
       setMergingCategory(null);
       setFeedback("Categorías fusionadas. Los movimientos y reglas se trasladaron al destino.");
-      await loadData();
     } catch (err) {
       setMergeError(err instanceof Error ? err.message : "No fue posible fusionar las categorías.");
     } finally {
@@ -1296,7 +1286,7 @@ export function CategoriesPage() {
                     </details>
                       <Button
                         className="w-full min-w-0"
-                        disabled={!ruleKeyword.trim() || !selectedCategory.is_active || !validRulePriority}
+                        disabled={createRuleAction.isPending || updateRuleAction.isPending || !ruleKeyword.trim() || !selectedCategory.is_active || !validRulePriority}
                         onClick={() => void createRule()}
                       >
                         {editingRuleId ? "Guardar regla" : "Agregar regla"}
@@ -1306,7 +1296,7 @@ export function CategoriesPage() {
                         onClick={closeRuleForm}>
                         {editingRuleId ? "Cancelar edición" : "Cancelar"}
                       </button> : null}
-                      <button type="button" className="min-h-11 text-sm text-primary underline" disabled={!ruleKeyword.trim() || !validRulePriority}
+                      <button type="button" className="min-h-11 text-sm text-primary underline" disabled={previewRuleAction.isPending || !ruleKeyword.trim() || !validRulePriority}
                         onClick={() => void previewRule()}>Vista previa de coincidencias</button>
                     </div>
                     {rulePreview ? <p className="text-sm text-muted">
@@ -1324,7 +1314,7 @@ export function CategoriesPage() {
                           </p>
                         </div>
                         <button type="button" className="min-h-11 text-xs text-primary underline sm:min-h-0"
-                          onClick={() => void CategoryService.updateCategorizationRule(rule.id, { is_active: !rule.is_active }).then(loadData).catch(err => setRuleError(err.message))}>
+                          onClick={() => void writes.categories.updateCategorizationRule(rule.id, { is_active: !rule.is_active }).catch(err => setRuleError(err.message))}>
                           {rule.is_active ? "Pausar" : "Activar"}
                         </button>
                         <button type="button" className="min-h-11 text-xs text-primary underline sm:min-h-0"
@@ -1355,7 +1345,7 @@ export function CategoriesPage() {
             </Panel>
 
           }
-            proposals={<CategoryLearning categories={categories} onRuleCreated={() => void loadData()}
+            proposals={<CategoryLearning categories={categories}
               embedded={!compactDetails} categoryId={selectedCategoryId} />}
           />
         </div>

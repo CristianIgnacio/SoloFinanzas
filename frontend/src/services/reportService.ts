@@ -8,7 +8,7 @@ export type AccountTotal = {
   expenses: number;
 };
 export const ReportService = {
-  accounts: () => apiClient.get<AccountTotal[]>("/reports/accounts"),
-  periods: (statement_id?: number) =>
-    apiClient.get<string[]>("/reports/periods", { params: { statement_id } }),
+  accounts: (signal?: AbortSignal) => apiClient.get<AccountTotal[]>("/reports/accounts", { signal }),
+  periods: (statement_id?: number, signal?: AbortSignal) =>
+    apiClient.get<string[]>("/reports/periods", { params: { statement_id }, signal }),
 };
