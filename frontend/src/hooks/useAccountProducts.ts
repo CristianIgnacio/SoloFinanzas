@@ -1,28 +1,10 @@
-import { useEffect, useState } from "react";
-import { AccountService } from "../services";
+import { useProducts, emptyList } from "../query/shared";
 import type { Account, FinancialProduct } from "../types";
 
 export function useAccountProducts() {
-  const [products, setProducts] = useState<FinancialProduct[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    let active = true;
-    void AccountService.getProducts()
-      .then((catalog) => {
-        if (active) setProducts(catalog);
-      })
-      .catch(() => {
-        if (active) setError("No se pudo cargar el catálogo de productos.");
-      })
-      .finally(() => {
-        if (active) setLoading(false);
-      });
-    return () => { active = false; };
-  }, []);
-
-  return { products, loading, error };
+  const query = useProducts();
+  return { products: query.data ?? emptyList, loading: query.isPending,
+    error: query.error ? "No se pudo cargar el catálogo de productos." : null };
 }
 
 export function accountProductName(account: Account, products: FinancialProduct[]): string {

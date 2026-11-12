@@ -1,4 +1,11 @@
+import { monthQueries, useCompleteMonths } from "../query/months";
+import { emptyList, useAccounts, useCashAccount, useCashBalance, useCategories } from "../query/shared";
+import { useWriteActions } from "../query/writes";
 import { useEffect, useMemo, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { useAuth } from "../auth/AuthProvider";
+import { profileQueries } from "../query/profile";
+import { getProductSelectionError } from "../lib/accountProductSelection";
 import { Link, useNavigate } from "react-router-dom";
 
 import {
@@ -31,18 +38,9 @@ import { DashboardCategorySummary } from "../components/DashboardCategorySummary
 import { DashboardAccountCarousel } from "../components/DashboardAccountCarousel";
 import { useDashboard, useFormatCurrency } from "../hooks";
 import { accountProductName, useAccountProducts } from "../hooks/useAccountProducts";
-import {
-  createCategoryMap,
-  getCategoryPath,
-  getRootCategory,
-  parseLocalDate,
-} from "../lib";
-import { AccountService, CategoryService, ProfileService, TransactionService } from "../services";
-import {
-  CurrencyCode,
-  InstitutionCode,
-} from "../types";
-import type { Account, AccountCreate, CashAccount, CashBalance, Category, Transaction, UserProfile } from "../types";
+import { createCategoryMap, getCategoryPath, getRootCategory, parseLocalDate } from "../lib";
+import { CurrencyCode, InstitutionCode } from "../types";
+import type { Account, AccountCreate, CashAccount, CashBalance, Category, Transaction } from "../types";
 import type { AccountFormValues } from "../components/AccountFormModal";
 
 type DashboardSupportState = {
@@ -51,7 +49,6 @@ type DashboardSupportState = {
   accounts: Account[];
   cashAccount: CashAccount | null;
   cashBalance: CashBalance | null;
-  profile: UserProfile | null;
   categories: Category[];
   loading: boolean;
   error: string | null;
@@ -60,7 +57,6 @@ type DashboardSupportState = {
 type MovementFilter = "all" | "income" | "expense";
 
 const expenseChartColors = ["#344b2e", "#6e875f", "#a8b89a", "#d5b98f", "#d77b68", "#8a9387"];
-const TRANSACTION_PAGE_SIZE = 1000;
 const periodFormatter = new Intl.DateTimeFormat("es-CL", {
   month: "long",
   year: "numeric",
@@ -107,15 +103,6 @@ function formatCompactAxisCurrency(value: number) {
   return `$${compactAxisFormatter.format(value)}`;
 }
 
-function getPeriodDateRange(periodMonth: string) {
-  const [year, month] = periodMonth.split("-").map(Number);
-  const lastDay = new Date(Date.UTC(year, month, 0)).getUTCDate();
-
-  return {
-    date_from: `${periodMonth}-01`,
-    date_to: `${periodMonth}-${String(lastDay).padStart(2, "0")}`,
-  };
-}
 
 function getPeriodDays(periodMonth: string) {
   const [year, month] = periodMonth.split("-").map(Number);
@@ -160,27 +147,6 @@ function getHeatmapColor(value: number, max: number) {
   if (intensity < 0.5) return "#d8bd8e";
   if (intensity < 0.75) return "#d77b68";
   return "#9f493d";
-}
-
-async function loadPeriodTransactions(periodMonth: string) {
-  const transactions: Transaction[] = [];
-  const dateRange = getPeriodDateRange(periodMonth);
-  let offset = 0;
-
-  while (true) {
-    const page = await TransactionService.getTransactions({
-      ...dateRange,
-      limit: TRANSACTION_PAGE_SIZE,
-      offset,
-    });
-    transactions.push(...page);
-
-    if (page.length < TRANSACTION_PAGE_SIZE) {
-      return transactions;
-    }
-
-    offset += TRANSACTION_PAGE_SIZE;
-  }
 }
 
 function FirstAccountWelcome({ onCreateAccount, onStartCash, startingCash, cashError }: {
@@ -249,10 +215,26 @@ function FirstAccountWelcome({ onCreateAccount, onStartCash, startingCash, cashE
 }
 
 export function DashboardPage() {
+  const writes = useWriteActions();
+  const { session } = useAuth();
+  const profileOptions = profileQueries.current(session!.user.id);
+  const profile = useQuery(profileOptions);
   const navigate = useNavigate();
   const [selectedPeriod, setSelectedPeriod] = useState<string>();
-  const [uncategorizedSummary, setUncategorizedSummary] = useState<{ period: string; total: number } | null>(null);
-  const { data, loading, error } = useDashboard(selectedPeriod);
+  const { data: requestedDashboard, loading, error, query: summaryQuery } = useDashboard(selectedPeriod);
+  const months = useCompleteMonths(requestedDashboard ? [requestedDashboard.period_month] : []);
+  const countQuery = useQuery({ ...monthQueries.uncategorized(session!.user.id, requestedDashboard?.period_month ?? "2000-01"), enabled: !!requestedDashboard });
+  type Display = { summary: NonNullable<typeof requestedDashboard>; transactions: Transaction[] };
+  const [lastDisplay, setLastDisplay] = useState<Display | null>(null);
+  const readyDisplay = useMemo<Display | null>(() => requestedDashboard && !summaryQuery.isFetching && !summaryQuery.isError
+    && months.complete?.periods[0] === requestedDashboard.period_month
+    ? { summary: requestedDashboard, transactions: months.complete.transactions } : null,
+    [requestedDashboard, summaryQuery.isFetching, summaryQuery.isError, months.complete]);
+  useEffect(() => { if (readyDisplay) setLastDisplay(readyDisplay); }, [readyDisplay]);
+  const display = readyDisplay ?? lastDisplay;
+  const data = display?.summary ?? null;
+  const uncategorizedSummary = countQuery.isSuccess && requestedDashboard?.period_month === data?.period_month
+    ? { period: requestedDashboard!.period_month, total: countQuery.data } : null;
   const [isCreateAccountOpen, setIsCreateAccountOpen] = useState(false);
   const [movementFilter, setMovementFilter] = useState<MovementFilter>("all");
   const [selectedExpenseCategory, setSelectedExpenseCategory] = useState<string | null>(null);
@@ -268,87 +250,25 @@ export function DashboardPage() {
     name: "",
     product_code: "",
   });
-  const [support, setSupport] = useState<DashboardSupportState>({
-    transactions: [],
-    periodTransactions: [],
-    accounts: [],
-    cashAccount: null,
-    cashBalance: null,
-    profile: null,
-    categories: [],
-    loading: true,
-    error: null,
-  });
+  const accountsQuery = useAccounts();
+  const cashQuery = useCashAccount();
+  const balanceQuery = useCashBalance();
+  const categoriesQuery = useCategories();
+  const sharedQueries = [accountsQuery, cashQuery, balanceQuery, categoriesQuery];
+  const support: DashboardSupportState = {
+    transactions: display?.transactions ?? emptyList,
+    periodTransactions: display?.transactions ?? emptyList,
+    accounts: accountsQuery.data ?? emptyList,
+    cashAccount: cashQuery.data ?? null, cashBalance: balanceQuery.data ?? null,
+    categories: categoriesQuery.data ?? emptyList,
+    loading: !display || sharedQueries.some(query => query.isPending),
+    error: sharedQueries.find(query => query.error)?.error?.message ?? months.error?.message ?? null,
+  };
   const formatCurrency = useFormatCurrency();
   const { products } = useAccountProducts();
   const dashboardPeriod = formatPeriod(data?.period_month ?? getCurrentPeriodMonth());
   const showFirstAccountWelcome =
-    !support.loading && !support.error && support.accounts.length === 0 && support.profile?.onboarding_choice == null;
-
-  useEffect(() => {
-    const period = data?.period_month;
-    if (!period) return;
-    let cancelled = false;
-    void TransactionService.getPage({ ...getPeriodDateRange(period), uncategorized: true, limit: 1, offset: 0 })
-      .then(page => { if (!cancelled) setUncategorizedSummary({ period, total: page.total }); })
-      .catch(() => { if (!cancelled) setUncategorizedSummary(null); });
-    return () => { cancelled = true; };
-  }, [data?.period_month]);
-
-  useEffect(() => {
-    let isMounted = true;
-
-    async function loadSupportData() {
-      setSupport((current) => ({
-        ...current,
-        loading: true,
-        error: null,
-      }));
-
-      try {
-        const periodMonth = data?.period_month ?? getCurrentPeriodMonth();
-        const [periodTransactions, accounts, categories, cashAccount, cashBalance, profile] = await Promise.all([
-          loadPeriodTransactions(periodMonth),
-          AccountService.getAccounts(),
-          CategoryService.getCategories(),
-          AccountService.getCashAccount(),
-          AccountService.getCashBalance(),
-          ProfileService.getProfile(),
-        ]);
-
-        if (isMounted) {
-          setSupport({
-            transactions: periodTransactions,
-            periodTransactions,
-            accounts,
-            cashAccount,
-            cashBalance,
-            profile,
-            categories,
-            loading: false,
-            error: null,
-          });
-        }
-      } catch (err) {
-        if (isMounted) {
-          setSupport((current) => ({
-            ...current,
-            loading: false,
-            error:
-              err instanceof Error
-                ? err.message
-                : "No se pudo completar el resumen complementario.",
-          }));
-        }
-      }
-    }
-
-    void loadSupportData();
-
-    return () => {
-      isMounted = false;
-    };
-  }, [data?.period_month]);
+    !support.loading && !support.error && support.accounts.length === 0 && profile.data?.onboarding_choice == null;
 
   const updateNewAccountField = (field: keyof AccountFormValues, value: string) => {
     setNewAccountForm((current) => ({
@@ -399,10 +319,9 @@ export function DashboardPage() {
       return;
     }
 
-    const selectedProduct = products.find((item) => item.code === newAccountForm.product_code);
-    if (newAccountForm.account_type === "credito"
-      && (!selectedProduct || selectedProduct.pdf_support === "no_soportado")) {
-      setCreateAccountError("Este producto de crédito aún no admite importación de estados de cuenta.");
+    const productError = getProductSelectionError(newAccountForm, products);
+    if (productError) {
+      setCreateAccountError(productError);
       return;
     }
 
@@ -424,12 +343,8 @@ export function DashboardPage() {
         currency: newAccountForm.currency,
       };
 
-      const createdAccount = await AccountService.createAccount(payload);
+      const createdAccount = await writes.accounts.createAccount(payload);
 
-      setSupport((current) => ({
-        ...current,
-        accounts: [createdAccount, ...current.accounts],
-      }));
       setIsCreateAccountOpen(false);
       resetNewAccountForm();
       navigate(`/app/import?account_id=${createdAccount.id}`);
@@ -447,11 +362,7 @@ export function DashboardPage() {
     setStartingCash(true);
     setCashStartError(null);
     try {
-      await ProfileService.startWithCash();
-      setSupport((current) => ({
-        ...current,
-        profile: current.profile ? { ...current.profile, onboarding_choice: "cash" } : null,
-      }));
+      await writes.profile.startWithCash();
       navigate(`/app/accounts?account_id=${support.cashAccount.id}#cash-account`);
     } catch (err) {
       setCashStartError(err instanceof Error ? err.message : "No fue posible comenzar con Efectivo.");
@@ -782,9 +693,17 @@ export function DashboardPage() {
         }
       />
 
-      {loading ? <LoadingState message="Cargando inicio..." /> : null}
+      {loading || (!display && months.loading) ? <LoadingState message="Cargando inicio..." /> : null}
       {error ? <ErrorState message={error} /> : null}
       {support.error ? <ErrorState message={support.error} /> : null}
+      {countQuery.error ? <ErrorState message={`No se pudo cargar el conteo pendiente: ${countQuery.error.message}`} /> : null}
+      {error || support.error || countQuery.error ? <Button tone="secondary" onClick={() => {
+        if (summaryQuery.isError) void summaryQuery.refetch();
+        void months.retry();
+        if (countQuery.isError) void countQuery.refetch();
+        sharedQueries.filter(query => query.isError).forEach(query => void query.refetch());
+      }}>Reintentar</Button> : null}
+      {display && !readyDisplay ? <p role="status" className="text-sm text-muted">Sigues viendo los datos de {formatPeriod(display.summary.period_month)} hasta que se complete la carga.</p> : null}
 
       {showFirstAccountWelcome ? (
         <FirstAccountWelcome onCreateAccount={openCreateAccountModal} onStartCash={() => void handleStartCash()}

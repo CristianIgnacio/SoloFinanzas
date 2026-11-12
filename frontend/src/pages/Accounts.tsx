@@ -1,6 +1,19 @@
+import {
+  emptyList,
+  useAccounts,
+  useCashAccount,
+  useCashBalance,
+  useCategories,
+  useAccountTotals,
+  useAccountStatements,
+  useAccountMovements,
+  useStatementImpact,
+} from "../query/shared";
+import { useWriteActions } from "../query/writes";
 import { DeleteAccountModal } from "../components/DeleteAccountModal";
+import { getProductSelectionError } from "../lib/accountProductSelection";
 import { AccountTablePagination } from "../components/AccountTablePagination";
-import { ReportService, type AccountTotal } from '../services/reportService';
+
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 
@@ -32,24 +45,11 @@ import {
 import { useFormatCurrency } from "../hooks";
 import { accountProductName, useAccountProducts } from "../hooks/useAccountProducts";
 import { createCategoryMap, parseLocalDate } from "../lib";
-import {
-  AccountService,
-  CategoryService,
-  StatementService,
-  TransactionService,
-} from "../services";
+
 import { CurrencyCode, InstitutionCode, InstitutionLabels, StatementStatus } from "../types";
 import type { AccountCreate, AccountUpdate } from "../types";
 import type { AccountFormValues } from "../components/AccountFormModal";
-import type {
-  Account,
-  CashAccount,
-  CashBalance,
-  Category,
-  Statement,
-  StatementDeletionImpact,
-  Transaction,
-} from "../types";
+import type { Account, CashAccount, Statement } from "../types";
 
 type DetailTab = "statements" | "transactions";
 const PAGE_SIZE = 50;
@@ -147,30 +147,39 @@ function getStatementCoverage(statements: Statement[]) {
 }
 
 export function AccountsPage() {
+  const writes = useWriteActions();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  const [accounts, setAccounts] = useState<Account[]>([]);
-  const [cashAccount, setCashAccount] = useState<CashAccount | null>(null);
-  const [cashBalance, setCashBalance] = useState<CashBalance | null>(null);
-  const [statements, setStatements] = useState<Statement[]>([]);
-  const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const accountsQuery = useAccounts();
+  const cashQuery = useCashAccount();
+  const balanceQuery = useCashBalance();
+  const categoriesQuery = useCategories();
+  const totalsQuery = useAccountTotals();
+  const accounts = accountsQuery.data ?? emptyList;
+  const cashAccount = cashQuery.data ?? null;
+  const cashBalance = balanceQuery.data ?? null;
+  const categories = categoriesQuery.data ?? emptyList;
+  const totals = totalsQuery.data ?? emptyList;
   const [pageOffset, setPageOffset] = useState(0);
-  const [transactionTotal, setTransactionTotal] = useState(0);
-  const [totals, setTotals] = useState<AccountTotal[]>([]);
-  const [categories, setCategories] = useState<Category[]>([]);
   const [selectedAccountId, setSelectedAccountId] = useState<number | null>(null);
   const [activeTab, setActiveTab] = useState<DetailTab>("statements");
-  const [loading, setLoading] = useState(true);
-  const [loadingDetails, setLoadingDetails] = useState(false);
-  const [loadedDetailsAccountId, setLoadedDetailsAccountId] = useState<number | null>(null);
+  const loading = [accountsQuery, cashQuery, balanceQuery, categoriesQuery].some(query => query.isPending);
+  const bankId = accounts.some(account => account.id === selectedAccountId) ? selectedAccountId : null;
+  const statementsQuery = useAccountStatements(bankId);
+  const movementsQuery = useAccountMovements(bankId, pageOffset, PAGE_SIZE);
+  const statements = statementsQuery.data ?? emptyList;
+  const transactions = movementsQuery.data?.items ?? emptyList;
+  const transactionTotal = movementsQuery.data?.total ?? 0;
+  const loadingDetails = bankId !== null && (statementsQuery.isPending || movementsQuery.isPending || totalsQuery.isPending);
+  const queryError = [accountsQuery, cashQuery, balanceQuery, categoriesQuery, totalsQuery, statementsQuery, movementsQuery].find(query => query.error)?.error;
   const [error, setError] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<string | null>(null);
   const [statementPendingDelete, setStatementPendingDelete] = useState<Statement | null>(null);
-  const [deletionImpact, setDeletionImpact] = useState<StatementDeletionImpact | null>(null);
-  const [loadingDeletionImpact, setLoadingDeletionImpact] = useState(false);
+  const impactQuery = useStatementImpact(statementPendingDelete?.id ?? null);
+  const deletionImpact = impactQuery.data ?? null;
+  const loadingDeletionImpact = statementPendingDelete !== null && impactQuery.isPending;
   const [deletingStatementId, setDeletingStatementId] = useState<number | null>(null);
   const [deletionError, setDeletionError] = useState<string | null>(null);
-  const deletionRequestRef = useRef(0);
   const [modalMode, setModalMode] = useState<"create" | "edit">("create");
   const [isAccountModalOpen, setIsAccountModalOpen] = useState(false);
   const [modalAccountId, setModalAccountId] = useState<number | null>(null);
@@ -197,83 +206,19 @@ export function AccountsPage() {
   }, [searchParams, setSearchParams]);
 
   useEffect(() => {
-    let cancelled = false;
-    async function loadInitialData() {
-      try {
-        const [accountData, categoryData, cashData, balanceData] = await Promise.all([
-          AccountService.getAccounts(),
-          CategoryService.getCategories(),
-          AccountService.getCashAccount(),
-          AccountService.getCashBalance(),
-        ]);
-        if (cancelled) return;
-        setAccounts(accountData);
-        setCategories(categoryData);
-        setCashAccount(cashData);
-        setCashBalance(balanceData);
-        const requestedId = Number(searchParams.get("account_id"));
-        const initial =
-          accountData.find((account) => account.id === requestedId) ??
-          (cashData.id === requestedId ? cashData : null) ?? accountData[0] ?? cashData;
-        setSelectedAccountId(initial?.id ?? null);
-      } catch (err) {
-        if (!cancelled) {
-          setError(err instanceof Error ? err.message : "No fue posible cargar las cuentas.");
-        }
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    }
-    void loadInitialData();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+    if (!accountsQuery.isSuccess || !cashQuery.isSuccess || selectedAccountId !== null) return;
+    const requestedId = Number(searchParams.get("account_id"));
+    const initial = accounts.find(account => account.id === requestedId)
+      ?? (cashAccount?.id === requestedId ? cashAccount : null) ?? accounts[0] ?? cashAccount;
+    setPageOffset(0);
+    setSelectedAccountId(initial?.id ?? null);
+  }, [accounts, cashAccount, accountsQuery.isSuccess, cashQuery.isSuccess, selectedAccountId, searchParams]);
 
   useEffect(() => {
     if (loading || window.location.hash !== "#cash-account") return;
     const target = document.getElementById("cash-account");
     if (target) requestAnimationFrame(() => target.scrollIntoView({ behavior: "smooth", block: "start" }));
   }, [loading]);
-
-  useEffect(() => {
-    if (selectedAccountId === null) return;
-    if (selectedAccountId === cashAccount?.id) {
-      setLoadedDetailsAccountId(null);
-      setLoadingDetails(false);
-      return;
-    }
-    let cancelled = false;
-    async function loadDetail() {
-      setLoadingDetails(true);
-      setLoadedDetailsAccountId(null);
-      setError(null);
-      try {
-        const [statementData, transactionData, accountTotals] = await Promise.all([
-          StatementService.getStatements(selectedAccountId as number),
-          TransactionService.getPage({account_id: selectedAccountId as number, limit: PAGE_SIZE, offset: pageOffset}),
-          ReportService.accounts(),
-        ]);
-        if (!cancelled) {
-          setStatements(statementData);
-          setTransactions(transactionData.items);
-          setTransactionTotal(transactionData.total);
-          setTotals(accountTotals);
-          setLoadedDetailsAccountId(selectedAccountId);
-        }
-      } catch (err) {
-        if (!cancelled) {
-          setError(err instanceof Error ? err.message : "No fue posible cargar el detalle.");
-        }
-      } finally {
-        if (!cancelled) setLoadingDetails(false);
-      }
-    }
-    void loadDetail();
-    return () => {
-      cancelled = true;
-    };
-  }, [selectedAccountId, pageOffset, cashAccount?.id]);
 
   const account = accounts.find((item) => item.id === selectedAccountId) ?? null;
   const selectableAccounts: (Account | CashAccount)[] = cashAccount ? [cashAccount, ...accounts] : accounts;
@@ -283,7 +228,7 @@ export function AccountsPage() {
     [categories],
   );
   const summary = totals.find(item => item.account_id === selectedAccountId) ?? {account_id: selectedAccountId ?? 0, income: 0, expenses: 0, net: 0, count: 0};
-  const detailsReady = !loadingDetails && loadedDetailsAccountId === selectedAccountId;
+  const detailsReady = bankId !== null && statementsQuery.isSuccess && movementsQuery.isSuccess && totalsQuery.isSuccess;
   const statementCoverage = getStatementCoverage(statements);
 
   useEffect(() => {
@@ -352,11 +297,9 @@ export function AccountsPage() {
       setAccountFormError("Selecciona un producto para la cuenta.");
       return;
     }
-    const originalCredit = original && ["credito", "tarjeta de credito", "tarjeta de crédito"].includes(original.account_type.toLowerCase());
-    const selectedProduct = products.find((item) => item.code === accountForm.product_code);
-    if (accountForm.account_type === "credito" && !originalCredit
-      && (!selectedProduct || selectedProduct.pdf_support === "no_soportado")) {
-      setAccountFormError("Este producto de crédito aún no admite importación de estados de cuenta.");
+    const productError = getProductSelectionError(accountForm, products, modalMode === "edit" ? original : undefined);
+    if (productError) {
+      setAccountFormError(productError);
       return;
     }
     if (accountForm.account_last4 && accountForm.account_last4.length !== 4) {
@@ -372,15 +315,13 @@ export function AccountsPage() {
     setAccountFormError(null);
     try {
       if (modalMode === "create") {
-        const created = await AccountService.createAccount(payload);
-        setAccounts((current) => [created, ...current]);
+        const created = await writes.accounts.createAccount(payload);
         setPageOffset(0);
         setSelectedAccountId(created.id);
         setSearchParams({ account_id: String(created.id) }, { replace: true });
         setFeedback("Cuenta creada correctamente.");
       } else if (modalAccountId !== null) {
-        const updated = await AccountService.updateAccount(modalAccountId, payload);
-        setAccounts((current) => current.map((item) => item.id === updated.id ? updated : item));
+        await writes.accounts.updateAccount(modalAccountId, payload);
         setFeedback("Cuenta actualizada correctamente.");
       }
       setIsAccountModalOpen(false);
@@ -400,9 +341,8 @@ export function AccountsPage() {
     setAccountDeletionError(null);
     setError(null);
     try {
-      await AccountService.deleteAccount(target.id);
+      await writes.accounts.deleteAccount(target.id);
       const remaining = accounts.filter((item) => item.id !== target.id);
-      setAccounts(remaining);
       setAccountPendingDelete(null);
       const nextSelectedId = target.id === selectedAccountId
         ? remaining[0]?.id ?? cashAccount?.id ?? null
@@ -417,35 +357,15 @@ export function AccountsPage() {
       setDeletingAccountId(null);
     }
   };
-  const openDeleteStatementModal = async (statement: Statement) => {
-    const request = ++deletionRequestRef.current;
+  const openDeleteStatementModal = (statement: Statement) => {
     setStatementPendingDelete(statement);
-    setDeletionImpact(null);
     setDeletionError(null);
     setFeedback(null);
-    setLoadingDeletionImpact(true);
-
-    try {
-      const impact = await StatementService.getDeletionImpact(statement.id);
-      if (request === deletionRequestRef.current) setDeletionImpact(impact);
-    } catch (err) {
-      if (request !== deletionRequestRef.current) return;
-      setDeletionError(
-        err instanceof Error
-          ? err.message
-          : "No fue posible calcular el impacto de esta eliminacion.",
-      );
-    } finally {
-      if (request === deletionRequestRef.current) setLoadingDeletionImpact(false);
-    }
   };
 
   const closeDeleteStatementModal = () => {
     if (deletingStatementId !== null) return;
-    deletionRequestRef.current += 1;
-    setLoadingDeletionImpact(false);
     setStatementPendingDelete(null);
-    setDeletionImpact(null);
     setDeletionError(null);
   };
 
@@ -453,19 +373,14 @@ export function AccountsPage() {
     if (!statementPendingDelete || !deletionImpact || selectedAccountId === null) return;
 
     const statement = statementPendingDelete;
-    const accountId = selectedAccountId;
     setDeletingStatementId(statement.id);
     setDeletionError(null);
     setError(null);
 
     try {
-      const result = await StatementService.deleteStatement(statement.id);
-      setStatements((current) => current.filter((item) => item.id !== statement.id));
-      setTransactions((current) =>
-        current.filter((transaction) => transaction.statement_id !== statement.id),
-      );
+      const result = await writes.statements.deleteStatement(statement.id);
+      setPageOffset(0);
       setStatementPendingDelete(null);
-      setDeletionImpact(null);
       setFeedback(
         `Importacion deshecha: ${result.transaction_count} movimiento${
           result.transaction_count === 1 ? "" : "s"
@@ -474,25 +389,6 @@ export function AccountsPage() {
         }`,
       );
 
-      try {
-        setLoadedDetailsAccountId(null);
-        const [statementData, transactionData, accountTotals] = await Promise.all([
-          StatementService.getStatements(accountId),
-          TransactionService.getPage({account_id: accountId, limit: PAGE_SIZE, offset: 0}),
-          ReportService.accounts(),
-        ]);
-        setStatements(statementData);
-        setTransactions(transactionData.items);
-        setTransactionTotal(transactionData.total);
-        setTotals(accountTotals);
-        setLoadedDetailsAccountId(accountId);
-      } catch (refreshError) {
-        setError(
-          refreshError instanceof Error
-            ? `La cartola fue eliminada, pero no se pudo actualizar la vista: ${refreshError.message}`
-            : "La cartola fue eliminada, pero no se pudo actualizar la vista.",
-        );
-      }
     } catch (err) {
       setDeletionError(
         err instanceof Error ? err.message : "No fue posible deshacer esta importacion.",
@@ -519,7 +415,7 @@ export function AccountsPage() {
       />
 
       {loading ? <LoadingState message="Cargando cuentas..." /> : null}
-      {error ? <ErrorState message={error} /> : null}
+      {error || queryError ? <ErrorState message={error ?? queryError!.message} /> : null}
       {feedback ? <StatusNotice tone="success">{feedback}</StatusNotice> : null}
 
       {!loading && selectableAccounts.length === 0 ? (
@@ -712,6 +608,7 @@ export function AccountsPage() {
             </div>
 
             <div className="p-4 sm:p-5 md:p-8">
+              {movementsQuery.isFetching && !loadingDetails ? <p role="status" className="text-sm text-muted">Cargando movimientos…{movementsQuery.isPlaceholderData ? " Se muestra la página anterior." : ""}</p> : null}
               {loadingDetails ? <LoadingState message="Cargando detalle de la cuenta..." /> : null}
 
               {activeTab === "statements" ? (
@@ -872,7 +769,7 @@ export function AccountsPage() {
               ) : null}
 
               {activeTab === "transactions" && detailsReady ? (
-                <AccountTablePagination total={transactionTotal} pageSize={PAGE_SIZE} offset={pageOffset} disabled={loadingDetails} onOffsetChange={setPageOffset} />
+                <AccountTablePagination total={transactionTotal} pageSize={PAGE_SIZE} offset={pageOffset} disabled={movementsQuery.isFetching} onOffsetChange={setPageOffset} />
               ) : null}
               {detailsReady && activeTab === "statements" && statements.length === 0 ? (
                 <EmptyState
@@ -895,14 +792,14 @@ export function AccountsPage() {
             </div>
           </Panel>
           </> : cashAccount && selectedAccountId === cashAccount.id ? (
-            <CashAccountPanel account={cashAccount} categories={categories} onBalanceChange={setCashBalance} />
+            <CashAccountPanel key={cashAccount.id} account={cashAccount} categories={categories} />
           ) : null}
         </>
       ) : null}
       {statementPendingDelete ? (
         <DeleteStatementModal
           deleting={deletingStatementId === statementPendingDelete.id}
-          error={deletionError}
+          error={deletionError ?? impactQuery.error?.message ?? null}
           impact={deletionImpact}
           loadingImpact={loadingDeletionImpact}
           onCancel={closeDeleteStatementModal}
@@ -933,5 +830,4 @@ export function AccountsPage() {
     </div>
   );
 }
-
 

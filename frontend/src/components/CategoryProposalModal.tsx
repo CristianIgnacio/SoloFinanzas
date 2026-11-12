@@ -1,6 +1,11 @@
+import { useQueryClient } from "@tanstack/react-query";
+import { learningQueries } from "../query/learning";
+import { useQueryOwner } from "../query/shared";
+import { useExplicitAction } from "../query/useExplicitAction";
+import { useWriteActions } from "../query/writes";
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { CategoryService, type CategoryPattern } from "../services/categoryService";
+import { type CategoryPattern } from "../services/categoryService";
 import type { Category } from "../types";
 import { Button } from "./ui";
 import { CategoryProposalDetails } from "./CategoryProposalDetails";
@@ -9,6 +14,10 @@ export function CategoryProposalModal({ proposal, categories, onClose, onDecided
   proposal: CategoryPattern; categories: Category[]; onClose: () => void;
   onDecided: (message: string) => void;
 }) {
+  const writes = useWriteActions();
+  const client = useQueryClient();
+  const owner = useQueryOwner();
+  const decision = useExplicitAction(writes.categories.decidePattern);
   const dialogRef = useRef<HTMLDialogElement>(null);
   const busyRef = useRef(false);
   const [busy, setBusy] = useState(false);
@@ -33,14 +42,14 @@ export function CategoryProposalModal({ proposal, categories, onClose, onDecided
     busyRef.current = true;
     setBusy(true); setError(null);
     try {
-      await CategoryService.decidePattern(currentProposal.id, action, currentProposal.version);
+      await decision.run(currentProposal.id, action, currentProposal.version);
       onDecided({ accept: "Regla creada para futuras importaciones.",
         snooze: "Propuesta pospuesta durante 30 días.", reject: "No volveremos a mostrar esta sugerencia." }[action]);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "No se pudo guardar la decisión. Puedes volver a intentarlo.");
       // Recheck a stale proposal before allowing another explicit decision.
       try {
-        const items = await CategoryService.ruleProposals();
+        const items = await client.fetchQuery(learningQueries.proposals(owner));
         const updated = items.find(item => item.id === currentProposal.id) ?? null;
         setCurrentProposal(updated);
         if (!updated) setError("Esta propuesta ya no está pendiente. Tu cambio de categoría sigue guardado.");

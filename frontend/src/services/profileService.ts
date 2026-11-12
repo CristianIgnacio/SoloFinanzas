@@ -2,8 +2,16 @@ import { apiClient } from "../lib/apiClient";
 import type { UserProfile } from "../types";
 
 export class ProfileService {
-  static getProfile(): Promise<UserProfile> {
-    return apiClient.get<UserProfile>("/me");
+  static exportData(signal?: AbortSignal): Promise<Record<string, unknown>> {
+    return apiClient.get<Record<string, unknown>>("/me/export", { signal });
+  }
+
+  static getProfile(signal?: AbortSignal): Promise<UserProfile> {
+    return apiClient.get<UserProfile>("/me", { signal });
+  }
+
+  static async deleteProfile(): Promise<void> {
+    await apiClient.delete("/me");
   }
 
   static async startWithCash(): Promise<void> {

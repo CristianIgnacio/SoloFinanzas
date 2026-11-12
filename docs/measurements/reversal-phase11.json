@@ -1,0 +1,30 @@
+{
+  "date": "2026-11-08",
+  "scope": "Textual reversal in isolated copy only; no build or deployment rollback",
+  "order": [
+    10,
+    9,
+    8
+  ],
+  "results": [
+    {
+      "patch": "fase-10.patch",
+      "check_exit": 0,
+      "output": "",
+      "apply_exit": 0
+    },
+    {
+      "patch": "fase-9.patch",
+      "check_exit": 0,
+      "output": "",
+      "apply_exit": 0
+    },
+    {
+      "patch": "fase-8.patch",
+      "check_exit": 0,
+      "output": "",
+      "apply_exit": 0
+    }
+  ],
+  "workspace_unchanged": true
+}

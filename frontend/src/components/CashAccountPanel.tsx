@@ -1,12 +1,13 @@
+import { emptyList, useCashBalance, useAccountTotals, useAccountMovements } from "../query/shared";
+import { useWriteActions } from "../query/writes";
 import { AccountTablePagination } from "./AccountTablePagination";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Link } from "react-router-dom";
 import { useFormatCurrency } from "../hooks";
 import { createCategoryMap } from "../lib";
-import { AccountService, TransactionService } from "../services";
-import { ReportService, type AccountTotal } from "../services/reportService";
-import type { CashAccount, CashBalance, Category, Transaction } from "../types";
+
+import type { CashAccount, Category, Transaction } from "../types";
 import { AccountActivitySummary } from "./AccountActivitySummary";
 import { AccountMovementsTable } from "./AccountMovementsTable";
 import { CashMovementFormModal } from "./CashMovementFormModal";
@@ -86,20 +87,20 @@ function displayDate(value: string): string {
   return `${day}-${month}-${year}`;
 }
 
-export function CashAccountPanel({ account, categories, onBalanceChange }: {
+export function CashAccountPanel({ account, categories }: {
   account: CashAccount;
   categories: Category[];
-  onBalanceChange: (balance: CashBalance) => void;
 }) {
-  const [transactions, setTransactions] = useState<Transaction[]>([]);
-  const [summary, setSummary] = useState<AccountTotal | null>(null);
-  const [balance, setBalance] = useState<CashBalance | null>(null);
+  const writes = useWriteActions();
+  const balanceQuery = useCashBalance();
+  const totalsQuery = useAccountTotals();
+  const balance = balanceQuery.data ?? null;
+  const summary = totalsQuery.data?.find(item => item.account_id === account.id) ?? null;
   const [balanceEditing, setBalanceEditing] = useState(false);
   const [openingAmount, setOpeningAmount] = useState("");
   const [openingDate, setOpeningDate] = useState(localToday);
   const [balanceSaving, setBalanceSaving] = useState(false);
   const [balanceError, setBalanceError] = useState<string | null>(null);
-  const [count, setCount] = useState(0);
   const [pageOffset, setPageOffset] = useState(0);
   const [editing, setEditing] = useState<Transaction | null>(null);
   const [initialDelete, setInitialDelete] = useState(false);
@@ -107,36 +108,12 @@ export function CashAccountPanel({ account, categories, onBalanceChange }: {
   const [unlinking, setUnlinking] = useState<Transaction | null>(null);
   const [unlinkSaving, setUnlinkSaving] = useState(false);
   const [unlinkError, setUnlinkError] = useState<string | null>(null);
-  const [refreshKey, setRefreshKey] = useState(0);
-  const [error, setError] = useState<string | null>(null);
+  const movementsQuery = useAccountMovements(account.id, pageOffset, PAGE_SIZE);
+  const transactions = movementsQuery.data?.items ?? emptyList;
+  const count = movementsQuery.data?.total ?? 0;
+  const error = (movementsQuery.error ?? balanceQuery.error ?? totalsQuery.error)?.message;
   const formatCurrency = useFormatCurrency();
   const categoryMap = useMemo(() => createCategoryMap(categories), [categories]);
-
-  useEffect(() => {
-    let cancelled = false;
-    const load = async () => {
-      try {
-        const [page, currentBalance, totals] = await Promise.all([
-          TransactionService.getPage({ account_id: account.id, limit: PAGE_SIZE, offset: pageOffset }),
-          AccountService.getCashBalance(),
-          ReportService.accounts(),
-        ]);
-        if (cancelled) return;
-        setTransactions(page.items);
-        setCount(page.total);
-        setSummary(totals.find((item) => item.account_id === account.id) ?? {
-          account_id: account.id, count: page.total, net: 0, income: 0, expenses: 0,
-        });
-        setBalance(currentBalance);
-        onBalanceChange(currentBalance);
-        setError(null);
-      } catch (cause) {
-        if (!cancelled) setError(cause instanceof Error ? cause.message : "No fue posible cargar Efectivo.");
-      }
-    };
-    void load();
-    return () => { cancelled = true; };
-  }, [account.id, pageOffset, refreshKey]);
 
   useEffect(() => {
     if (!account || window.location.hash !== "#cash-account") return;
@@ -160,9 +137,7 @@ export function CashAccountPanel({ account, categories, onBalanceChange }: {
     setBalanceSaving(true);
     setBalanceError(null);
     try {
-      const updated = await AccountService.updateCashBalance({ amount_clp: amount, date: openingDate });
-      setBalance(updated);
-      onBalanceChange(updated);
+      await writes.accounts.updateCashBalance({ amount_clp: amount, date: openingDate });
       setBalanceEditing(false);
     } catch (cause) {
       setBalanceError(cause instanceof Error ? cause.message : "No fue posible guardar el saldo inicial.");
@@ -175,9 +150,7 @@ export function CashAccountPanel({ account, categories, onBalanceChange }: {
     setBalanceSaving(true);
     setBalanceError(null);
     try {
-      const updated = await AccountService.clearCashBalance();
-      setBalance(updated);
-      onBalanceChange(updated);
+      await writes.accounts.clearCashBalance();
       setBalanceEditing(false);
     } catch (cause) {
       setBalanceError(cause instanceof Error ? cause.message : "No fue posible quitar el saldo inicial.");
@@ -191,9 +164,8 @@ export function CashAccountPanel({ account, categories, onBalanceChange }: {
     setUnlinkSaving(true);
     setUnlinkError(null);
     try {
-      await TransactionService.unlinkCash(unlinking.id);
+      await writes.transactions.unlinkCash(unlinking.id);
       setUnlinking(null);
-      setRefreshKey((value) => value + 1);
     } catch (cause) {
       setUnlinkError(cause instanceof Error ? cause.message : "No fue posible deshacer el vínculo.");
     } finally {
@@ -261,6 +233,7 @@ export function CashAccountPanel({ account, categories, onBalanceChange }: {
           <Link className="inline-flex min-h-11 items-center text-sm font-semibold text-primary underline-offset-4 hover:underline" to={`/app/transactions?account_id=${account.id}`}>Ver todos</Link>
         </div>
         <div className="p-4 sm:p-5 md:p-8">
+          {movementsQuery.isFetching ? <p role="status" className="text-sm text-muted">Cargando movimientos…{movementsQuery.isPlaceholderData ? " Se muestra la página anterior." : ""}</p> : null}
           {transactions.length > 0 ? <AccountMovementsTable transactions={transactions} categoryMap={categoryMap} formatCurrency={formatCurrency} renderActions={(transaction) => (
             transaction.origin === "manual" ? (
               <MovementActions transaction={transaction}
@@ -270,8 +243,8 @@ export function CashAccountPanel({ account, categories, onBalanceChange }: {
               <Button tone="ghost" className="px-3 py-2 text-sm" onClick={() => { setUnlinkError(null); setUnlinking(transaction); }}>Deshacer vínculo</Button>
             ) : null
           )} /> : null}
-          {transactions.length === 0 ? <p className="py-2 text-sm text-muted">Todavía no hay movimientos en Efectivo.</p> : null}
-          <AccountTablePagination total={count} pageSize={PAGE_SIZE} offset={pageOffset} onOffsetChange={setPageOffset} />
+          {movementsQuery.isSuccess && transactions.length === 0 ? <p className="py-2 text-sm text-muted">Todavía no hay movimientos en Efectivo.</p> : null}
+          <AccountTablePagination total={count} pageSize={PAGE_SIZE} offset={pageOffset} disabled={movementsQuery.isFetching} onOffsetChange={setPageOffset} />
         </div>
       </Panel>
       {formOpen ? (
@@ -281,7 +254,7 @@ export function CashAccountPanel({ account, categories, onBalanceChange }: {
           transaction={editing}
           initialDelete={initialDelete}
           onClose={() => setFormOpen(false)}
-          onChanged={() => { setPageOffset(0); setRefreshKey((value) => value + 1); }}
+          onChanged={() => setPageOffset(0)}
         />
       ) : null}
       {unlinking ? (

@@ -1,5 +1,7 @@
-import { useEffect, useState } from "react";
-import { StatementService, TransactionService } from "../services";
+import { useQuery } from "@tanstack/react-query";
+import { useQueryOwner } from "../query/shared";
+import { statementsQueries } from "../query/statements";
+import { transactionsQueries } from "../query/transactions";
 import type { Account } from "../types";
 import { ModalDialog } from "./ModalDialog";
 import { TrashIcon } from "./icons";
@@ -12,23 +14,21 @@ export function DeleteAccountModal({ account, deleting, error, onCancel, onConfi
   onCancel: () => void;
   onConfirm: () => void;
 }) {
-  const [records, setRecords] = useState<{ statements: number; transactions: number } | null>(null);
-  const [checkError, setCheckError] = useState<string | null>(null);
-  const [attempt, setAttempt] = useState(0);
-  useEffect(() => {
-    let cancelled = false;
-    setRecords(null);
-    setCheckError(null);
-    Promise.all([
-      StatementService.getStatements(account.id),
-      TransactionService.getPage({ account_id: account.id, limit: 1, offset: 0 }),
-    ]).then(([statements, transactions]) => {
-      if (!cancelled) setRecords({ statements: statements.length, transactions: transactions.total });
-    }).catch(() => {
-      if (!cancelled) setCheckError("No pudimos comprobar los registros de esta cuenta. Inténtalo de nuevo antes de eliminarla.");
-    });
-    return () => { cancelled = true; };
-  }, [account.id, attempt]);
+  const owner = useQueryOwner();
+  // Share identity/cancellation, but verify anew on opening this destructive flow.
+  const statements = useQuery({ ...statementsQueries.list(owner, account.id), staleTime: 0 });
+  const transactions = useQuery({ ...transactionsQueries.page(owner,
+    { account_id: account.id, limit: 1, offset: 0 }), staleTime: 0 });
+  const checking = statements.isFetching || transactions.isFetching;
+  const failed = statements.isError || transactions.isError;
+  const records = !checking && !failed && statements.data && transactions.data
+    ? { statements: statements.data.length, transactions: transactions.data.total } : null;
+  const checkError = !checking && failed
+    ? "No pudimos comprobar los registros de esta cuenta. Inténtalo de nuevo antes de eliminarla." : null;
+  const retry = () => {
+    if (statements.isError) void statements.refetch();
+    if (transactions.isError) void transactions.refetch();
+  };
   const blocked = records !== null && (records.statements > 0 || records.transactions > 0);
 
   return <ModalDialog labelledBy="delete-account-title" busy={deleting} onClose={onCancel}
@@ -42,7 +42,7 @@ export function DeleteAccountModal({ account, deleting, error, onCancel, onConfi
         <p className="mt-2">{records.statements} {records.statements === 1 ? "cartola" : "cartolas"} · {records.transactions} {records.transactions === 1 ? "movimiento" : "movimientos"}</p>
         <p className="mt-2">Revisa sus importaciones y movimientos antes de intentar eliminar la cuenta.</p>
       </div> : <p>No tiene cartolas ni movimientos asociados. La eliminación de la cuenta es definitiva.</p> : null}
-      {checkError ? <div><p role="alert" className="text-danger">{checkError}</p><Button tone="ghost" onClick={() => setAttempt(value => value + 1)}>Reintentar</Button></div> : null}
+      {checkError ? <div><p role="alert" className="text-danger">{checkError}</p><Button tone="ghost" onClick={retry}>Reintentar</Button></div> : null}
     </div>
     {error ? <p role="alert" className="mt-4 text-sm text-danger">{error}</p> : null}
     <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">

@@ -2,14 +2,17 @@ from __future__ import annotations
 
 import hashlib
 import re
+import unicodedata
 from pathlib import Path
 
 from app.core.database import BACKEND_DIR
 from app.domain.enums import InstitutionCode
+from app.domain.account_products import kind_for_account_type
+from app.domain.product_types import ProductKind
 from app.domain.parsers import DocumentKind, PARSER_DEFINITIONS, ParserKey
 from app.schemas.statement import PdfIssue, PdfPreview
 from .extractor import _build_reader, _extract_pdf_content, _build_preview_lines
-from .models import PdfImportError, PublicPdfError
+from .models import PdfContent, PdfImportError, PublicPdfError, ParserResult
 from .registry import _resolve_parser, _validate_document, _parse_document
 from .institutions.banco_chile_credit_national import extract_banco_chile_credit_last4
 from .institutions.falabella_cmr_national import extract_falabella_cmr_last4
@@ -28,10 +31,15 @@ INSTITUTION_NAMES = {
 }
 
 
-def _recognized_parser(text: str, requested: ParserKey) -> ParserKey:
+def _recognized_parser(
+    text: str, requested: ParserKey, *,
+    exclude: ParserKey | None = None, account_kind: ProductKind | None = None,
+) -> ParserKey:
     """Prefer a specific credit layout; fall back to the selected account format."""
     matching_credit: list[ParserKey] = []
     for definition in PARSER_DEFINITIONS:
+        if definition.key == exclude or (account_kind and account_kind not in definition.product_kinds):
+            continue
         if definition.document_kind != DocumentKind.CREDIT_NATIONAL:
             continue
         try:
@@ -43,13 +51,18 @@ def _recognized_parser(text: str, requested: ParserKey) -> ParserKey:
         return requested
     if len(matching_credit) == 1:
         return matching_credit[0]
+    if len(matching_credit) > 1:
+        raise PublicPdfError("AMBIGUOUS_FORMAT", "El PDF coincide con más de un formato de tarjeta.", "Revisa el documento antes de volver a analizarlo.")
     try:
-        _validate_document(requested, text)
-        return requested
+        if requested != exclude:
+            _validate_document(requested, text)
+            return requested
     except PdfImportError:
         pass
     matching_accounts: list[ParserKey] = []
     for definition in PARSER_DEFINITIONS:
+        if definition.key == exclude or (account_kind and account_kind not in definition.product_kinds):
+            continue
         if definition.document_kind != DocumentKind.ACCOUNT_MOVEMENTS:
             continue
         try:
@@ -59,11 +72,102 @@ def _recognized_parser(text: str, requested: ParserKey) -> ParserKey:
         matching_accounts.append(definition.key)
     if len(matching_accounts) == 1:
         return matching_accounts[0]
+    if len(matching_accounts) > 1:
+        raise PublicPdfError("AMBIGUOUS_FORMAT", "El PDF coincide con más de un formato de cuenta.", "Revisa el documento antes de volver a analizarlo.")
     raise PublicPdfError(
         "UNSUPPORTED_FORMAT",
         "No pudimos reconocer un formato de cartola compatible en este PDF.",
         "Revisa el banco y tipo de documento, o selecciona otro PDF.",
     )
+
+
+ACCOUNT_KIND_NAMES = {
+    ProductKind.CURRENT: "Cuenta corriente",
+    ProductKind.SIGHT: "Cuenta vista",
+    ProductKind.SAVINGS: "Cuenta de ahorro",
+    ProductKind.CREDIT: "Tarjeta de crédito",
+    ProductKind.PREPAID_WALLET: "Billetera o prepago",
+}
+
+
+def _detect_account_kind(text: str) -> ProductKind | None:
+    """Use explicit headers only; transaction descriptions are not evidence."""
+    matches: set[ProductKind] = set()
+    for raw_line in text.splitlines():
+        line = " ".join("".join(
+            char for char in unicodedata.normalize("NFKD", raw_line.upper())
+            if not unicodedata.combining(char)
+        ).split())
+        if re.match(r"^\d{1,2}[/.-]\d{1,2}(?:[/.-]\d{2,4})?\b", line):
+            break
+        if re.match(r"^(?:FECHA\s+|MOVIMIENTOS?\s+(?:DE\s+)?(?:SU\s+CUENTA|TARJETA)|LISTADO DE MOVIMIENTOS)", line):
+            break
+        if re.match(r"^ESTADO DE CUENTA.*TARJETA DE CREDITO\b", line):
+            matches.add(ProductKind.CREDIT)
+        line = re.sub(r"^TIPO DE CUENTA\s*:\s*(?:CUENTA\s+)?", "CUENTA ", line)
+        header = re.match(
+            r"^(?:(?:CARTOLA|ESTADO(?: DE CUENTA)?)(?: DE)?\s+)?"
+            r"CUENTA\s+(CORRIENTE|VISTA|(?:DE\s+)?AHORRO)\b", line,
+        )
+        if header:
+            matches.add({
+                "CORRIENTE": ProductKind.CURRENT, "VISTA": ProductKind.SIGHT,
+                "AHORRO": ProductKind.SAVINGS, "DE AHORRO": ProductKind.SAVINGS,
+            }[header.group(1)])
+    return next(iter(matches)) if len(matches) == 1 else None
+
+
+def _parse_with_recovery(
+    pdf_content: PdfContent, requested: ParserKey, expected_type: str | None,
+) -> tuple[ParserKey, ParserResult, list[str], list[PdfIssue]]:
+    """Keep successful previews; diagnose type and try one recognized alternative on failure."""
+    text = pdf_content.text
+
+    def attempt(key: ParserKey) -> tuple[ParserResult, list[str]]:
+        warnings: list[str] = []
+        result = _parse_document(
+            key, text, layout_lines=pdf_content.layout_lines,
+            vertical_edges=pdf_content.vertical_edges, validation_warnings=warnings,
+        )
+        if not result[0]:
+            raise PublicPdfError("NO_TRANSACTIONS", "No se detectaron movimientos para importar.", "Revisa que el PDF contenga el detalle de movimientos.")
+        return result, warnings
+
+    try:
+        # Preserve specific credit recognition: a bank logo alone must not let
+        # an account parser interpret a credit statement as account movements.
+        if _recognized_parser(text, requested) != requested:
+            raise PublicPdfError("UNSUPPORTED_FORMAT", "El PDF no corresponde al formato esperado para esta cuenta.")
+        result, warnings = attempt(requested)
+        return requested, result, warnings, []
+    except PdfImportError as primary_error:
+        detected_kind = _detect_account_kind(text)
+        expected_kind = kind_for_account_type(expected_type) if expected_type else None
+        issues: list[PdfIssue] = []
+        if detected_kind is None:
+            diagnostic = "No se pudo comprobar el tipo de cuenta en los encabezados del PDF."
+            issues.append(PdfIssue(code="ACCOUNT_TYPE_UNVERIFIED", message=diagnostic,
+                action="Comprueba que la cartola corresponde a la cuenta seleccionada."))
+        elif expected_kind and detected_kind != expected_kind:
+            diagnostic = f"El PDF indica {ACCOUNT_KIND_NAMES[detected_kind]} y seleccionaste {ACCOUNT_KIND_NAMES[expected_kind]}."
+            issues.append(PdfIssue(code="ACCOUNT_TYPE_MISMATCH", message=diagnostic,
+                action="Elige otra cuenta o revisa esta diferencia antes de continuar."))
+        else:
+            diagnostic = f"El encabezado indica {ACCOUNT_KIND_NAMES[detected_kind]}."
+        try:
+            alternative = _recognized_parser(text, requested, exclude=requested, account_kind=detected_kind)
+            result, warnings = attempt(alternative)
+        except PdfImportError as recovery_error:
+            code = primary_error.code if isinstance(primary_error, PublicPdfError) else "PDF_UNREADABLE"
+            if isinstance(recovery_error, PublicPdfError) and recovery_error.code == "AMBIGUOUS_FORMAT":
+                code = recovery_error.code
+            message = "No se pudieron obtener movimientos con un formato compatible. " + diagnostic
+            raise PublicPdfError(code, message, "Revisa la cuenta elegida y el formato de la cartola; puedes intentar con otro PDF.") from primary_error
+        issues.insert(0, PdfIssue(
+            code="PARSER_FALLBACK", message="El formato esperado no permitió leer la cartola; se usó otro formato reconocido. " + diagnostic,
+            action="Compara los movimientos detectados con el PDF antes de confirmar.",
+        ))
+        return alternative, result, warnings, issues
 
 
 def _credit_last4(parser_key: ParserKey, text: str) -> str | None:
@@ -83,6 +187,7 @@ def inspect_pdf(
     institution: InstitutionCode,
     parser_key: ParserKey | None = None,
     expected_last4: str | None = None,
+    expected_account_type: str | None = None,
     password: str | None = None,
     preview_line_limit: int = 20,
 ) -> PdfPreview:
@@ -104,10 +209,12 @@ def inspect_pdf(
         raise PublicPdfError("NO_SELECTABLE_TEXT", "No se detectó texto seleccionable en el PDF.", "Descarga la cartola original del banco; las imágenes escaneadas aún no se pueden analizar.")
 
     parser_key = parser_key or _resolve_parser(institution)
-    detected_parser = _recognized_parser(extracted_text, parser_key)
+    detected_parser, parsed, validation_warnings, issues = _parse_with_recovery(
+        pdf_content, parser_key, expected_account_type,
+    )
+    candidates, parsing_errors, period_month = parsed
     requested_definition = next(item for item in PARSER_DEFINITIONS if item.key == parser_key)
     detected_definition = next(item for item in PARSER_DEFINITIONS if item.key == detected_parser)
-    issues: list[PdfIssue] = []
     if detected_definition.institution != institution:
         issues.append(PdfIssue(
             code="BANK_MISMATCH",
@@ -142,16 +249,6 @@ def inspect_pdf(
             ))
     checksum = hashlib.sha256(file_bytes).hexdigest()
 
-    validation_warnings: list[str] = []
-    candidates, parsing_errors, period_month = _parse_document(
-        detected_parser,
-        extracted_text,
-        layout_lines=pdf_content.layout_lines,
-        vertical_edges=pdf_content.vertical_edges,
-        validation_warnings=validation_warnings,
-    )
-    if not candidates:
-        raise PublicPdfError("NO_TRANSACTIONS", "No se detectaron movimientos para importar.", "Revisa que este PDF contenga el detalle de movimientos.")
     if validation_warnings:
         issues.append(PdfIssue(
             code="TOTAL_MISMATCH",

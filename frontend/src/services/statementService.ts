@@ -10,9 +10,9 @@ import type {
 } from "../types";
 
 export class StatementService {
-  static async getStatements(accountId?: number): Promise<Statement[]> {
+  static async getStatements(accountId?: number, signal?: AbortSignal): Promise<Statement[]> {
     return apiClient.get<Statement[]>("/statements", {
-      params: { account_id: accountId },
+      params: { account_id: accountId }, signal,
     });
   }
 
@@ -33,9 +33,10 @@ export class StatementService {
 
   static async getDeletionImpact(
     statementId: number,
+    signal?: AbortSignal,
   ): Promise<StatementDeletionImpact> {
     return apiClient.get<StatementDeletionImpact>(
-      `/statements/${statementId}/deletion-impact`,
+      `/statements/${statementId}/deletion-impact`, { signal },
     );
   }
 

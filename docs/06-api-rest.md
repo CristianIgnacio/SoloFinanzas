@@ -44,6 +44,12 @@ Ejemplo de creacion:
 `GET /api/v1/account-products` entrega los códigos, nombres, instituciones,
 tipos y estados PDF del catálogo usados en el formulario.
 
+Crear una cuenta o cambiar su producto a uno con `pdf_support = no_soportado`
+responde `422`. `muestra_probada` y `pendiente_verificacion` se pueden elegir.
+Una cuenta histórica no soportada puede conservar institución, tipo y producto
+al editar su nombre o últimos dígitos. No se permite crear una tarjeta de
+crédito sin producto ni cambiar una cuenta hacia crédito sin producto.
+
 `product_code` es opcional en la API por compatibilidad con cuentas existentes. Cuando se
 envía, debe existir en el [catálogo](catalogo-productos-financieros.md) y
 coincidir con `institution` y `account_type`; una combinación inválida responde
@@ -137,6 +143,20 @@ frontend muestra un aviso para revisar el resultado. Las tarjetas de Santander
 y Banco de Chile usan el parser nacional de crédito de su banco. `no_soportado`
 y las cuentas de crédito antiguas sin producto responden `422`. Las otras
 cuentas antiguas sin producto conservan el parser de su institución.
+
+El formato esperado tiene prioridad. Si no reconoce el documento, falla al
+interpretarlo o devuelve cero movimientos, se examinan encabezados explícitos
+para comprobar el tipo de cuenta. Se intenta una sola alternativa registrada
+que reconozca el PDF y sea compatible con el tipo detectado; el parser fallido
+no se repite. Si hay varias alternativas reconocidas, se informa
+`AMBIGUOUS_FORMAT`. Sin alternativa válida, el error incluye el tipo detectado
+o informa que no se pudo comprobar. La detección específica de estados de
+crédito evita que un parser de cuentas los acepte solo por contener el banco.
+
+Una recuperación exitosa incluye `PARSER_FALLBACK` y, cuando corresponde,
+`ACCOUNT_TYPE_MISMATCH` o `ACCOUNT_TYPE_UNVERIFIED`. Estos avisos también deben
+aceptarse antes de guardar. Una vista previa con movimientos y advertencias
+de filas o totales conserva su resultado; no activa un segundo intento.
 
 La vista previa incluye `issues` con códigos estables cuando el banco, tipo de
 documento, últimos cuatro dígitos, filas o totales no coinciden. Si el parser

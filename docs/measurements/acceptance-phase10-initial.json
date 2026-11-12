@@ -1,0 +1,1414 @@
+{
+  "date": "2026-11-07",
+  "scope": "Full suite before final phase 10 corrections",
+  "stats": {
+    "startTime": "2026-11-08T02:04:48.043Z",
+    "duration": 345938.197,
+    "expected": 179,
+    "skipped": 5,
+    "unexpected": 16,
+    "flaky": 0
+  },
+  "cases": [
+    {
+      "file": "analytics-filters.spec.ts",
+      "title": "modal de filtros aplica la selección múltiple y cancela cambios pendientes",
+      "project": "desktop",
+      "status": "expected",
+      "error": null
+    },
+    {
+      "file": "analytics-filters.spec.ts",
+      "title": "los errores iniciales permiten reintentar sin presentar importes vacíos",
+      "project": "desktop",
+      "status": "expected",
+      "error": null
+    },
+    {
+      "file": "analytics-filters.spec.ts",
+      "title": "un error al cambiar de mes conserva datos y búsqueda y permite recuperar la carga",
+      "project": "desktop",
+      "status": "expected",
+      "error": null
+    },
+    {
+      "file": "analytics-filters.spec.ts",
+      "title": "Resumen y Movimientos conservan filtros, búsqueda y omisiones",
+      "project": "desktop",
+      "status": "expected",
+      "error": null
+    },
+    {
+      "file": "analytics-filters.spec.ts",
+      "title": "la barra sigue visible al bajar y abre filtros sin perder la posición",
+      "project": "desktop",
+      "status": "expected",
+      "error": null
+    },
+    {
+      "file": "analytics-filters.spec.ts",
+      "title": "categorías abre movimientos desde la barra y permite volver o quitar el detalle",
+      "project": "desktop",
+      "status": "expected",
+      "error": null
+    },
+    {
+      "file": "analytics-filters.spec.ts",
+      "title": "los gráficos adaptan el período y no presentan ingresos como gastos",
+      "project": "desktop",
+      "status": "expected",
+      "error": null
+    },
+    {
+      "file": "analytics-filters.spec.ts",
+      "title": "la evolución agrupa por semana y los nuevos gráficos se pueden personalizar",
+      "project": "desktop",
+      "status": "expected",
+      "error": null
+    },
+    {
+      "file": "analytics-filters.spec.ts",
+      "title": "frecuencia permite subcategorías y conserva el contexto de nombres repetidos",
+      "project": "desktop",
+      "status": "expected",
+      "error": null
+    },
+    {
+      "file": "analytics-filters.spec.ts",
+      "title": "todos los gráficos abren sus movimientos y vuelven al gráfico de origen",
+      "project": "desktop",
+      "status": "expected",
+      "error": null
+    },
+    {
+      "file": "analytics-filters.spec.ts",
+      "title": "el análisis se adapta a 320 y 390 píxeles sin ocultar acciones móviles",
+      "project": "desktop",
+      "status": "skipped",
+      "error": null
+    },
+    {
+      "file": "analytics-filters.spec.ts",
+      "title": "la paginación móvil permite avanzar, retroceder y saltar de página sin desbordar",
+      "project": "desktop",
+      "status": "skipped",
+      "error": null
+    },
+    {
+      "file": "analytics-filters.spec.ts",
+      "title": "modal de filtros aplica la selección múltiple y cancela cambios pendientes",
+      "project": "mobile",
+      "status": "expected",
+      "error": null
+    },
+    {
+      "file": "analytics-filters.spec.ts",
+      "title": "los errores iniciales permiten reintentar sin presentar importes vacíos",
+      "project": "mobile",
+      "status": "expected",
+      "error": null
+    },
+    {
+      "file": "analytics-filters.spec.ts",
+      "title": "un error al cambiar de mes conserva datos y búsqueda y permite recuperar la carga",
+      "project": "mobile",
+      "status": "expected",
+      "error": null
+    },
+    {
+      "file": "analytics-filters.spec.ts",
+      "title": "Resumen y Movimientos conservan filtros, búsqueda y omisiones",
+      "project": "mobile",
+      "status": "expected",
+      "error": null
+    },
+    {
+      "file": "analytics-filters.spec.ts",
+      "title": "la barra sigue visible al bajar y abre filtros sin perder la posición",
+      "project": "mobile",
+      "status": "expected",
+      "error": null
+    },
+    {
+      "file": "analytics-filters.spec.ts",
+      "title": "categorías abre movimientos desde la barra y permite volver o quitar el detalle",
+      "project": "mobile",
+      "status": "expected",
+      "error": null
+    },
+    {
+      "file": "analytics-filters.spec.ts",
+      "title": "los gráficos adaptan el período y no presentan ingresos como gastos",
+      "project": "mobile",
+      "status": "expected",
+      "error": null
+    },
+    {
+      "file": "analytics-filters.spec.ts",
+      "title": "la evolución agrupa por semana y los nuevos gráficos se pueden personalizar",
+      "project": "mobile",
+      "status": "expected",
+      "error": null
+    },
+    {
+      "file": "analytics-filters.spec.ts",
+      "title": "frecuencia permite subcategorías y conserva el contexto de nombres repetidos",
+      "project": "mobile",
+      "status": "expected",
+      "error": null
+    },
+    {
+      "file": "analytics-filters.spec.ts",
+      "title": "todos los gráficos abren sus movimientos y vuelven al gráfico de origen",
+      "project": "mobile",
+      "status": "expected",
+      "error": null
+    },
+    {
+      "file": "analytics-filters.spec.ts",
+      "title": "el análisis se adapta a 320 y 390 píxeles sin ocultar acciones móviles",
+      "project": "mobile",
+      "status": "expected",
+      "error": null
+    },
+    {
+      "file": "analytics-filters.spec.ts",
+      "title": "la paginación móvil permite avanzar, retroceder y saltar de página sin desbordar",
+      "project": "mobile",
+      "status": "expected",
+      "error": null
+    },
+    {
+      "file": "beta.spec.ts",
+      "title": "copia personal elimina identificadores y mantiene relaciones aunque haya nombres repetidos",
+      "project": "desktop",
+      "status": "expected",
+      "error": null
+    },
+    {
+      "file": "beta.spec.ts",
+      "title": "preparación permite salir y perfil anuncia la descarga JSON",
+      "project": "desktop",
+      "status": "expected",
+      "error": null
+    },
+    {
+      "file": "beta.spec.ts",
+      "title": "navegación mantiene el acceso a cuentas y al pie entre móvil, tablet y escritorio",
+      "project": "desktop",
+      "status": "expected",
+      "error": null
+    },
+    {
+      "file": "beta.spec.ts",
+      "title": "eliminar categorías propias conserva movimientos mediante traslado explícito",
+      "project": "desktop",
+      "status": "expected",
+      "error": null
+    },
+    {
+      "file": "beta.spec.ts",
+      "title": "fusionar solo aparece cuando la categoría puede fusionarse",
+      "project": "desktop",
+      "status": "expected",
+      "error": null
+    },
+    {
+      "file": "beta.spec.ts",
+      "title": "apariencia de categoría se guarda y se hereda en los movimientos",
+      "project": "desktop",
+      "status": "unexpected",
+      "error": "Error: expect(locator).toBeVisible() failed\n\nLocator: getByRole('dialog', { name: 'Actualizar organizacion' }).getByText(/Sin personalización, hereda el icono/)\nExpected: visible\nTimeout: 5000ms\nError: element(s) not found\n\nCall log:\n  - Expect \"toBeVisible\" getByRole('dialog', { name: 'Actualizar organizacion' }).getByText(/Sin personalización, hereda el icono/) with timeout 5000ms\n  - waiting for getByRole('dialog', { name: 'Actualizar organizacion' }).getByText(/Sin personalización, hereda el icono/)\n"
+    },
+    {
+      "file": "beta.spec.ts",
+      "title": "cambiar una categoría aprende sin casilla y deshacer usa la versión del servidor",
+      "project": "desktop",
+      "status": "expected",
+      "error": null
+    },
+    {
+      "file": "beta.spec.ts",
+      "title": "modal de regla aparece al tercer cambio en Movimientos y acepta sin salir",
+      "project": "desktop",
+      "status": "expected",
+      "error": null
+    },
+    {
+      "file": "beta.spec.ts",
+      "title": "modal de regla permite cerrar, reabrir y snooze desde Movimientos",
+      "project": "desktop",
+      "status": "expected",
+      "error": null
+    },
+    {
+      "file": "beta.spec.ts",
+      "title": "modal de regla permite cerrar, reabrir y reject desde Movimientos",
+      "project": "desktop",
+      "status": "expected",
+      "error": null
+    },
+    {
+      "file": "beta.spec.ts",
+      "title": "modal de regla actualiza evidencia obsoleta sin perder la categoría guardada",
+      "project": "desktop",
+      "status": "expected",
+      "error": null
+    },
+    {
+      "file": "beta.spec.ts",
+      "title": "un cambio de categoría fallido no abre el modal de regla",
+      "project": "desktop",
+      "status": "expected",
+      "error": null
+    },
+    {
+      "file": "beta.spec.ts",
+      "title": "catálogo automático conserva categorías existentes sin solicitar aplicación manual",
+      "project": "desktop",
+      "status": "expected",
+      "error": null
+    },
+    {
+      "file": "beta.spec.ts",
+      "title": "catálogo combina búsqueda, tipo y archivadas conservando el contexto de las subcategorías",
+      "project": "desktop",
+      "status": "expected",
+      "error": null
+    },
+    {
+      "file": "beta.spec.ts",
+      "title": "subcategorías se ordenan con flechas en móvil y arrastre en escritorio",
+      "project": "desktop",
+      "status": "expected",
+      "error": null
+    },
+    {
+      "file": "beta.spec.ts",
+      "title": "reglas acompaña el catálogo al bajar y permite recorrer paneles largos",
+      "project": "desktop",
+      "status": "expected",
+      "error": null
+    },
+    {
+      "file": "beta.spec.ts",
+      "title": "panel de escritorio abre el editor bajo demanda y conserva la edición entre pestañas",
+      "project": "desktop",
+      "status": "expected",
+      "error": null
+    },
+    {
+      "file": "beta.spec.ts",
+      "title": "categorías en móvil abre reglas y propuestas sin perder la posición del catálogo",
+      "project": "desktop",
+      "status": "skipped",
+      "error": null
+    },
+    {
+      "file": "beta.spec.ts",
+      "title": "propuestas permite posponer, recuperar, descartar y aceptar sin mostrar registros internos",
+      "project": "desktop",
+      "status": "expected",
+      "error": null
+    },
+    {
+      "file": "beta.spec.ts",
+      "title": "inicio abre pendientes del periodo y permite categorizar y deshacer",
+      "project": "desktop",
+      "status": "expected",
+      "error": null
+    },
+    {
+      "file": "beta.spec.ts",
+      "title": "movimientos no desborda el ancho móvil con descripciones largas",
+      "project": "desktop",
+      "status": "unexpected",
+      "error": "Error: expect(locator).toContainText(expected) failed\n\nLocator: getByRole('status').first()\nExpected substring: \"Actualizando…\"\nTimeout: 5000ms\nError: element(s) not found\n\nCall log:\n  - Expect \"toContainText\" getByRole('status').first() with timeout 5000ms\n  - waiting for getByRole('status').first()\n"
+    },
+    {
+      "file": "beta.spec.ts",
+      "title": "movimientos restaura la categoría si falla el guardado inmediato",
+      "project": "desktop",
+      "status": "unexpected",
+      "error": "Error: expect(locator).toHaveText(expected) failed\n\nLocator: getByText('Compra de prueba').locator('xpath=ancestor::section[1]').locator('span.line-clamp-1')\nExpected: \"Compras\"\nTimeout: 5000ms\nError: element(s) not found\n\nCall log:\n  - Expect \"toHaveText\" getByText('Compra de prueba').locator('xpath=ancestor::section[1]').locator('span.line-clamp-1') with timeout 5000ms\n  - waiting for getByText('Compra de prueba').locator('xpath=ancestor::section[1]').locator('span.line-clamp-1')\n"
+    },
+    {
+      "file": "beta.spec.ts",
+      "title": "movimientos carga más al bajar y reinicia la lista al filtrar",
+      "project": "desktop",
+      "status": "expected",
+      "error": null
+    },
+    {
+      "file": "beta.spec.ts",
+      "title": "movimientos busca descripciones en todas las páginas y combina los filtros",
+      "project": "desktop",
+      "status": "unexpected",
+      "error": "Error: expect(locator).toBeVisible() failed\n\nLocator: getByText('Mostrando 1 de 1 movimientos')\nExpected: visible\nTimeout: 5000ms\nError: element(s) not found\n\nCall log:\n  - Expect \"toBeVisible\" getByText('Mostrando 1 de 1 movimientos') with timeout 5000ms\n  - waiting for getByText('Mostrando 1 de 1 movimientos')\n"
+    },
+    {
+      "file": "beta.spec.ts",
+      "title": "movimientos conserva el contexto al volver desde una cuenta y recargar",
+      "project": "desktop",
+      "status": "expected",
+      "error": null
+    },
+    {
+      "file": "beta.spec.ts",
+      "title": "exportación confirma el total filtrado y permite elegir cantidad",
+      "project": "desktop",
+      "status": "expected",
+      "error": null
+    },
+    {
+      "file": "beta.spec.ts",
+      "title": "exportación evita archivos parciales y permite cancelar",
+      "project": "desktop",
+      "status": "expected",
+      "error": null
+    },
+    {
+      "file": "beta.spec.ts",
+      "title": "inicio conserva sus indicadores y gráficos en móvil y escritorio",
+      "project": "desktop",
+      "status": "unexpected",
+      "error": "Error: expect(received).toBeLessThan(expected)\n\nExpected: < 136\nReceived:   144"
+    },
+    {
+      "file": "beta.spec.ts",
+      "title": "inicio permite personalizar categorías sin duplicar y conserva selección y accesibilidad",
+      "project": "desktop",
+      "status": "expected",
+      "error": null
+    },
+    {
+      "file": "beta.spec.ts",
+      "title": "bienvenida permite comenzar con Efectivo y persiste la elección",
+      "project": "desktop",
+      "status": "expected",
+      "error": null
+    },
+    {
+      "file": "beta.spec.ts",
+      "title": "bienvenida bancaria abre el formulario y lleva a importar la cuenta creada",
+      "project": "desktop",
+      "status": "expected",
+      "error": null
+    },
+    {
+      "file": "beta.spec.ts",
+      "title": "home público, diseño adaptable y rutas privadas",
+      "project": "desktop",
+      "status": "expected",
+      "error": null
+    },
+    {
+      "file": "beta.spec.ts",
+      "title": "perfil muestra cada error junto a su acción y la ruta 404 lleva al dashboard",
+      "project": "desktop",
+      "status": "expected",
+      "error": null
+    },
+    {
+      "file": "beta.spec.ts",
+      "title": "un fallo de renderizado usa la pantalla de error general",
+      "project": "desktop",
+      "status": "expected",
+      "error": null
+    },
+    {
+      "file": "beta.spec.ts",
+      "title": "cancelación OAuth y privacidad",
+      "project": "desktop",
+      "status": "expected",
+      "error": null
+    },
+    {
+      "file": "beta.spec.ts",
+      "title": "recarga privada, cambio de usuario y cierre de sesión",
+      "project": "desktop",
+      "status": "expected",
+      "error": null
+    },
+    {
+      "file": "beta.spec.ts",
+      "title": "respuesta de token vencido limpia las pantallas privadas",
+      "project": "desktop",
+      "status": "expected",
+      "error": null
+    },
+    {
+      "file": "beta.spec.ts",
+      "title": "alta de cuenta selecciona producto y deriva el tipo",
+      "project": "desktop",
+      "status": "unexpected",
+      "error": "Error: expect(locator).toBeDisabled() failed\n\nLocator:  getByRole('combobox', { name: 'Producto' }).locator('option[value=\"banco_estado_visa_smart\"]')\nExpected: disabled\nReceived: enabled\nTimeout:  5000ms\n\nCall log:\n  - Expect \"toBeDisabled\" getByRole('combobox', { name: 'Producto' }).locator('option[value=\"banco_estado_visa_smart\"]') with timeout 5000ms\n  - waiting for getByRole('combobox', { name: 'Producto' }).locator('option[value=\"banco_estado_visa_smart\"]')\n    13 × locator resolved to <option disabled value=\"banco_estado_visa_smart\">Visa SMART — No soportado</option>\n       - unexpected value \"enabled\"\n"
+    },
+    {
+      "file": "beta.spec.ts",
+      "title": "el formulario ofrece las nuevas cuentas según institución y tipo",
+      "project": "desktop",
+      "status": "expected",
+      "error": null
+    },
+    {
+      "file": "beta.spec.ts",
+      "title": "edición de crédito bloquea cambiar a otro producto no soportado",
+      "project": "desktop",
+      "status": "unexpected",
+      "error": "Error: expect(locator).toBeDisabled() failed\n\nLocator:  getByRole('combobox', { name: 'Producto' }).locator('option[value=\"banco_estado_visa_smart_plus\"]')\nExpected: disabled\nReceived: enabled\nTimeout:  5000ms\n\nCall log:\n  - Expect \"toBeDisabled\" getByRole('combobox', { name: 'Producto' }).locator('option[value=\"banco_estado_visa_smart_plus\"]') with timeout 5000ms\n  - waiting for getByRole('combobox', { name: 'Producto' }).locator('option[value=\"banco_estado_visa_smart_plus\"]')\n    13 × locator resolved to <option disabled value=\"banco_estado_visa_smart_plus\">Visa SMART+ — No soportado</option>\n       - unexpected value \"enabled\"\n"
+    },
+    {
+      "file": "beta.spec.ts",
+      "title": "cuenta heredada sin producto conserva su tipo al editar el nombre",
+      "project": "desktop",
+      "status": "expected",
+      "error": null
+    },
+    {
+      "file": "beta.spec.ts",
+      "title": "importación PDF avisa sobre productos pendientes y bloquea crédito",
+      "project": "desktop",
+      "status": "expected",
+      "error": null
+    },
+    {
+      "file": "beta.spec.ts",
+      "title": "cuentas y dashboard muestran alias, institución y producto",
+      "project": "desktop",
+      "status": "expected",
+      "error": null
+    },
+    {
+      "file": "beta.spec.ts",
+      "title": "cuentas distingue variación registrada y cobertura de cartolas",
+      "project": "desktop",
+      "status": "expected",
+      "error": null
+    },
+    {
+      "file": "beta.spec.ts",
+      "title": "eliminar cuenta comprueba todos los registros y conserva foco y errores",
+      "project": "desktop",
+      "status": "expected",
+      "error": null
+    },
+    {
+      "file": "beta.spec.ts",
+      "title": "deshacer importación resume impacto y contiene el foco sin bloquear la cancelación de carga",
+      "project": "desktop",
+      "status": "expected",
+      "error": null
+    },
+    {
+      "file": "beta.spec.ts",
+      "title": "efectivo permite crear, editar y eliminar un movimiento manual",
+      "project": "desktop",
+      "status": "expected",
+      "error": null
+    },
+    {
+      "file": "beta.spec.ts",
+      "title": "efectivo permite configurar, corregir y quitar el saldo inicial",
+      "project": "desktop",
+      "status": "expected",
+      "error": null
+    },
+    {
+      "file": "beta.spec.ts",
+      "title": "retiro importado se vincula con Efectivo y se puede deshacer",
+      "project": "desktop",
+      "status": "expected",
+      "error": null
+    },
+    {
+      "file": "beta.spec.ts",
+      "title": "tablas de cuentas adaptan columnas y paginación al móvil",
+      "project": "desktop",
+      "status": "expected",
+      "error": null
+    },
+    {
+      "file": "beta.spec.ts",
+      "title": "barra móvil prioriza agregar cartolas y abre el registro de movimientos",
+      "project": "desktop",
+      "status": "expected",
+      "error": null
+    },
+    {
+      "file": "beta.spec.ts",
+      "title": "copia personal elimina identificadores y mantiene relaciones aunque haya nombres repetidos",
+      "project": "mobile",
+      "status": "expected",
+      "error": null
+    },
+    {
+      "file": "beta.spec.ts",
+      "title": "preparación permite salir y perfil anuncia la descarga JSON",
+      "project": "mobile",
+      "status": "expected",
+      "error": null
+    },
+    {
+      "file": "beta.spec.ts",
+      "title": "navegación mantiene el acceso a cuentas y al pie entre móvil, tablet y escritorio",
+      "project": "mobile",
+      "status": "expected",
+      "error": null
+    },
+    {
+      "file": "beta.spec.ts",
+      "title": "eliminar categorías propias conserva movimientos mediante traslado explícito",
+      "project": "mobile",
+      "status": "expected",
+      "error": null
+    },
+    {
+      "file": "beta.spec.ts",
+      "title": "fusionar solo aparece cuando la categoría puede fusionarse",
+      "project": "mobile",
+      "status": "expected",
+      "error": null
+    },
+    {
+      "file": "beta.spec.ts",
+      "title": "apariencia de categoría se guarda y se hereda en los movimientos",
+      "project": "mobile",
+      "status": "unexpected",
+      "error": "Error: expect(locator).toBeVisible() failed\n\nLocator: getByRole('dialog', { name: 'Actualizar organizacion' }).getByText(/Sin personalización, hereda el icono/)\nExpected: visible\nTimeout: 5000ms\nError: element(s) not found\n\nCall log:\n  - Expect \"toBeVisible\" getByRole('dialog', { name: 'Actualizar organizacion' }).getByText(/Sin personalización, hereda el icono/) with timeout 5000ms\n  - waiting for getByRole('dialog', { name: 'Actualizar organizacion' }).getByText(/Sin personalización, hereda el icono/)\n"
+    },
+    {
+      "file": "beta.spec.ts",
+      "title": "cambiar una categoría aprende sin casilla y deshacer usa la versión del servidor",
+      "project": "mobile",
+      "status": "expected",
+      "error": null
+    },
+    {
+      "file": "beta.spec.ts",
+      "title": "modal de regla aparece al tercer cambio en Movimientos y acepta sin salir",
+      "project": "mobile",
+      "status": "expected",
+      "error": null
+    },
+    {
+      "file": "beta.spec.ts",
+      "title": "modal de regla permite cerrar, reabrir y snooze desde Movimientos",
+      "project": "mobile",
+      "status": "expected",
+      "error": null
+    },
+    {
+      "file": "beta.spec.ts",
+      "title": "modal de regla permite cerrar, reabrir y reject desde Movimientos",
+      "project": "mobile",
+      "status": "expected",
+      "error": null
+    },
+    {
+      "file": "beta.spec.ts",
+      "title": "modal de regla actualiza evidencia obsoleta sin perder la categoría guardada",
+      "project": "mobile",
+      "status": "expected",
+      "error": null
+    },
+    {
+      "file": "beta.spec.ts",
+      "title": "un cambio de categoría fallido no abre el modal de regla",
+      "project": "mobile",
+      "status": "expected",
+      "error": null
+    },
+    {
+      "file": "beta.spec.ts",
+      "title": "catálogo automático conserva categorías existentes sin solicitar aplicación manual",
+      "project": "mobile",
+      "status": "expected",
+      "error": null
+    },
+    {
+      "file": "beta.spec.ts",
+      "title": "catálogo combina búsqueda, tipo y archivadas conservando el contexto de las subcategorías",
+      "project": "mobile",
+      "status": "expected",
+      "error": null
+    },
+    {
+      "file": "beta.spec.ts",
+      "title": "subcategorías se ordenan con flechas en móvil y arrastre en escritorio",
+      "project": "mobile",
+      "status": "expected",
+      "error": null
+    },
+    {
+      "file": "beta.spec.ts",
+      "title": "reglas acompaña el catálogo al bajar y permite recorrer paneles largos",
+      "project": "mobile",
+      "status": "skipped",
+      "error": null
+    },
+    {
+      "file": "beta.spec.ts",
+      "title": "panel de escritorio abre el editor bajo demanda y conserva la edición entre pestañas",
+      "project": "mobile",
+      "status": "skipped",
+      "error": null
+    },
+    {
+      "file": "beta.spec.ts",
+      "title": "categorías en móvil abre reglas y propuestas sin perder la posición del catálogo",
+      "project": "mobile",
+      "status": "expected",
+      "error": null
+    },
+    {
+      "file": "beta.spec.ts",
+      "title": "propuestas permite posponer, recuperar, descartar y aceptar sin mostrar registros internos",
+      "project": "mobile",
+      "status": "expected",
+      "error": null
+    },
+    {
+      "file": "beta.spec.ts",
+      "title": "inicio abre pendientes del periodo y permite categorizar y deshacer",
+      "project": "mobile",
+      "status": "expected",
+      "error": null
+    },
+    {
+      "file": "beta.spec.ts",
+      "title": "movimientos no desborda el ancho móvil con descripciones largas",
+      "project": "mobile",
+      "status": "unexpected",
+      "error": "Error: expect(locator).toContainText(expected) failed\n\nLocator: getByRole('status').first()\nExpected substring: \"Actualizando…\"\nTimeout: 5000ms\nError: element(s) not found\n\nCall log:\n  - Expect \"toContainText\" getByRole('status').first() with timeout 5000ms\n  - waiting for getByRole('status').first()\n"
+    },
+    {
+      "file": "beta.spec.ts",
+      "title": "movimientos restaura la categoría si falla el guardado inmediato",
+      "project": "mobile",
+      "status": "unexpected",
+      "error": "Error: expect(locator).toHaveText(expected) failed\n\nLocator: getByText('Compra de prueba').locator('xpath=ancestor::section[1]').locator('span.line-clamp-1')\nExpected: \"Compras\"\nTimeout: 5000ms\nError: element(s) not found\n\nCall log:\n  - Expect \"toHaveText\" getByText('Compra de prueba').locator('xpath=ancestor::section[1]').locator('span.line-clamp-1') with timeout 5000ms\n  - waiting for getByText('Compra de prueba').locator('xpath=ancestor::section[1]').locator('span.line-clamp-1')\n"
+    },
+    {
+      "file": "beta.spec.ts",
+      "title": "movimientos carga más al bajar y reinicia la lista al filtrar",
+      "project": "mobile",
+      "status": "expected",
+      "error": null
+    },
+    {
+      "file": "beta.spec.ts",
+      "title": "movimientos busca descripciones en todas las páginas y combina los filtros",
+      "project": "mobile",
+      "status": "unexpected",
+      "error": "Error: expect(locator).toBeVisible() failed\n\nLocator: getByText('Mostrando 1 de 1 movimientos')\nExpected: visible\nTimeout: 5000ms\nError: element(s) not found\n\nCall log:\n  - Expect \"toBeVisible\" getByText('Mostrando 1 de 1 movimientos') with timeout 5000ms\n  - waiting for getByText('Mostrando 1 de 1 movimientos')\n"
+    },
+    {
+      "file": "beta.spec.ts",
+      "title": "movimientos conserva el contexto al volver desde una cuenta y recargar",
+      "project": "mobile",
+      "status": "expected",
+      "error": null
+    },
+    {
+      "file": "beta.spec.ts",
+      "title": "exportación confirma el total filtrado y permite elegir cantidad",
+      "project": "mobile",
+      "status": "expected",
+      "error": null
+    },
+    {
+      "file": "beta.spec.ts",
+      "title": "exportación evita archivos parciales y permite cancelar",
+      "project": "mobile",
+      "status": "expected",
+      "error": null
+    },
+    {
+      "file": "beta.spec.ts",
+      "title": "inicio conserva sus indicadores y gráficos en móvil y escritorio",
+      "project": "mobile",
+      "status": "unexpected",
+      "error": "Error: expect(received).toBeLessThan(expected)\n\nExpected: < 136\nReceived:   144"
+    },
+    {
+      "file": "beta.spec.ts",
+      "title": "inicio permite personalizar categorías sin duplicar y conserva selección y accesibilidad",
+      "project": "mobile",
+      "status": "expected",
+      "error": null
+    },
+    {
+      "file": "beta.spec.ts",
+      "title": "bienvenida permite comenzar con Efectivo y persiste la elección",
+      "project": "mobile",
+      "status": "unexpected",
+      "error": "Error: expect(locator).toBeVisible() failed\n\nLocator: getByRole('link', { name: 'Ver detalle de Efectivo' })\nExpected: visible\nTimeout: 5000ms\nError: element(s) not found\n\nCall log:\n  - Expect \"toBeVisible\" getByRole('link', { name: 'Ver detalle de Efectivo' }) with timeout 5000ms\n  - waiting for getByRole('link', { name: 'Ver detalle de Efectivo' })\n"
+    },
+    {
+      "file": "beta.spec.ts",
+      "title": "bienvenida bancaria abre el formulario y lleva a importar la cuenta creada",
+      "project": "mobile",
+      "status": "expected",
+      "error": null
+    },
+    {
+      "file": "beta.spec.ts",
+      "title": "home público, diseño adaptable y rutas privadas",
+      "project": "mobile",
+      "status": "expected",
+      "error": null
+    },
+    {
+      "file": "beta.spec.ts",
+      "title": "perfil muestra cada error junto a su acción y la ruta 404 lleva al dashboard",
+      "project": "mobile",
+      "status": "expected",
+      "error": null
+    },
+    {
+      "file": "beta.spec.ts",
+      "title": "un fallo de renderizado usa la pantalla de error general",
+      "project": "mobile",
+      "status": "expected",
+      "error": null
+    },
+    {
+      "file": "beta.spec.ts",
+      "title": "cancelación OAuth y privacidad",
+      "project": "mobile",
+      "status": "expected",
+      "error": null
+    },
+    {
+      "file": "beta.spec.ts",
+      "title": "recarga privada, cambio de usuario y cierre de sesión",
+      "project": "mobile",
+      "status": "expected",
+      "error": null
+    },
+    {
+      "file": "beta.spec.ts",
+      "title": "respuesta de token vencido limpia las pantallas privadas",
+      "project": "mobile",
+      "status": "expected",
+      "error": null
+    },
+    {
+      "file": "beta.spec.ts",
+      "title": "alta de cuenta selecciona producto y deriva el tipo",
+      "project": "mobile",
+      "status": "unexpected",
+      "error": "Error: expect(locator).toBeDisabled() failed\n\nLocator:  getByRole('combobox', { name: 'Producto' }).locator('option[value=\"banco_estado_visa_smart\"]')\nExpected: disabled\nReceived: enabled\nTimeout:  5000ms\n\nCall log:\n  - Expect \"toBeDisabled\" getByRole('combobox', { name: 'Producto' }).locator('option[value=\"banco_estado_visa_smart\"]') with timeout 5000ms\n  - waiting for getByRole('combobox', { name: 'Producto' }).locator('option[value=\"banco_estado_visa_smart\"]')\n    14 × locator resolved to <option disabled value=\"banco_estado_visa_smart\">Visa SMART — No soportado</option>\n       - unexpected value \"enabled\"\n"
+    },
+    {
+      "file": "beta.spec.ts",
+      "title": "el formulario ofrece las nuevas cuentas según institución y tipo",
+      "project": "mobile",
+      "status": "expected",
+      "error": null
+    },
+    {
+      "file": "beta.spec.ts",
+      "title": "edición de crédito bloquea cambiar a otro producto no soportado",
+      "project": "mobile",
+      "status": "unexpected",
+      "error": "Error: expect(locator).toBeDisabled() failed\n\nLocator:  getByRole('combobox', { name: 'Producto' }).locator('option[value=\"banco_estado_visa_smart_plus\"]')\nExpected: disabled\nReceived: enabled\nTimeout:  5000ms\n\nCall log:\n  - Expect \"toBeDisabled\" getByRole('combobox', { name: 'Producto' }).locator('option[value=\"banco_estado_visa_smart_plus\"]') with timeout 5000ms\n  - waiting for getByRole('combobox', { name: 'Producto' }).locator('option[value=\"banco_estado_visa_smart_plus\"]')\n    13 × locator resolved to <option disabled value=\"banco_estado_visa_smart_plus\">Visa SMART+ — No soportado</option>\n       - unexpected value \"enabled\"\n"
+    },
+    {
+      "file": "beta.spec.ts",
+      "title": "cuenta heredada sin producto conserva su tipo al editar el nombre",
+      "project": "mobile",
+      "status": "expected",
+      "error": null
+    },
+    {
+      "file": "beta.spec.ts",
+      "title": "importación PDF avisa sobre productos pendientes y bloquea crédito",
+      "project": "mobile",
+      "status": "expected",
+      "error": null
+    },
+    {
+      "file": "beta.spec.ts",
+      "title": "cuentas y dashboard muestran alias, institución y producto",
+      "project": "mobile",
+      "status": "unexpected",
+      "error": "Error: expect(locator).toContainText(expected) failed\n\nLocator: getByRole('link', { name: 'Ver detalle de Gastos diarios' })\nExpected substring: \"Gastos diarios\"\nTimeout: 5000ms\nError: element(s) not found\n\nCall log:\n  - Expect \"toContainText\" getByRole('link', { name: 'Ver detalle de Gastos diarios' }) with timeout 5000ms\n  - waiting for getByRole('link', { name: 'Ver detalle de Gastos diarios' })\n"
+    },
+    {
+      "file": "beta.spec.ts",
+      "title": "cuentas distingue variación registrada y cobertura de cartolas",
+      "project": "mobile",
+      "status": "expected",
+      "error": null
+    },
+    {
+      "file": "beta.spec.ts",
+      "title": "eliminar cuenta comprueba todos los registros y conserva foco y errores",
+      "project": "mobile",
+      "status": "expected",
+      "error": null
+    },
+    {
+      "file": "beta.spec.ts",
+      "title": "deshacer importación resume impacto y contiene el foco sin bloquear la cancelación de carga",
+      "project": "mobile",
+      "status": "expected",
+      "error": null
+    },
+    {
+      "file": "beta.spec.ts",
+      "title": "efectivo permite crear, editar y eliminar un movimiento manual",
+      "project": "mobile",
+      "status": "expected",
+      "error": null
+    },
+    {
+      "file": "beta.spec.ts",
+      "title": "efectivo permite configurar, corregir y quitar el saldo inicial",
+      "project": "mobile",
+      "status": "expected",
+      "error": null
+    },
+    {
+      "file": "beta.spec.ts",
+      "title": "retiro importado se vincula con Efectivo y se puede deshacer",
+      "project": "mobile",
+      "status": "expected",
+      "error": null
+    },
+    {
+      "file": "beta.spec.ts",
+      "title": "tablas de cuentas adaptan columnas y paginación al móvil",
+      "project": "mobile",
+      "status": "expected",
+      "error": null
+    },
+    {
+      "file": "beta.spec.ts",
+      "title": "barra móvil prioriza agregar cartolas y abre el registro de movimientos",
+      "project": "mobile",
+      "status": "expected",
+      "error": null
+    },
+    {
+      "file": "import-responsive.spec.ts",
+      "title": "respuesta de importación perdida: verifica antes de reenviar (guardada)",
+      "project": "desktop",
+      "status": "expected",
+      "error": null
+    },
+    {
+      "file": "import-responsive.spec.ts",
+      "title": "respuesta de importación perdida: verifica antes de reenviar (pendiente)",
+      "project": "desktop",
+      "status": "expected",
+      "error": null
+    },
+    {
+      "file": "import-responsive.spec.ts",
+      "title": "cartolas largas conservan todas las correcciones al buscar, filtrar y paginar",
+      "project": "desktop",
+      "status": "expected",
+      "error": null
+    },
+    {
+      "file": "import-responsive.spec.ts",
+      "title": "importación conserva correcciones, anima durante el análisis y se adapta sin desbordar",
+      "project": "desktop",
+      "status": "expected",
+      "error": null
+    },
+    {
+      "file": "import-responsive.spec.ts",
+      "title": "contraseña, diferencias y duplicados mantienen sus controles de importación",
+      "project": "desktop",
+      "status": "expected",
+      "error": null
+    },
+    {
+      "file": "import-responsive.spec.ts",
+      "title": "cambiar contraseña o archivo exige analizar de nuevo antes de importar",
+      "project": "desktop",
+      "status": "expected",
+      "error": null
+    },
+    {
+      "file": "import-responsive.spec.ts",
+      "title": "rechaza archivos inválidos, permite volver a elegir el mismo PDF y no importa una vista vacía",
+      "project": "desktop",
+      "status": "expected",
+      "error": null
+    },
+    {
+      "file": "import-responsive.spec.ts",
+      "title": "respuesta de importación perdida: verifica antes de reenviar (guardada)",
+      "project": "mobile",
+      "status": "expected",
+      "error": null
+    },
+    {
+      "file": "import-responsive.spec.ts",
+      "title": "respuesta de importación perdida: verifica antes de reenviar (pendiente)",
+      "project": "mobile",
+      "status": "expected",
+      "error": null
+    },
+    {
+      "file": "import-responsive.spec.ts",
+      "title": "cartolas largas conservan todas las correcciones al buscar, filtrar y paginar",
+      "project": "mobile",
+      "status": "expected",
+      "error": null
+    },
+    {
+      "file": "import-responsive.spec.ts",
+      "title": "importación conserva correcciones, anima durante el análisis y se adapta sin desbordar",
+      "project": "mobile",
+      "status": "expected",
+      "error": null
+    },
+    {
+      "file": "import-responsive.spec.ts",
+      "title": "contraseña, diferencias y duplicados mantienen sus controles de importación",
+      "project": "mobile",
+      "status": "expected",
+      "error": null
+    },
+    {
+      "file": "import-responsive.spec.ts",
+      "title": "cambiar contraseña o archivo exige analizar de nuevo antes de importar",
+      "project": "mobile",
+      "status": "expected",
+      "error": null
+    },
+    {
+      "file": "import-responsive.spec.ts",
+      "title": "rechaza archivos inválidos, permite volver a elegir el mismo PDF y no importa una vista vacía",
+      "project": "mobile",
+      "status": "expected",
+      "error": null
+    },
+    {
+      "file": "query-accounts.spec.ts",
+      "title": "paginar cuenta 1 pide solo una página de movimientos",
+      "project": "desktop",
+      "status": "expected",
+      "error": null
+    },
+    {
+      "file": "query-accounts.spec.ts",
+      "title": "paginar cuenta 3 pide solo una página de movimientos",
+      "project": "desktop",
+      "status": "expected",
+      "error": null
+    },
+    {
+      "file": "query-accounts.spec.ts",
+      "title": "cambiar de cuenta reinicia offset y no muestra filas anteriores bajo el nuevo título",
+      "project": "desktop",
+      "status": "expected",
+      "error": null
+    },
+    {
+      "file": "query-accounts.spec.ts",
+      "title": "navegar entre efectivo y movimientos reutiliza catálogos y saldo vigentes",
+      "project": "desktop",
+      "status": "expected",
+      "error": null
+    },
+    {
+      "file": "query-accounts.spec.ts",
+      "title": "paginar cuenta 1 pide solo una página de movimientos",
+      "project": "mobile",
+      "status": "expected",
+      "error": null
+    },
+    {
+      "file": "query-accounts.spec.ts",
+      "title": "paginar cuenta 3 pide solo una página de movimientos",
+      "project": "mobile",
+      "status": "expected",
+      "error": null
+    },
+    {
+      "file": "query-accounts.spec.ts",
+      "title": "cambiar de cuenta reinicia offset y no muestra filas anteriores bajo el nuevo título",
+      "project": "mobile",
+      "status": "expected",
+      "error": null
+    },
+    {
+      "file": "query-accounts.spec.ts",
+      "title": "navegar entre efectivo y movimientos reutiliza catálogos y saldo vigentes",
+      "project": "mobile",
+      "status": "expected",
+      "error": null
+    },
+    {
+      "file": "query-actions.spec.ts",
+      "title": "perfil cancela la exportación sin descargar ni mostrar un error",
+      "project": "desktop",
+      "status": "expected",
+      "error": null
+    },
+    {
+      "file": "query-actions.spec.ts",
+      "title": "acciones explícitas bloquean doble envío, no reintentan y liberan variables sensibles",
+      "project": "desktop",
+      "status": "expected",
+      "error": null
+    },
+    {
+      "file": "query-actions.spec.ts",
+      "title": "perfil cancela la exportación sin descargar ni mostrar un error",
+      "project": "mobile",
+      "status": "expected",
+      "error": null
+    },
+    {
+      "file": "query-actions.spec.ts",
+      "title": "acciones explícitas bloquean doble envío, no reintentan y liberan variables sensibles",
+      "project": "mobile",
+      "status": "expected",
+      "error": null
+    },
+    {
+      "file": "query-months.spec.ts",
+      "title": "Dashboard espera el período del servidor y comparte A, A+B y A con Análisis",
+      "project": "desktop",
+      "status": "expected",
+      "error": null
+    },
+    {
+      "file": "query-months.spec.ts",
+      "title": "un mes de varias páginas se publica completo y un fallo no cachea páginas parciales",
+      "project": "desktop",
+      "status": "expected",
+      "error": null
+    },
+    {
+      "file": "query-months.spec.ts",
+      "title": "máximo dos meses simultáneos; cancelar retira trabajos en espera y aborta páginas activas",
+      "project": "desktop",
+      "status": "expected",
+      "error": null
+    },
+    {
+      "file": "query-months.spec.ts",
+      "title": "Dashboard conserva resumen y mes juntos cuando falla el nuevo mes",
+      "project": "desktop",
+      "status": "expected",
+      "error": null
+    },
+    {
+      "file": "query-months.spec.ts",
+      "title": "Dashboard espera el período del servidor y comparte A, A+B y A con Análisis",
+      "project": "mobile",
+      "status": "expected",
+      "error": null
+    },
+    {
+      "file": "query-months.spec.ts",
+      "title": "un mes de varias páginas se publica completo y un fallo no cachea páginas parciales",
+      "project": "mobile",
+      "status": "expected",
+      "error": null
+    },
+    {
+      "file": "query-months.spec.ts",
+      "title": "máximo dos meses simultáneos; cancelar retira trabajos en espera y aborta páginas activas",
+      "project": "mobile",
+      "status": "expected",
+      "error": null
+    },
+    {
+      "file": "query-months.spec.ts",
+      "title": "Dashboard conserva resumen y mes juntos cuando falla el nuevo mes",
+      "project": "mobile",
+      "status": "expected",
+      "error": null
+    },
+    {
+      "file": "query-policies.spec.ts",
+      "title": "claves normalizan defaults sin mezclar filtros, formatos ni usuarios",
+      "project": "desktop",
+      "status": "expected",
+      "error": null
+    },
+    {
+      "file": "query-policies.spec.ts",
+      "title": "políticas y reintentos distinguen transitorios, cancelaciones y efectos laterales",
+      "project": "desktop",
+      "status": "expected",
+      "error": null
+    },
+    {
+      "file": "query-policies.spec.ts",
+      "title": "consultas equivalentes reutilizan datos y no dependen de mutar el objeto de filtros",
+      "project": "desktop",
+      "status": "expected",
+      "error": null
+    },
+    {
+      "file": "query-policies.spec.ts",
+      "title": "429 respeta Retry-After incluso con refetch explícito y otra fábrica de opciones",
+      "project": "desktop",
+      "status": "expected",
+      "error": null
+    },
+    {
+      "file": "query-policies.spec.ts",
+      "title": "datos vigentes no recargan por foco; datos obsoletos se revalidan por foco y reconexión",
+      "project": "desktop",
+      "status": "expected",
+      "error": null
+    },
+    {
+      "file": "query-policies.spec.ts",
+      "title": "claves normalizan defaults sin mezclar filtros, formatos ni usuarios",
+      "project": "mobile",
+      "status": "expected",
+      "error": null
+    },
+    {
+      "file": "query-policies.spec.ts",
+      "title": "políticas y reintentos distinguen transitorios, cancelaciones y efectos laterales",
+      "project": "mobile",
+      "status": "expected",
+      "error": null
+    },
+    {
+      "file": "query-policies.spec.ts",
+      "title": "consultas equivalentes reutilizan datos y no dependen de mutar el objeto de filtros",
+      "project": "mobile",
+      "status": "expected",
+      "error": null
+    },
+    {
+      "file": "query-policies.spec.ts",
+      "title": "429 respeta Retry-After incluso con refetch explícito y otra fábrica de opciones",
+      "project": "mobile",
+      "status": "expected",
+      "error": null
+    },
+    {
+      "file": "query-policies.spec.ts",
+      "title": "datos vigentes no recargan por foco; datos obsoletos se revalidan por foco y reconexión",
+      "project": "mobile",
+      "status": "expected",
+      "error": null
+    },
+    {
+      "file": "query-session.spec.ts",
+      "title": "aprovisiona antes de consultar finanzas y comparte /me al navegar y renovar token",
+      "project": "desktop",
+      "status": "expected",
+      "error": null
+    },
+    {
+      "file": "query-session.spec.ts",
+      "title": "/me fallido requiere reintento explícito",
+      "project": "desktop",
+      "status": "expected",
+      "error": null
+    },
+    {
+      "file": "query-session.spec.ts",
+      "title": "conserva códigos HTTP y Retry-After, y un aborto sigue siendo cancelación",
+      "project": "desktop",
+      "status": "expected",
+      "error": null
+    },
+    {
+      "file": "query-session.spec.ts",
+      "title": "cambio de usuario cancela lecturas y descarta un 401 tardío de escritura",
+      "project": "desktop",
+      "status": "expected",
+      "error": null
+    },
+    {
+      "file": "query-session.spec.ts",
+      "title": "aprovisiona antes de consultar finanzas y comparte /me al navegar y renovar token",
+      "project": "mobile",
+      "status": "expected",
+      "error": null
+    },
+    {
+      "file": "query-session.spec.ts",
+      "title": "/me fallido requiere reintento explícito",
+      "project": "mobile",
+      "status": "expected",
+      "error": null
+    },
+    {
+      "file": "query-session.spec.ts",
+      "title": "conserva códigos HTTP y Retry-After, y un aborto sigue siendo cancelación",
+      "project": "mobile",
+      "status": "expected",
+      "error": null
+    },
+    {
+      "file": "query-session.spec.ts",
+      "title": "cambio de usuario cancela lecturas y descarta un 401 tardío de escritura",
+      "project": "mobile",
+      "status": "expected",
+      "error": null
+    },
+    {
+      "file": "query-transactions.spec.ts",
+      "title": "dos filas concurrentes: rollback individual, bloqueo por ID y una reconciliación de dos páginas",
+      "project": "desktop",
+      "status": "expected",
+      "error": null
+    },
+    {
+      "file": "query-transactions.spec.ts",
+      "title": "dos filas concurrentes: dos éxitos, bloqueo por ID y una reconciliación de dos páginas",
+      "project": "desktop",
+      "status": "expected",
+      "error": null
+    },
+    {
+      "file": "query-transactions.spec.ts",
+      "title": "409 renueva la fila sin repetir la escritura ni aumentar expected_version",
+      "project": "desktop",
+      "status": "expected",
+      "error": null
+    },
+    {
+      "file": "query-transactions.spec.ts",
+      "title": "refetch durante una edición conserva la previsualización y una respuesta vieja no pisa una versión nueva",
+      "project": "desktop",
+      "status": "expected",
+      "error": null
+    },
+    {
+      "file": "query-transactions.spec.ts",
+      "title": "infinita deduplica fetchNextPage simultáneo y termina ante página vacía",
+      "project": "desktop",
+      "status": "expected",
+      "error": null
+    },
+    {
+      "file": "query-transactions.spec.ts",
+      "title": "categorizar retira la fila del filtro sin categoría y mantiene el total correcto",
+      "project": "desktop",
+      "status": "expected",
+      "error": null
+    },
+    {
+      "file": "query-transactions.spec.ts",
+      "title": "un fallo anterior sigue visible aunque otra fila se guarde después",
+      "project": "desktop",
+      "status": "expected",
+      "error": null
+    },
+    {
+      "file": "query-transactions.spec.ts",
+      "title": "la búsqueda espera 300 ms y consulta solo la última descripción",
+      "project": "desktop",
+      "status": "expected",
+      "error": null
+    },
+    {
+      "file": "query-transactions.spec.ts",
+      "title": "dos filas concurrentes: rollback individual, bloqueo por ID y una reconciliación de dos páginas",
+      "project": "mobile",
+      "status": "expected",
+      "error": null
+    },
+    {
+      "file": "query-transactions.spec.ts",
+      "title": "dos filas concurrentes: dos éxitos, bloqueo por ID y una reconciliación de dos páginas",
+      "project": "mobile",
+      "status": "expected",
+      "error": null
+    },
+    {
+      "file": "query-transactions.spec.ts",
+      "title": "409 renueva la fila sin repetir la escritura ni aumentar expected_version",
+      "project": "mobile",
+      "status": "expected",
+      "error": null
+    },
+    {
+      "file": "query-transactions.spec.ts",
+      "title": "refetch durante una edición conserva la previsualización y una respuesta vieja no pisa una versión nueva",
+      "project": "mobile",
+      "status": "expected",
+      "error": null
+    },
+    {
+      "file": "query-transactions.spec.ts",
+      "title": "infinita deduplica fetchNextPage simultáneo y termina ante página vacía",
+      "project": "mobile",
+      "status": "expected",
+      "error": null
+    },
+    {
+      "file": "query-transactions.spec.ts",
+      "title": "categorizar retira la fila del filtro sin categoría y mantiene el total correcto",
+      "project": "mobile",
+      "status": "expected",
+      "error": null
+    },
+    {
+      "file": "query-transactions.spec.ts",
+      "title": "un fallo anterior sigue visible aunque otra fila se guarde después",
+      "project": "mobile",
+      "status": "expected",
+      "error": null
+    },
+    {
+      "file": "query-transactions.spec.ts",
+      "title": "la búsqueda espera 300 ms y consulta solo la última descripción",
+      "project": "mobile",
+      "status": "expected",
+      "error": null
+    },
+    {
+      "file": "query-writes.spec.ts",
+      "title": "escrituras concurrentes: éxito parcial, un refetch activo, inactivos y otros usuarios",
+      "project": "desktop",
+      "status": "expected",
+      "error": null
+    },
+    {
+      "file": "query-writes.spec.ts",
+      "title": "respuestas confirmadas actualizan filas y borrar una cuenta retira sus detalles",
+      "project": "desktop",
+      "status": "expected",
+      "error": null
+    },
+    {
+      "file": "query-writes.spec.ts",
+      "title": "fallos y respuestas de sesiones anteriores no modifican la caché",
+      "project": "desktop",
+      "status": "expected",
+      "error": null
+    },
+    {
+      "file": "query-writes.spec.ts",
+      "title": "escrituras concurrentes: éxito parcial, un refetch activo, inactivos y otros usuarios",
+      "project": "mobile",
+      "status": "expected",
+      "error": null
+    },
+    {
+      "file": "query-writes.spec.ts",
+      "title": "respuestas confirmadas actualizan filas y borrar una cuenta retira sus detalles",
+      "project": "mobile",
+      "status": "expected",
+      "error": null
+    },
+    {
+      "file": "query-writes.spec.ts",
+      "title": "fallos y respuestas de sesiones anteriores no modifican la caché",
+      "project": "mobile",
+      "status": "expected",
+      "error": null
+    }
+  ]
+}

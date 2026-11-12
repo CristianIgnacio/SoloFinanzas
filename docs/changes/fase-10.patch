@@ -1,0 +1,1988 @@
+diff --git a/frontend/src/components/DeleteAccountModal.tsx b/frontend/src/components/DeleteAccountModal.tsx
+--- a/frontend/src/components/DeleteAccountModal.tsx
++++ b/frontend/src/components/DeleteAccountModal.tsx
+@@ -1,5 +1,7 @@
+-import { useEffect, useState } from "react";
+-import { StatementService, TransactionService } from "../services";
++import { useQuery } from "@tanstack/react-query";
++import { useQueryOwner } from "../query/shared";
++import { statementsQueries } from "../query/statements";
++import { transactionsQueries } from "../query/transactions";
+ import type { Account } from "../types";
+ import { ModalDialog } from "./ModalDialog";
+ import { TrashIcon } from "./icons";
+@@ -12,23 +14,21 @@
+   onCancel: () => void;
+   onConfirm: () => void;
+ }) {
+-  const [records, setRecords] = useState<{ statements: number; transactions: number } | null>(null);
+-  const [checkError, setCheckError] = useState<string | null>(null);
+-  const [attempt, setAttempt] = useState(0);
+-  useEffect(() => {
+-    let cancelled = false;
+-    setRecords(null);
+-    setCheckError(null);
+-    Promise.all([
+-      StatementService.getStatements(account.id),
+-      TransactionService.getPage({ account_id: account.id, limit: 1, offset: 0 }),
+-    ]).then(([statements, transactions]) => {
+-      if (!cancelled) setRecords({ statements: statements.length, transactions: transactions.total });
+-    }).catch(() => {
+-      if (!cancelled) setCheckError("No pudimos comprobar los registros de esta cuenta. Inténtalo de nuevo antes de eliminarla.");
+-    });
+-    return () => { cancelled = true; };
+-  }, [account.id, attempt]);
++  const owner = useQueryOwner();
++  // Share identity/cancellation, but verify anew on opening this destructive flow.
++  const statements = useQuery({ ...statementsQueries.list(owner, account.id), staleTime: 0 });
++  const transactions = useQuery({ ...transactionsQueries.page(owner,
++    { account_id: account.id, limit: 1, offset: 0 }), staleTime: 0 });
++  const checking = statements.isFetching || transactions.isFetching;
++  const failed = statements.isError || transactions.isError;
++  const records = !checking && !failed && statements.data && transactions.data
++    ? { statements: statements.data.length, transactions: transactions.data.total } : null;
++  const checkError = !checking && failed
++    ? "No pudimos comprobar los registros de esta cuenta. Inténtalo de nuevo antes de eliminarla." : null;
++  const retry = () => {
++    if (statements.isError) void statements.refetch();
++    if (transactions.isError) void transactions.refetch();
++  };
+   const blocked = records !== null && (records.statements > 0 || records.transactions > 0);
+ 
+   return <ModalDialog labelledBy="delete-account-title" busy={deleting} onClose={onCancel}
+@@ -42,7 +42,7 @@
+         <p className="mt-2">{records.statements} {records.statements === 1 ? "cartola" : "cartolas"} · {records.transactions} {records.transactions === 1 ? "movimiento" : "movimientos"}</p>
+         <p className="mt-2">Revisa sus importaciones y movimientos antes de intentar eliminar la cuenta.</p>
+       </div> : <p>No tiene cartolas ni movimientos asociados. La eliminación de la cuenta es definitiva.</p> : null}
+-      {checkError ? <div><p role="alert" className="text-danger">{checkError}</p><Button tone="ghost" onClick={() => setAttempt(value => value + 1)}>Reintentar</Button></div> : null}
++      {checkError ? <div><p role="alert" className="text-danger">{checkError}</p><Button tone="ghost" onClick={retry}>Reintentar</Button></div> : null}
+     </div>
+     {error ? <p role="alert" className="mt-4 text-sm text-danger">{error}</p> : null}
+     <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+diff --git a/frontend/tests/beta.spec.ts b/frontend/tests/beta.spec.ts
+--- a/frontend/tests/beta.spec.ts
++++ b/frontend/tests/beta.spec.ts
+@@ -1079,11 +1079,13 @@
+   await page.route("**/api/v1/categories**", route => route.fulfill({ json: [
+     { id: 1, name: "Compras", type: "expense", parent_id: null, is_active: true, sort_order: 1 },
+   ] }));
++  let savedCategory: number | null = null;
++  let categoryVersion = 0;
+   const description = "Transferencia_".repeat(12);
+   await page.route("**/api/v1/transaction-pages**", route => route.fulfill({ json: {
+     items: [
+       { id: 2, account_id: 1, date: "2026-09-30", description: "Transf a CLEO CHILE",
+-        amount_clp: -23600, transaction_type: "expense", origin: "pdf", category_id: null, is_internal_transfer: true },
++        amount_clp: -23600, transaction_type: "expense", origin: "pdf", category_id: savedCategory, category_version: categoryVersion, is_internal_transfer: true },
+       { id: 1, account_id: 1, date: "2026-09-30", description,
+         amount_clp: -123456789, transaction_type: "expense", origin: "pdf", category_id: null },
+       { id: 3, account_id: 3, date: "2026-09-29", description: "Ingreso en efectivo",
+@@ -1096,11 +1098,15 @@
+   await page.route("**/api/v1/transactions/2/category", route => {
+     const categoryId = route.request().postDataJSON().category_id as number | null;
+     categoryUpdates.push(categoryId);
+-    return route.fulfill({ json: { id: 2, category_id: categoryId,
++    savedCategory = categoryId; categoryVersion = 1;
++    return route.fulfill({ json: { id: 2, account_id: 1, date: "2026-09-30",
++      description: "Transf a CLEO CHILE", amount_clp: -23600, transaction_type: "expense",
++      origin: "pdf", is_internal_transfer: true, category_id: categoryId,
+       category_version: 1, category_reviewed: true, category_event_id: 202 } });
+   });
+   await page.route("**/api/v1/transactions/2/category/undo", route => {
+     undoEvents.push(route.request().postDataJSON().event_id);
++    savedCategory = null; categoryVersion = 2;
+     return route.fulfill({ json: { id: 2, account_id: 1, date: "2026-09-30",
+       description: "Transf a CLEO CHILE", amount_clp: -23600, transaction_type: "expense",
+       origin: "pdf", is_internal_transfer: true, category_id: null, category_source: null,
+@@ -1142,11 +1148,12 @@
+   }, { times: 1 });
+   await page.getByRole("button", { name: "Filtrar por categoría", exact: true }).click();
+   await page.getByRole("dialog", { name: "Seleccionar categoría" }).getByRole("button", { name: "Compras", exact: true }).click();
+-  await expect(page.getByRole("status").first()).toContainText("Actualizando…");
+-  await expect(page.getByText("Transf a CLEO CHILE", { exact: true })).toBeVisible();
++  await expect(page.getByText("Cargando movimientos...", { exact: true })).toBeVisible();
++  await expect(page.getByText("Transf a CLEO CHILE", { exact: true })).toHaveCount(0);
+   await expect.poll(() => typeof resumeFilter).toBe("function");
+   resumeFilter();
+-  await expect(page.getByRole("status").first()).not.toContainText("Actualizando…");
++  await expect(page.getByText("Cargando movimientos...", { exact: true })).toHaveCount(0);
++  await expect(page.getByText("Transf a CLEO CHILE", { exact: true })).toBeVisible();
+   await expect(page.getByRole("button", { name: "Quitar filtro: Compras" })).toBeVisible();
+   await page.getByRole("button", { name: "Limpiar filtros", exact: true }).click();
+   await expect(page.getByRole("button", { name: "Quitar filtro: Compras" })).toHaveCount(0);
+diff --git a/docs/plan-migracion-tanstack-query.md b/docs/plan-migracion-tanstack-query.md
+--- a/docs/plan-migracion-tanstack-query.md
++++ b/docs/plan-migracion-tanstack-query.md
+@@ -1,6 +1,6 @@
+ **Plan de migración de SoloFinanzas a TanStack Query**
+ 
+-Fecha: 7 de noviembre de 2026. Estado: puntos 1, 3, 4, 5, 6, 7, 8 y 9 implementados; punto 2 con inventario y línea base de frontend simulada registrados. Medición del servidor real y validación global del punto 10 pendientes.
++Fecha: 7 de noviembre de 2026. Estado: puntos 1, 3, 4, 5, 6, 7, 8 y 9 implementados; punto 2 con inventario y línea base simulada. Punto 10 ejecutado con matriz y comparación de producción: aceptación global pendiente por 14 fallos beta preexistentes y falta de medición del servidor real. Detalle en [validación y aceptación](aceptacion-tanstack-query.md).
+ 
+ Objetivo: reducir solicitudes repetidas, reutilizar datos al navegar y mantener coherencia después de guardar cambios, conservando los flujos actuales de autenticación, categorización, efectivo, importación y análisis.
+ 
+diff --git a/frontend/tests/query-acceptance.spec.ts b/frontend/tests/query-acceptance.spec.ts
+new file mode 100644
+--- /dev/null
++++ b/frontend/tests/query-acceptance.spec.ts
+@@ -0,0 +1,72 @@
++import { expect, test } from "@playwright/test";
++import { setupFixture } from "../benchmarks/fixture";
++
++test("cerrar eliminación de cuenta cancela la comprobación pendiente", async ({ page }) => {
++  await setupFixture(page);
++  await page.goto("/app/accounts?account_id=1");
++  await page.waitForLoadState("networkidle");
++  let release!: () => void;
++  const gate = new Promise<void>(resolve => { release = resolve; });
++  await page.route("**/api/v1/transaction-pages?**", async route => {
++    if (new URL(route.request().url()).searchParams.get("limit") !== "1") return route.fallback();
++    await gate;
++    await route.fulfill({ json: { items: [], total: 0, offset: 0, limit: 1 } }).catch(() => {});
++  });
++  await page.getByLabel("Más acciones de la cuenta").click();
++  const requested = page.waitForRequest(request => new URL(request.url()).searchParams.get("limit") === "1");
++  await page.getByRole("button", { name: "Eliminar cuenta", exact: true }).click();
++  await requested;
++  const dialog = page.getByRole("dialog", { name: "¿Eliminar Cuenta benchmark?" });
++  await expect(dialog.getByRole("button", { name: "Eliminar cuenta", exact: true })).toBeDisabled();
++  const aborted = page.waitForEvent("requestfailed", request => new URL(request.url()).searchParams.get("limit") === "1");
++  await dialog.getByRole("button", { name: "Cancelar", exact: true }).click();
++  await aborted;
++  release();
++  await expect(dialog).toHaveCount(0);
++  await expect(page.getByLabel("Más acciones de la cuenta")).toBeFocused();
++});
++
++for (const operation of ["import", "delete"] as const) {
++  test(`${operation} de cartola reconcilia todas las dependencias financieras y aísla otros usuarios`, async ({ page }) => {
++    await page.goto("/");
++    const result = await page.evaluate(async operation => {
++      const harnessPath = "/tests/helpers/queryHarness.ts";
++      const servicePath = "/src/services/statementService.ts";
++      const h = await import(harnessPath);
++      const { StatementService } = await import(servicePath);
++      const client = h.createQueryClient(), session = h.beginApiSession("writer");
++      const keys = [h.queryKeys.accounts("writer"), h.queryKeys.cashAccount("writer"),
++        h.queryKeys.cashBalance("writer"), h.queryKeys.statements("writer"),
++        h.queryKeys.transactions.month("writer", "2026-10"), h.queryKeys.reports.accounts("writer"),
++        h.queryKeys.reports.periods("writer"), h.queryKeys.dashboard("writer"),
++        h.queryKeys.categories("writer"), h.queryKeys.learning("writer", "proposals")];
++      const inactive = h.queryKeys.transactions.month("writer", "2026-09");
++      const other = h.queryKeys.accounts("other");
++      const detail = h.queryKeys.statementImpact("writer", 7);
++      for (const key of [...keys, inactive, other, detail]) client.setQueryData(key, { revision: 0 });
++      const reads = keys.map(() => 0);
++      const stops = keys.map((queryKey, index) => new h.QueryObserver(client, {
++        queryKey, staleTime: Infinity,
++        queryFn: async () => { reads[index]++; return { revision: 1 }; },
++      }).subscribe(() => {}));
++      let posts = 0;
++      StatementService.importReviewedPdf = async () => { posts++; return { statement: { id: 7 }, result: { inserted_count: 2 } }; };
++      StatementService.deleteStatement = async () => { posts++; return { deleted_count: 2 }; };
++      const writes = h.createWriteActions(client, session);
++      if (operation === "import") await writes.statements.importReviewedPdf(1, new File(["test"], "test.pdf"), []);
++      else await writes.statements.deleteStatement(7);
++      const result = { reads, posts, revisions: keys.map(key => client.getQueryData(key).revision),
++        inactive: client.getQueryState(inactive).isInvalidated,
++        other: client.getQueryState(other).isInvalidated,
++        detailRemoved: client.getQueryState(detail) === undefined };
++      stops.forEach(stop => stop()); client.clear(); h.endApiSession(session);
++      return result;
++    }, operation);
++    expect(result.reads).toEqual(Array(10).fill(1));
++    expect(result.revisions).toEqual(Array(10).fill(1));
++    expect(result.posts).toBe(1);
++    expect(result.inactive).toBe(true);
++    expect(result.other).toBe(false);
++    expect(result.detailRemoved).toBe(operation === "delete");
++  });
++}
+diff --git a/docs/aceptacion-tanstack-query.md b/docs/aceptacion-tanstack-query.md
+new file mode 100644
+--- /dev/null
++++ b/docs/aceptacion-tanstack-query.md
+@@ -0,0 +1,63 @@
++# Fase 10: validación y condiciones de aceptación
++
++Validación local del 7 de noviembre de 2026. Las pruebas interceptan HTTP y simulan las respuestas de la API; no certifican Supabase, FastAPI ni PostgreSQL desplegados. No se modificaron contratos o servicios backend.
++
++**Decisión: aceptación global pendiente.** La cobertura dirigida de la migración pasa, pero la suite beta conserva 14 fallos previos. Tampoco se validó el entorno real. El [diff exclusivo de la fase 10](changes/fase-10.patch) contiene el ajuste del modal, la prueba actualizada, las pruebas nuevas y este informe.
++
++## Ejecuciones y resultados
++
++- Suite completa: `npx playwright test --workers=2 --reporter=list,json`. **179 aprobadas, 5 omitidas, 16 fallidas**, sin flaky. [Informe por caso](measurements/acceptance-phase10-initial.json). Incluye 60/60 pruebas Query, 22/22 aplicables de Análisis y 14/14 de Importación.
++- De esos 16 fallos, 14 coinciden con los ya contrastados contra la implementación anterior en [verificación de sesión](verificacion-query-sesion.md): apariencia de categoría, selector del rollback, contador de búsqueda, dimensiones de Inicio, opciones deshabilitadas de alta/edición de cuenta (ambos proyectos); bienvenida con efectivo y alias/producto (solo móvil).
++- Los otros dos eran las variantes escritorio/móvil de la prueba responsive de Movimientos, que esperaba el comportamiento anterior al cambiar filtros. Tras adaptar expectativas y fixture, **2/2 pasaron**, incluyendo categorización y deshacer.
++- Comprobación dirigida posterior del modal y dependencias: **16/16 pasaron** (6 nuevas de aceptación, 8 de cuentas y 2 del flujo de eliminación beta). La ejecución conjunta tenía además las dos pruebas responsive, resueltas en la repetición anterior.
++- Compilación de producción y TypeScript de las pruebas añadidas correctos. `git diff --check` y comprobación inversa del patch sin errores. Persiste la advertencia de bundles mayores a 500 kB.
++- Benchmark de producción: **1/1 aprobado**. No se ejecutaron pruebas backend porque no se modificó backend ni sus contratos.
++
++No se presenta la combinación de ejecuciones como una nueva suite completa verde. La aceptación general exige resolver los 14 fallos documentados, repetir la suite completa y validar tráfico/errores del entorno real. Los cambios previos de Analytics y otros archivos del usuario se conservaron.
++
++## Matriz de cobertura
++
++| Condición del plan | Evidencia automatizada |
++| --- | --- |
++| Reutilizar datos vigentes al navegar | `query-accounts.spec.ts`, `query-policies.spec.ts`, benchmark de producción |
++| Aprovisionar antes de leer finanzas y compartir `/me` | `query-session.spec.ts`: aprovisionamiento y renovación de token |
++| Aislar cambios de usuario con peticiones pendientes | `query-session.spec.ts`: cancela lecturas y descarta respuestas tardías, incluido 401 y éxito de escritura |
++| Paginar cuentas y efectivo sin recargar catálogos | `query-accounts.spec.ts`: un GET por página y regreso desde caché |
++| Consultar solo meses faltantes y no consultar selección vacía | `query-months.spec.ts` y `analytics-filters.spec.ts` |
++| Conservar último conjunto completo si falla un mes | `query-months.spec.ts` y `analytics-filters.spec.ts`: fallo, contexto y recuperación |
++| Aislar filtros y cambios de cuenta | `query-accounts.spec.ts`, `query-transactions.spec.ts` y recorrido responsive de Movimientos en `beta.spec.ts` |
++| Coordinar scroll, páginas y revalidaciones | `query-transactions.spec.ts`: deduplicación, página vacía, dos páginas reconciliadas y refetch durante edición |
++| Revertir solo la edición fallida entre dos concurrentes | `query-transactions.spec.ts`: éxito parcial y error persistente por fila |
++| Confirmar/deshacer categoría y recuperar 409 | `query-transactions.spec.ts` y pruebas de propuestas de `beta.spec.ts` |
++| Importar/eliminar y renovar dependencias | `query-acceptance.spec.ts`: diez familias activas, inactivos obsoletos y aislamiento por usuario; `query-writes.spec.ts`: eliminación de cuenta y retirada de detalles |
++| Corregir pertenencia y conteos tras categorizar | `query-transactions.spec.ts`: filtro sin categoría |
++| Recuperar foco/conexión sin bucles | `query-policies.spec.ts`: vigencia, reconexión, límites de retry y Retry-After |
++| Exportar/cancelar sin archivos parciales | `beta.spec.ts` y `query-actions.spec.ts` |
++| Mantener revisión tras errores y no reenviar automáticamente | `import-responsive.spec.ts`: password, advertencias, duplicados y respuesta perdida; `query-actions.spec.ts`: bloqueo y liberación de variables |
++
++## Correcciones de esta fase
++
++El modal de eliminar cuenta aún consultaba servicios desde un efecto local. Se migró a las opciones compartidas de cartolas y página de movimientos, con `staleTime: 0` para comprobar al abrir. Mientras comprueba o falla, la confirmación permanece bloqueada; el reintento solicita solo las consultas fallidas y cerrar cancela la consulta que deja de tener consumidores. El backend sigue siendo la autoridad al eliminar.
++
++La prueba responsive de Movimientos esperaba filas del filtro anterior durante la carga del siguiente. Se actualizó para exigir aislamiento y mantener todas sus comprobaciones de tamaños, detalles, categorización y deshacer. Su API simulada ahora conserva categoría/versión después de escribir y devuelve la fila completa, como exige la revalidación. No se eliminaron assertions para ocultar fallos.
++
++## Comparación HTTP
++
++Misma fixture `v1-500-transactions-20ms`, compilación de producción. Comparación con la primera ejecución de la línea base inicial (las tres ejecuciones iniciales tenían los mismos conteos).
++
++| Recorrido | Inicial | Fase 10 |
++| --- | ---: | ---: |
++| Inicio frío | 16 | 9 |
++| Navegar a Cuentas | 8 | 3 |
++| Navegar a Movimientos | 6 | 3 |
++| Navegar a Análisis | 5 | 0 |
++| Volver a Inicio | 15 | 0 |
++| Paginar cuenta bancaria | 3 | 1 |
++| Paginar efectivo | 3 | 1 |
++| Añadir mes | 2 | 1 |
++| Quitar mes | 1 | 0 |
++| Guardar categoría | 3 | 7 |
++
++Guardar categoría tiene un coste mayor por la reconciliación conservadora: PATCH más seis lecturas de dependencias activas. No se presenta como una mejora de tráfico. Refinar esa invalidación requiere conservar coherencia entre cuentas, efectivo, categorías, períodos, propuestas y movimientos.
++
++Registro: [medición fase 10](measurements/http-phase10-production.json). La medición se realizó antes del ajuste del modal de eliminación, que no participa en el recorrido del benchmark. Los conteos son evidencia de la fixture, no una estimación del ahorro SQL o del tráfico real.
+diff --git a/docs/measurements/http-phase10-production.json b/docs/measurements/http-phase10-production.json
+new file mode 100644
+--- /dev/null
++++ b/docs/measurements/http-phase10-production.json
+@@ -0,0 +1,294 @@
++{
++  "mode": "production",
++  "fixture": "v1-500-transactions-20ms",
++  "date": "2026-11-07",
++  "measurements": [
++    {
++      "name": "dashboard-cold",
++      "uiCheckpointMs": 552,
++      "apiCompleteMs": 343,
++      "started": 9,
++      "decodedBytes": 55081,
++      "endpoints": {
++        "GET /api/v1/me": {
++          "started": 1,
++          "completed": 1,
++          "cancelled": 0,
++          "failed": 0,
++          "pending": 0,
++          "decodedBytes": 72
++        },
++        "GET /api/v1/dashboard": {
++          "started": 1,
++          "completed": 1,
++          "cancelled": 0,
++          "failed": 0,
++          "pending": 0,
++          "decodedBytes": 150
++        },
++        "GET /api/v1/accounts": {
++          "started": 1,
++          "completed": 1,
++          "cancelled": 0,
++          "failed": 0,
++          "pending": 0,
++          "decodedBytes": 144
++        },
++        "GET /api/v1/cash-account": {
++          "started": 1,
++          "completed": 1,
++          "cancelled": 0,
++          "failed": 0,
++          "pending": 0,
++          "decodedBytes": 26
++        },
++        "GET /api/v1/cash-account/balance": {
++          "started": 1,
++          "completed": 1,
++          "cancelled": 0,
++          "failed": 0,
++          "pending": 0,
++          "decodedBytes": 121
++        },
++        "GET /api/v1/categories": {
++          "started": 1,
++          "completed": 1,
++          "cancelled": 0,
++          "failed": 0,
++          "pending": 0,
++          "decodedBytes": 148
++        },
++        "GET /api/v1/account-products": {
++          "started": 1,
++          "completed": 1,
++          "cancelled": 0,
++          "failed": 0,
++          "pending": 0,
++          "decodedBytes": 2
++        },
++        "GET /api/v1/transaction-pages": {
++          "started": 1,
++          "completed": 1,
++          "cancelled": 0,
++          "failed": 0,
++          "pending": 0,
++          "decodedBytes": 258
++        },
++        "GET /api/v1/transactions": {
++          "started": 1,
++          "completed": 1,
++          "cancelled": 0,
++          "failed": 0,
++          "pending": 0,
++          "decodedBytes": 54160
++        }
++      }
++    },
++    {
++      "name": "navigation-Cuentas",
++      "uiCheckpointMs": 188,
++      "apiCompleteMs": 157,
++      "started": 3,
++      "decodedBytes": 10933,
++      "endpoints": {
++        "GET /api/v1/reports/accounts": {
++          "started": 1,
++          "completed": 1,
++          "cancelled": 0,
++          "failed": 0,
++          "pending": 0,
++          "decodedBytes": 145
++        },
++        "GET /api/v1/statements": {
++          "started": 1,
++          "completed": 1,
++          "cancelled": 0,
++          "failed": 0,
++          "pending": 0,
++          "decodedBytes": 2
++        },
++        "GET /api/v1/transaction-pages": {
++          "started": 1,
++          "completed": 1,
++          "cancelled": 0,
++          "failed": 0,
++          "pending": 0,
++          "decodedBytes": 10786
++        }
++      }
++    },
++    {
++      "name": "navigation-Movimientos",
++      "uiCheckpointMs": 252,
++      "apiCompleteMs": 130,
++      "started": 3,
++      "decodedBytes": 10809,
++      "endpoints": {
++        "GET /api/v1/reports/periods": {
++          "started": 1,
++          "completed": 1,
++          "cancelled": 0,
++          "failed": 0,
++          "pending": 0,
++          "decodedBytes": 21
++        },
++        "GET /api/v1/categorization-rules/proposals": {
++          "started": 1,
++          "completed": 1,
++          "cancelled": 0,
++          "failed": 0,
++          "pending": 0,
++          "decodedBytes": 2
++        },
++        "GET /api/v1/transaction-pages": {
++          "started": 1,
++          "completed": 1,
++          "cancelled": 0,
++          "failed": 0,
++          "pending": 0,
++          "decodedBytes": 10786
++        }
++      }
++    },
++    {
++      "name": "navigation-Análisis",
++      "uiCheckpointMs": 415,
++      "apiCompleteMs": 0,
++      "started": 0,
++      "decodedBytes": 0,
++      "endpoints": {}
++    },
++    {
++      "name": "navigation-Inicio",
++      "uiCheckpointMs": 177,
++      "apiCompleteMs": 0,
++      "started": 0,
++      "decodedBytes": 0,
++      "endpoints": {}
++    },
++    {
++      "name": "pagination-1",
++      "uiCheckpointMs": 214,
++      "apiCompleteMs": 124,
++      "started": 1,
++      "decodedBytes": 10797,
++      "endpoints": {
++        "GET /api/v1/transaction-pages": {
++          "started": 1,
++          "completed": 1,
++          "cancelled": 0,
++          "failed": 0,
++          "pending": 0,
++          "decodedBytes": 10797
++        }
++      }
++    },
++    {
++      "name": "pagination-3",
++      "uiCheckpointMs": 207,
++      "apiCompleteMs": 138,
++      "started": 1,
++      "decodedBytes": 10947,
++      "endpoints": {
++        "GET /api/v1/transaction-pages": {
++          "started": 1,
++          "completed": 1,
++          "cancelled": 0,
++          "failed": 0,
++          "pending": 0,
++          "decodedBytes": 10947
++        }
++      }
++    },
++    {
++      "name": "add-month",
++      "uiCheckpointMs": 297,
++      "apiCompleteMs": 210,
++      "started": 1,
++      "decodedBytes": 54160,
++      "endpoints": {
++        "GET /api/v1/transactions": {
++          "started": 1,
++          "completed": 1,
++          "cancelled": 0,
++          "failed": 0,
++          "pending": 0,
++          "decodedBytes": 54160
++        }
++      }
++    },
++    {
++      "name": "remove-month",
++      "uiCheckpointMs": 214,
++      "apiCompleteMs": 0,
++      "started": 0,
++      "decodedBytes": 0,
++      "endpoints": {}
++    },
++    {
++      "name": "save-category",
++      "uiCheckpointMs": 298,
++      "apiCompleteMs": 240,
++      "started": 7,
++      "decodedBytes": 11359,
++      "endpoints": {
++        "PATCH /api/v1/transactions/1000/category": {
++          "started": 1,
++          "completed": 1,
++          "cancelled": 0,
++          "failed": 0,
++          "pending": 0,
++          "decodedBytes": 235
++        },
++        "GET /api/v1/accounts": {
++          "started": 1,
++          "completed": 1,
++          "cancelled": 0,
++          "failed": 0,
++          "pending": 0,
++          "decodedBytes": 144
++        },
++        "GET /api/v1/cash-account": {
++          "started": 1,
++          "completed": 1,
++          "cancelled": 0,
++          "failed": 0,
++          "pending": 0,
++          "decodedBytes": 26
++        },
++        "GET /api/v1/categories": {
++          "started": 1,
++          "completed": 1,
++          "cancelled": 0,
++          "failed": 0,
++          "pending": 0,
++          "decodedBytes": 148
++        },
++        "GET /api/v1/reports/periods": {
++          "started": 1,
++          "completed": 1,
++          "cancelled": 0,
++          "failed": 0,
++          "pending": 0,
++          "decodedBytes": 21
++        },
++        "GET /api/v1/categorization-rules/proposals": {
++          "started": 1,
++          "completed": 1,
++          "cancelled": 0,
++          "failed": 0,
++          "pending": 0,
++          "decodedBytes": 2
++        },
++        "GET /api/v1/transaction-pages": {
++          "started": 1,
++          "completed": 1,
++          "cancelled": 0,
++          "failed": 0,
++          "pending": 0,
++          "decodedBytes": 10783
++        }
++      }
++    }
++  ]
++}
+\ No newline at end of file
+diff --git a/docs/measurements/acceptance-phase10-initial.json b/docs/measurements/acceptance-phase10-initial.json
+new file mode 100644
+--- /dev/null
++++ b/docs/measurements/acceptance-phase10-initial.json
+@@ -0,0 +1,1414 @@
++{
++  "date": "2026-11-07",
++  "scope": "Full suite before final phase 10 corrections",
++  "stats": {
++    "startTime": "2026-11-08T02:04:48.043Z",
++    "duration": 345938.197,
++    "expected": 179,
++    "skipped": 5,
++    "unexpected": 16,
++    "flaky": 0
++  },
++  "cases": [
++    {
++      "file": "analytics-filters.spec.ts",
++      "title": "modal de filtros aplica la selección múltiple y cancela cambios pendientes",
++      "project": "desktop",
++      "status": "expected",
++      "error": null
++    },
++    {
++      "file": "analytics-filters.spec.ts",
++      "title": "los errores iniciales permiten reintentar sin presentar importes vacíos",
++      "project": "desktop",
++      "status": "expected",
++      "error": null
++    },
++    {
++      "file": "analytics-filters.spec.ts",
++      "title": "un error al cambiar de mes conserva datos y búsqueda y permite recuperar la carga",
++      "project": "desktop",
++      "status": "expected",
++      "error": null
++    },
++    {
++      "file": "analytics-filters.spec.ts",
++      "title": "Resumen y Movimientos conservan filtros, búsqueda y omisiones",
++      "project": "desktop",
++      "status": "expected",
++      "error": null
++    },
++    {
++      "file": "analytics-filters.spec.ts",
++      "title": "la barra sigue visible al bajar y abre filtros sin perder la posición",
++      "project": "desktop",
++      "status": "expected",
++      "error": null
++    },
++    {
++      "file": "analytics-filters.spec.ts",
++      "title": "categorías abre movimientos desde la barra y permite volver o quitar el detalle",
++      "project": "desktop",
++      "status": "expected",
++      "error": null
++    },
++    {
++      "file": "analytics-filters.spec.ts",
++      "title": "los gráficos adaptan el período y no presentan ingresos como gastos",
++      "project": "desktop",
++      "status": "expected",
++      "error": null
++    },
++    {
++      "file": "analytics-filters.spec.ts",
++      "title": "la evolución agrupa por semana y los nuevos gráficos se pueden personalizar",
++      "project": "desktop",
++      "status": "expected",
++      "error": null
++    },
++    {
++      "file": "analytics-filters.spec.ts",
++      "title": "frecuencia permite subcategorías y conserva el contexto de nombres repetidos",
++      "project": "desktop",
++      "status": "expected",
++      "error": null
++    },
++    {
++      "file": "analytics-filters.spec.ts",
++      "title": "todos los gráficos abren sus movimientos y vuelven al gráfico de origen",
++      "project": "desktop",
++      "status": "expected",
++      "error": null
++    },
++    {
++      "file": "analytics-filters.spec.ts",
++      "title": "el análisis se adapta a 320 y 390 píxeles sin ocultar acciones móviles",
++      "project": "desktop",
++      "status": "skipped",
++      "error": null
++    },
++    {
++      "file": "analytics-filters.spec.ts",
++      "title": "la paginación móvil permite avanzar, retroceder y saltar de página sin desbordar",
++      "project": "desktop",
++      "status": "skipped",
++      "error": null
++    },
++    {
++      "file": "analytics-filters.spec.ts",
++      "title": "modal de filtros aplica la selección múltiple y cancela cambios pendientes",
++      "project": "mobile",
++      "status": "expected",
++      "error": null
++    },
++    {
++      "file": "analytics-filters.spec.ts",
++      "title": "los errores iniciales permiten reintentar sin presentar importes vacíos",
++      "project": "mobile",
++      "status": "expected",
++      "error": null
++    },
++    {
++      "file": "analytics-filters.spec.ts",
++      "title": "un error al cambiar de mes conserva datos y búsqueda y permite recuperar la carga",
++      "project": "mobile",
++      "status": "expected",
++      "error": null
++    },
++    {
++      "file": "analytics-filters.spec.ts",
++      "title": "Resumen y Movimientos conservan filtros, búsqueda y omisiones",
++      "project": "mobile",
++      "status": "expected",
++      "error": null
++    },
++    {
++      "file": "analytics-filters.spec.ts",
++      "title": "la barra sigue visible al bajar y abre filtros sin perder la posición",
++      "project": "mobile",
++      "status": "expected",
++      "error": null
++    },
++    {
++      "file": "analytics-filters.spec.ts",
++      "title": "categorías abre movimientos desde la barra y permite volver o quitar el detalle",
++      "project": "mobile",
++      "status": "expected",
++      "error": null
++    },
++    {
++      "file": "analytics-filters.spec.ts",
++      "title": "los gráficos adaptan el período y no presentan ingresos como gastos",
++      "project": "mobile",
++      "status": "expected",
++      "error": null
++    },
++    {
++      "file": "analytics-filters.spec.ts",
++      "title": "la evolución agrupa por semana y los nuevos gráficos se pueden personalizar",
++      "project": "mobile",
++      "status": "expected",
++      "error": null
++    },
++    {
++      "file": "analytics-filters.spec.ts",
++      "title": "frecuencia permite subcategorías y conserva el contexto de nombres repetidos",
++      "project": "mobile",
++      "status": "expected",
++      "error": null
++    },
++    {
++      "file": "analytics-filters.spec.ts",
++      "title": "todos los gráficos abren sus movimientos y vuelven al gráfico de origen",
++      "project": "mobile",
++      "status": "expected",
++      "error": null
++    },
++    {
++      "file": "analytics-filters.spec.ts",
++      "title": "el análisis se adapta a 320 y 390 píxeles sin ocultar acciones móviles",
++      "project": "mobile",
++      "status": "expected",
++      "error": null
++    },
++    {
++      "file": "analytics-filters.spec.ts",
++      "title": "la paginación móvil permite avanzar, retroceder y saltar de página sin desbordar",
++      "project": "mobile",
++      "status": "expected",
++      "error": null
++    },
++    {
++      "file": "beta.spec.ts",
++      "title": "copia personal elimina identificadores y mantiene relaciones aunque haya nombres repetidos",
++      "project": "desktop",
++      "status": "expected",
++      "error": null
++    },
++    {
++      "file": "beta.spec.ts",
++      "title": "preparación permite salir y perfil anuncia la descarga JSON",
++      "project": "desktop",
++      "status": "expected",
++      "error": null
++    },
++    {
++      "file": "beta.spec.ts",
++      "title": "navegación mantiene el acceso a cuentas y al pie entre móvil, tablet y escritorio",
++      "project": "desktop",
++      "status": "expected",
++      "error": null
++    },
++    {
++      "file": "beta.spec.ts",
++      "title": "eliminar categorías propias conserva movimientos mediante traslado explícito",
++      "project": "desktop",
++      "status": "expected",
++      "error": null
++    },
++    {
++      "file": "beta.spec.ts",
++      "title": "fusionar solo aparece cuando la categoría puede fusionarse",
++      "project": "desktop",
++      "status": "expected",
++      "error": null
++    },
++    {
++      "file": "beta.spec.ts",
++      "title": "apariencia de categoría se guarda y se hereda en los movimientos",
++      "project": "desktop",
++      "status": "unexpected",
++      "error": "Error: expect(locator).toBeVisible() failed\n\nLocator: getByRole('dialog', { name: 'Actualizar organizacion' }).getByText(/Sin personalización, hereda el icono/)\nExpected: visible\nTimeout: 5000ms\nError: element(s) not found\n\nCall log:\n  - Expect \"toBeVisible\" getByRole('dialog', { name: 'Actualizar organizacion' }).getByText(/Sin personalización, hereda el icono/) with timeout 5000ms\n  - waiting for getByRole('dialog', { name: 'Actualizar organizacion' }).getByText(/Sin personalización, hereda el icono/)\n"
++    },
++    {
++      "file": "beta.spec.ts",
++      "title": "cambiar una categoría aprende sin casilla y deshacer usa la versión del servidor",
++      "project": "desktop",
++      "status": "expected",
++      "error": null
++    },
++    {
++      "file": "beta.spec.ts",
++      "title": "modal de regla aparece al tercer cambio en Movimientos y acepta sin salir",
++      "project": "desktop",
++      "status": "expected",
++      "error": null
++    },
++    {
++      "file": "beta.spec.ts",
++      "title": "modal de regla permite cerrar, reabrir y snooze desde Movimientos",
++      "project": "desktop",
++      "status": "expected",
++      "error": null
++    },
++    {
++      "file": "beta.spec.ts",
++      "title": "modal de regla permite cerrar, reabrir y reject desde Movimientos",
++      "project": "desktop",
++      "status": "expected",
++      "error": null
++    },
++    {
++      "file": "beta.spec.ts",
++      "title": "modal de regla actualiza evidencia obsoleta sin perder la categoría guardada",
++      "project": "desktop",
++      "status": "expected",
++      "error": null
++    },
++    {
++      "file": "beta.spec.ts",
++      "title": "un cambio de categoría fallido no abre el modal de regla",
++      "project": "desktop",
++      "status": "expected",
++      "error": null
++    },
++    {
++      "file": "beta.spec.ts",
++      "title": "catálogo automático conserva categorías existentes sin solicitar aplicación manual",
++      "project": "desktop",
++      "status": "expected",
++      "error": null
++    },
++    {
++      "file": "beta.spec.ts",
++      "title": "catálogo combina búsqueda, tipo y archivadas conservando el contexto de las subcategorías",
++      "project": "desktop",
++      "status": "expected",
++      "error": null
++    },
++    {
++      "file": "beta.spec.ts",
++      "title": "subcategorías se ordenan con flechas en móvil y arrastre en escritorio",
++      "project": "desktop",
++      "status": "expected",
++      "error": null
++    },
++    {
++      "file": "beta.spec.ts",
++      "title": "reglas acompaña el catálogo al bajar y permite recorrer paneles largos",
++      "project": "desktop",
++      "status": "expected",
++      "error": null
++    },
++    {
++      "file": "beta.spec.ts",
++      "title": "panel de escritorio abre el editor bajo demanda y conserva la edición entre pestañas",
++      "project": "desktop",
++      "status": "expected",
++      "error": null
++    },
++    {
++      "file": "beta.spec.ts",
++      "title": "categorías en móvil abre reglas y propuestas sin perder la posición del catálogo",
++      "project": "desktop",
++      "status": "skipped",
++      "error": null
++    },
++    {
++      "file": "beta.spec.ts",
++      "title": "propuestas permite posponer, recuperar, descartar y aceptar sin mostrar registros internos",
++      "project": "desktop",
++      "status": "expected",
++      "error": null
++    },
++    {
++      "file": "beta.spec.ts",
++      "title": "inicio abre pendientes del periodo y permite categorizar y deshacer",
++      "project": "desktop",
++      "status": "expected",
++      "error": null
++    },
++    {
++      "file": "beta.spec.ts",
++      "title": "movimientos no desborda el ancho móvil con descripciones largas",
++      "project": "desktop",
++      "status": "unexpected",
++      "error": "Error: expect(locator).toContainText(expected) failed\n\nLocator: getByRole('status').first()\nExpected substring: \"Actualizando…\"\nTimeout: 5000ms\nError: element(s) not found\n\nCall log:\n  - Expect \"toContainText\" getByRole('status').first() with timeout 5000ms\n  - waiting for getByRole('status').first()\n"
++    },
++    {
++      "file": "beta.spec.ts",
++      "title": "movimientos restaura la categoría si falla el guardado inmediato",
++      "project": "desktop",
++      "status": "unexpected",
++      "error": "Error: expect(locator).toHaveText(expected) failed\n\nLocator: getByText('Compra de prueba').locator('xpath=ancestor::section[1]').locator('span.line-clamp-1')\nExpected: \"Compras\"\nTimeout: 5000ms\nError: element(s) not found\n\nCall log:\n  - Expect \"toHaveText\" getByText('Compra de prueba').locator('xpath=ancestor::section[1]').locator('span.line-clamp-1') with timeout 5000ms\n  - waiting for getByText('Compra de prueba').locator('xpath=ancestor::section[1]').locator('span.line-clamp-1')\n"
++    },
++    {
++      "file": "beta.spec.ts",
++      "title": "movimientos carga más al bajar y reinicia la lista al filtrar",
++      "project": "desktop",
++      "status": "expected",
++      "error": null
++    },
++    {
++      "file": "beta.spec.ts",
++      "title": "movimientos busca descripciones en todas las páginas y combina los filtros",
++      "project": "desktop",
++      "status": "unexpected",
++      "error": "Error: expect(locator).toBeVisible() failed\n\nLocator: getByText('Mostrando 1 de 1 movimientos')\nExpected: visible\nTimeout: 5000ms\nError: element(s) not found\n\nCall log:\n  - Expect \"toBeVisible\" getByText('Mostrando 1 de 1 movimientos') with timeout 5000ms\n  - waiting for getByText('Mostrando 1 de 1 movimientos')\n"
++    },
++    {
++      "file": "beta.spec.ts",
++      "title": "movimientos conserva el contexto al volver desde una cuenta y recargar",
++      "project": "desktop",
++      "status": "expected",
++      "error": null
++    },
++    {
++      "file": "beta.spec.ts",
++      "title": "exportación confirma el total filtrado y permite elegir cantidad",
++      "project": "desktop",
++      "status": "expected",
++      "error": null
++    },
++    {
++      "file": "beta.spec.ts",
++      "title": "exportación evita archivos parciales y permite cancelar",
++      "project": "desktop",
++      "status": "expected",
++      "error": null
++    },
++    {
++      "file": "beta.spec.ts",
++      "title": "inicio conserva sus indicadores y gráficos en móvil y escritorio",
++      "project": "desktop",
++      "status": "unexpected",
++      "error": "Error: expect(received).toBeLessThan(expected)\n\nExpected: < 136\nReceived:   144"
++    },
++    {
++      "file": "beta.spec.ts",
++      "title": "inicio permite personalizar categorías sin duplicar y conserva selección y accesibilidad",
++      "project": "desktop",
++      "status": "expected",
++      "error": null
++    },
++    {
++      "file": "beta.spec.ts",
++      "title": "bienvenida permite comenzar con Efectivo y persiste la elección",
++      "project": "desktop",
++      "status": "expected",
++      "error": null
++    },
++    {
++      "file": "beta.spec.ts",
++      "title": "bienvenida bancaria abre el formulario y lleva a importar la cuenta creada",
++      "project": "desktop",
++      "status": "expected",
++      "error": null
++    },
++    {
++      "file": "beta.spec.ts",
++      "title": "home público, diseño adaptable y rutas privadas",
++      "project": "desktop",
++      "status": "expected",
++      "error": null
++    },
++    {
++      "file": "beta.spec.ts",
++      "title": "perfil muestra cada error junto a su acción y la ruta 404 lleva al dashboard",
++      "project": "desktop",
++      "status": "expected",
++      "error": null
++    },
++    {
++      "file": "beta.spec.ts",
++      "title": "un fallo de renderizado usa la pantalla de error general",
++      "project": "desktop",
++      "status": "expected",
++      "error": null
++    },
++    {
++      "file": "beta.spec.ts",
++      "title": "cancelación OAuth y privacidad",
++      "project": "desktop",
++      "status": "expected",
++      "error": null
++    },
++    {
++      "file": "beta.spec.ts",
++      "title": "recarga privada, cambio de usuario y cierre de sesión",
++      "project": "desktop",
++      "status": "expected",
++      "error": null
++    },
++    {
++      "file": "beta.spec.ts",
++      "title": "respuesta de token vencido limpia las pantallas privadas",
++      "project": "desktop",
++      "status": "expected",
++      "error": null
++    },
++    {
++      "file": "beta.spec.ts",
++      "title": "alta de cuenta selecciona producto y deriva el tipo",
++      "project": "desktop",
++      "status": "unexpected",
++      "error": "Error: expect(locator).toBeDisabled() failed\n\nLocator:  getByRole('combobox', { name: 'Producto' }).locator('option[value=\"banco_estado_visa_smart\"]')\nExpected: disabled\nReceived: enabled\nTimeout:  5000ms\n\nCall log:\n  - Expect \"toBeDisabled\" getByRole('combobox', { name: 'Producto' }).locator('option[value=\"banco_estado_visa_smart\"]') with timeout 5000ms\n  - waiting for getByRole('combobox', { name: 'Producto' }).locator('option[value=\"banco_estado_visa_smart\"]')\n    13 × locator resolved to <option disabled value=\"banco_estado_visa_smart\">Visa SMART — No soportado</option>\n       - unexpected value \"enabled\"\n"
++    },
++    {
++      "file": "beta.spec.ts",
++      "title": "el formulario ofrece las nuevas cuentas según institución y tipo",
++      "project": "desktop",
++      "status": "expected",
++      "error": null
++    },
++    {
++      "file": "beta.spec.ts",
++      "title": "edición de crédito bloquea cambiar a otro producto no soportado",
++      "project": "desktop",
++      "status": "unexpected",
++      "error": "Error: expect(locator).toBeDisabled() failed\n\nLocator:  getByRole('combobox', { name: 'Producto' }).locator('option[value=\"banco_estado_visa_smart_plus\"]')\nExpected: disabled\nReceived: enabled\nTimeout:  5000ms\n\nCall log:\n  - Expect \"toBeDisabled\" getByRole('combobox', { name: 'Producto' }).locator('option[value=\"banco_estado_visa_smart_plus\"]') with timeout 5000ms\n  - waiting for getByRole('combobox', { name: 'Producto' }).locator('option[value=\"banco_estado_visa_smart_plus\"]')\n    13 × locator resolved to <option disabled value=\"banco_estado_visa_smart_plus\">Visa SMART+ — No soportado</option>\n       - unexpected value \"enabled\"\n"
++    },
++    {
++      "file": "beta.spec.ts",
++      "title": "cuenta heredada sin producto conserva su tipo al editar el nombre",
++      "project": "desktop",
++      "status": "expected",
++      "error": null
++    },
++    {
++      "file": "beta.spec.ts",
++      "title": "importación PDF avisa sobre productos pendientes y bloquea crédito",
++      "project": "desktop",
++      "status": "expected",
++      "error": null
++    },
++    {
++      "file": "beta.spec.ts",
++      "title": "cuentas y dashboard muestran alias, institución y producto",
++      "project": "desktop",
++      "status": "expected",
++      "error": null
++    },
++    {
++      "file": "beta.spec.ts",
++      "title": "cuentas distingue variación registrada y cobertura de cartolas",
++      "project": "desktop",
++      "status": "expected",
++      "error": null
++    },
++    {
++      "file": "beta.spec.ts",
++      "title": "eliminar cuenta comprueba todos los registros y conserva foco y errores",
++      "project": "desktop",
++      "status": "expected",
++      "error": null
++    },
++    {
++      "file": "beta.spec.ts",
++      "title": "deshacer importación resume impacto y contiene el foco sin bloquear la cancelación de carga",
++      "project": "desktop",
++      "status": "expected",
++      "error": null
++    },
++    {
++      "file": "beta.spec.ts",
++      "title": "efectivo permite crear, editar y eliminar un movimiento manual",
++      "project": "desktop",
++      "status": "expected",
++      "error": null
++    },
++    {
++      "file": "beta.spec.ts",
++      "title": "efectivo permite configurar, corregir y quitar el saldo inicial",
++      "project": "desktop",
++      "status": "expected",
++      "error": null
++    },
++    {
++      "file": "beta.spec.ts",
++      "title": "retiro importado se vincula con Efectivo y se puede deshacer",
++      "project": "desktop",
++      "status": "expected",
++      "error": null
++    },
++    {
++      "file": "beta.spec.ts",
++      "title": "tablas de cuentas adaptan columnas y paginación al móvil",
++      "project": "desktop",
++      "status": "expected",
++      "error": null
++    },
++    {
++      "file": "beta.spec.ts",
++      "title": "barra móvil prioriza agregar cartolas y abre el registro de movimientos",
++      "project": "desktop",
++      "status": "expected",
++      "error": null
++    },
++    {
++      "file": "beta.spec.ts",
++      "title": "copia personal elimina identificadores y mantiene relaciones aunque haya nombres repetidos",
++      "project": "mobile",
++      "status": "expected",
++      "error": null
++    },
++    {
++      "file": "beta.spec.ts",
++      "title": "preparación permite salir y perfil anuncia la descarga JSON",
++      "project": "mobile",
++      "status": "expected",
++      "error": null
++    },
++    {
++      "file": "beta.spec.ts",
++      "title": "navegación mantiene el acceso a cuentas y al pie entre móvil, tablet y escritorio",
++      "project": "mobile",
++      "status": "expected",
++      "error": null
++    },
++    {
++      "file": "beta.spec.ts",
++      "title": "eliminar categorías propias conserva movimientos mediante traslado explícito",
++      "project": "mobile",
++      "status": "expected",
++      "error": null
++    },
++    {
++      "file": "beta.spec.ts",
++      "title": "fusionar solo aparece cuando la categoría puede fusionarse",
++      "project": "mobile",
++      "status": "expected",
++      "error": null
++    },
++    {
++      "file": "beta.spec.ts",
++      "title": "apariencia de categoría se guarda y se hereda en los movimientos",
++      "project": "mobile",
++      "status": "unexpected",
++      "error": "Error: expect(locator).toBeVisible() failed\n\nLocator: getByRole('dialog', { name: 'Actualizar organizacion' }).getByText(/Sin personalización, hereda el icono/)\nExpected: visible\nTimeout: 5000ms\nError: element(s) not found\n\nCall log:\n  - Expect \"toBeVisible\" getByRole('dialog', { name: 'Actualizar organizacion' }).getByText(/Sin personalización, hereda el icono/) with timeout 5000ms\n  - waiting for getByRole('dialog', { name: 'Actualizar organizacion' }).getByText(/Sin personalización, hereda el icono/)\n"
++    },
++    {
++      "file": "beta.spec.ts",
++      "title": "cambiar una categoría aprende sin casilla y deshacer usa la versión del servidor",
++      "project": "mobile",
++      "status": "expected",
++      "error": null
++    },
++    {
++      "file": "beta.spec.ts",
++      "title": "modal de regla aparece al tercer cambio en Movimientos y acepta sin salir",
++      "project": "mobile",
++      "status": "expected",
++      "error": null
++    },
++    {
++      "file": "beta.spec.ts",
++      "title": "modal de regla permite cerrar, reabrir y snooze desde Movimientos",
++      "project": "mobile",
++      "status": "expected",
++      "error": null
++    },
++    {
++      "file": "beta.spec.ts",
++      "title": "modal de regla permite cerrar, reabrir y reject desde Movimientos",
++      "project": "mobile",
++      "status": "expected",
++      "error": null
++    },
++    {
++      "file": "beta.spec.ts",
++      "title": "modal de regla actualiza evidencia obsoleta sin perder la categoría guardada",
++      "project": "mobile",
++      "status": "expected",
++      "error": null
++    },
++    {
++      "file": "beta.spec.ts",
++      "title": "un cambio de categoría fallido no abre el modal de regla",
++      "project": "mobile",
++      "status": "expected",
++      "error": null
++    },
++    {
++      "file": "beta.spec.ts",
++      "title": "catálogo automático conserva categorías existentes sin solicitar aplicación manual",
++      "project": "mobile",
++      "status": "expected",
++      "error": null
++    },
++    {
++      "file": "beta.spec.ts",
++      "title": "catálogo combina búsqueda, tipo y archivadas conservando el contexto de las subcategorías",
++      "project": "mobile",
++      "status": "expected",
++      "error": null
++    },
++    {
++      "file": "beta.spec.ts",
++      "title": "subcategorías se ordenan con flechas en móvil y arrastre en escritorio",
++      "project": "mobile",
++      "status": "expected",
++      "error": null
++    },
++    {
++      "file": "beta.spec.ts",
++      "title": "reglas acompaña el catálogo al bajar y permite recorrer paneles largos",
++      "project": "mobile",
++      "status": "skipped",
++      "error": null
++    },
++    {
++      "file": "beta.spec.ts",
++      "title": "panel de escritorio abre el editor bajo demanda y conserva la edición entre pestañas",
++      "project": "mobile",
++      "status": "skipped",
++      "error": null
++    },
++    {
++      "file": "beta.spec.ts",
++      "title": "categorías en móvil abre reglas y propuestas sin perder la posición del catálogo",
++      "project": "mobile",
++      "status": "expected",
++      "error": null
++    },
++    {
++      "file": "beta.spec.ts",
++      "title": "propuestas permite posponer, recuperar, descartar y aceptar sin mostrar registros internos",
++      "project": "mobile",
++      "status": "expected",
++      "error": null
++    },
++    {
++      "file": "beta.spec.ts",
++      "title": "inicio abre pendientes del periodo y permite categorizar y deshacer",
++      "project": "mobile",
++      "status": "expected",
++      "error": null
++    },
++    {
++      "file": "beta.spec.ts",
++      "title": "movimientos no desborda el ancho móvil con descripciones largas",
++      "project": "mobile",
++      "status": "unexpected",
++      "error": "Error: expect(locator).toContainText(expected) failed\n\nLocator: getByRole('status').first()\nExpected substring: \"Actualizando…\"\nTimeout: 5000ms\nError: element(s) not found\n\nCall log:\n  - Expect \"toContainText\" getByRole('status').first() with timeout 5000ms\n  - waiting for getByRole('status').first()\n"
++    },
++    {
++      "file": "beta.spec.ts",
++      "title": "movimientos restaura la categoría si falla el guardado inmediato",
++      "project": "mobile",
++      "status": "unexpected",
++      "error": "Error: expect(locator).toHaveText(expected) failed\n\nLocator: getByText('Compra de prueba').locator('xpath=ancestor::section[1]').locator('span.line-clamp-1')\nExpected: \"Compras\"\nTimeout: 5000ms\nError: element(s) not found\n\nCall log:\n  - Expect \"toHaveText\" getByText('Compra de prueba').locator('xpath=ancestor::section[1]').locator('span.line-clamp-1') with timeout 5000ms\n  - waiting for getByText('Compra de prueba').locator('xpath=ancestor::section[1]').locator('span.line-clamp-1')\n"
++    },
++    {
++      "file": "beta.spec.ts",
++      "title": "movimientos carga más al bajar y reinicia la lista al filtrar",
++      "project": "mobile",
++      "status": "expected",
++      "error": null
++    },
++    {
++      "file": "beta.spec.ts",
++      "title": "movimientos busca descripciones en todas las páginas y combina los filtros",
++      "project": "mobile",
++      "status": "unexpected",
++      "error": "Error: expect(locator).toBeVisible() failed\n\nLocator: getByText('Mostrando 1 de 1 movimientos')\nExpected: visible\nTimeout: 5000ms\nError: element(s) not found\n\nCall log:\n  - Expect \"toBeVisible\" getByText('Mostrando 1 de 1 movimientos') with timeout 5000ms\n  - waiting for getByText('Mostrando 1 de 1 movimientos')\n"
++    },
++    {
++      "file": "beta.spec.ts",
++      "title": "movimientos conserva el contexto al volver desde una cuenta y recargar",
++      "project": "mobile",
++      "status": "expected",
++      "error": null
++    },
++    {
++      "file": "beta.spec.ts",
++      "title": "exportación confirma el total filtrado y permite elegir cantidad",
++      "project": "mobile",
++      "status": "expected",
++      "error": null
++    },
++    {
++      "file": "beta.spec.ts",
++      "title": "exportación evita archivos parciales y permite cancelar",
++      "project": "mobile",
++      "status": "expected",
++      "error": null
++    },
++    {
++      "file": "beta.spec.ts",
++      "title": "inicio conserva sus indicadores y gráficos en móvil y escritorio",
++      "project": "mobile",
++      "status": "unexpected",
++      "error": "Error: expect(received).toBeLessThan(expected)\n\nExpected: < 136\nReceived:   144"
++    },
++    {
++      "file": "beta.spec.ts",
++      "title": "inicio permite personalizar categorías sin duplicar y conserva selección y accesibilidad",
++      "project": "mobile",
++      "status": "expected",
++      "error": null
++    },
++    {
++      "file": "beta.spec.ts",
++      "title": "bienvenida permite comenzar con Efectivo y persiste la elección",
++      "project": "mobile",
++      "status": "unexpected",
++      "error": "Error: expect(locator).toBeVisible() failed\n\nLocator: getByRole('link', { name: 'Ver detalle de Efectivo' })\nExpected: visible\nTimeout: 5000ms\nError: element(s) not found\n\nCall log:\n  - Expect \"toBeVisible\" getByRole('link', { name: 'Ver detalle de Efectivo' }) with timeout 5000ms\n  - waiting for getByRole('link', { name: 'Ver detalle de Efectivo' })\n"
++    },
++    {
++      "file": "beta.spec.ts",
++      "title": "bienvenida bancaria abre el formulario y lleva a importar la cuenta creada",
++      "project": "mobile",
++      "status": "expected",
++      "error": null
++    },
++    {
++      "file": "beta.spec.ts",
++      "title": "home público, diseño adaptable y rutas privadas",
++      "project": "mobile",
++      "status": "expected",
++      "error": null
++    },
++    {
++      "file": "beta.spec.ts",
++      "title": "perfil muestra cada error junto a su acción y la ruta 404 lleva al dashboard",
++      "project": "mobile",
++      "status": "expected",
++      "error": null
++    },
++    {
++      "file": "beta.spec.ts",
++      "title": "un fallo de renderizado usa la pantalla de error general",
++      "project": "mobile",
++      "status": "expected",
++      "error": null
++    },
++    {
++      "file": "beta.spec.ts",
++      "title": "cancelación OAuth y privacidad",
++      "project": "mobile",
++      "status": "expected",
++      "error": null
++    },
++    {
++      "file": "beta.spec.ts",
++      "title": "recarga privada, cambio de usuario y cierre de sesión",
++      "project": "mobile",
++      "status": "expected",
++      "error": null
++    },
++    {
++      "file": "beta.spec.ts",
++      "title": "respuesta de token vencido limpia las pantallas privadas",
++      "project": "mobile",
++      "status": "expected",
++      "error": null
++    },
++    {
++      "file": "beta.spec.ts",
++      "title": "alta de cuenta selecciona producto y deriva el tipo",
++      "project": "mobile",
++      "status": "unexpected",
++      "error": "Error: expect(locator).toBeDisabled() failed\n\nLocator:  getByRole('combobox', { name: 'Producto' }).locator('option[value=\"banco_estado_visa_smart\"]')\nExpected: disabled\nReceived: enabled\nTimeout:  5000ms\n\nCall log:\n  - Expect \"toBeDisabled\" getByRole('combobox', { name: 'Producto' }).locator('option[value=\"banco_estado_visa_smart\"]') with timeout 5000ms\n  - waiting for getByRole('combobox', { name: 'Producto' }).locator('option[value=\"banco_estado_visa_smart\"]')\n    14 × locator resolved to <option disabled value=\"banco_estado_visa_smart\">Visa SMART — No soportado</option>\n       - unexpected value \"enabled\"\n"
++    },
++    {
++      "file": "beta.spec.ts",
++      "title": "el formulario ofrece las nuevas cuentas según institución y tipo",
++      "project": "mobile",
++      "status": "expected",
++      "error": null
++    },
++    {
++      "file": "beta.spec.ts",
++      "title": "edición de crédito bloquea cambiar a otro producto no soportado",
++      "project": "mobile",
++      "status": "unexpected",
++      "error": "Error: expect(locator).toBeDisabled() failed\n\nLocator:  getByRole('combobox', { name: 'Producto' }).locator('option[value=\"banco_estado_visa_smart_plus\"]')\nExpected: disabled\nReceived: enabled\nTimeout:  5000ms\n\nCall log:\n  - Expect \"toBeDisabled\" getByRole('combobox', { name: 'Producto' }).locator('option[value=\"banco_estado_visa_smart_plus\"]') with timeout 5000ms\n  - waiting for getByRole('combobox', { name: 'Producto' }).locator('option[value=\"banco_estado_visa_smart_plus\"]')\n    13 × locator resolved to <option disabled value=\"banco_estado_visa_smart_plus\">Visa SMART+ — No soportado</option>\n       - unexpected value \"enabled\"\n"
++    },
++    {
++      "file": "beta.spec.ts",
++      "title": "cuenta heredada sin producto conserva su tipo al editar el nombre",
++      "project": "mobile",
++      "status": "expected",
++      "error": null
++    },
++    {
++      "file": "beta.spec.ts",
++      "title": "importación PDF avisa sobre productos pendientes y bloquea crédito",
++      "project": "mobile",
++      "status": "expected",
++      "error": null
++    },
++    {
++      "file": "beta.spec.ts",
++      "title": "cuentas y dashboard muestran alias, institución y producto",
++      "project": "mobile",
++      "status": "unexpected",
++      "error": "Error: expect(locator).toContainText(expected) failed\n\nLocator: getByRole('link', { name: 'Ver detalle de Gastos diarios' })\nExpected substring: \"Gastos diarios\"\nTimeout: 5000ms\nError: element(s) not found\n\nCall log:\n  - Expect \"toContainText\" getByRole('link', { name: 'Ver detalle de Gastos diarios' }) with timeout 5000ms\n  - waiting for getByRole('link', { name: 'Ver detalle de Gastos diarios' })\n"
++    },
++    {
++      "file": "beta.spec.ts",
++      "title": "cuentas distingue variación registrada y cobertura de cartolas",
++      "project": "mobile",
++      "status": "expected",
++      "error": null
++    },
++    {
++      "file": "beta.spec.ts",
++      "title": "eliminar cuenta comprueba todos los registros y conserva foco y errores",
++      "project": "mobile",
++      "status": "expected",
++      "error": null
++    },
++    {
++      "file": "beta.spec.ts",
++      "title": "deshacer importación resume impacto y contiene el foco sin bloquear la cancelación de carga",
++      "project": "mobile",
++      "status": "expected",
++      "error": null
++    },
++    {
++      "file": "beta.spec.ts",
++      "title": "efectivo permite crear, editar y eliminar un movimiento manual",
++      "project": "mobile",
++      "status": "expected",
++      "error": null
++    },
++    {
++      "file": "beta.spec.ts",
++      "title": "efectivo permite configurar, corregir y quitar el saldo inicial",
++      "project": "mobile",
++      "status": "expected",
++      "error": null
++    },
++    {
++      "file": "beta.spec.ts",
++      "title": "retiro importado se vincula con Efectivo y se puede deshacer",
++      "project": "mobile",
++      "status": "expected",
++      "error": null
++    },
++    {
++      "file": "beta.spec.ts",
++      "title": "tablas de cuentas adaptan columnas y paginación al móvil",
++      "project": "mobile",
++      "status": "expected",
++      "error": null
++    },
++    {
++      "file": "beta.spec.ts",
++      "title": "barra móvil prioriza agregar cartolas y abre el registro de movimientos",
++      "project": "mobile",
++      "status": "expected",
++      "error": null
++    },
++    {
++      "file": "import-responsive.spec.ts",
++      "title": "respuesta de importación perdida: verifica antes de reenviar (guardada)",
++      "project": "desktop",
++      "status": "expected",
++      "error": null
++    },
++    {
++      "file": "import-responsive.spec.ts",
++      "title": "respuesta de importación perdida: verifica antes de reenviar (pendiente)",
++      "project": "desktop",
++      "status": "expected",
++      "error": null
++    },
++    {
++      "file": "import-responsive.spec.ts",
++      "title": "cartolas largas conservan todas las correcciones al buscar, filtrar y paginar",
++      "project": "desktop",
++      "status": "expected",
++      "error": null
++    },
++    {
++      "file": "import-responsive.spec.ts",
++      "title": "importación conserva correcciones, anima durante el análisis y se adapta sin desbordar",
++      "project": "desktop",
++      "status": "expected",
++      "error": null
++    },
++    {
++      "file": "import-responsive.spec.ts",
++      "title": "contraseña, diferencias y duplicados mantienen sus controles de importación",
++      "project": "desktop",
++      "status": "expected",
++      "error": null
++    },
++    {
++      "file": "import-responsive.spec.ts",
++      "title": "cambiar contraseña o archivo exige analizar de nuevo antes de importar",
++      "project": "desktop",
++      "status": "expected",
++      "error": null
++    },
++    {
++      "file": "import-responsive.spec.ts",
++      "title": "rechaza archivos inválidos, permite volver a elegir el mismo PDF y no importa una vista vacía",
++      "project": "desktop",
++      "status": "expected",
++      "error": null
++    },
++    {
++      "file": "import-responsive.spec.ts",
++      "title": "respuesta de importación perdida: verifica antes de reenviar (guardada)",
++      "project": "mobile",
++      "status": "expected",
++      "error": null
++    },
++    {
++      "file": "import-responsive.spec.ts",
++      "title": "respuesta de importación perdida: verifica antes de reenviar (pendiente)",
++      "project": "mobile",
++      "status": "expected",
++      "error": null
++    },
++    {
++      "file": "import-responsive.spec.ts",
++      "title": "cartolas largas conservan todas las correcciones al buscar, filtrar y paginar",
++      "project": "mobile",
++      "status": "expected",
++      "error": null
++    },
++    {
++      "file": "import-responsive.spec.ts",
++      "title": "importación conserva correcciones, anima durante el análisis y se adapta sin desbordar",
++      "project": "mobile",
++      "status": "expected",
++      "error": null
++    },
++    {
++      "file": "import-responsive.spec.ts",
++      "title": "contraseña, diferencias y duplicados mantienen sus controles de importación",
++      "project": "mobile",
++      "status": "expected",
++      "error": null
++    },
++    {
++      "file": "import-responsive.spec.ts",
++      "title": "cambiar contraseña o archivo exige analizar de nuevo antes de importar",
++      "project": "mobile",
++      "status": "expected",
++      "error": null
++    },
++    {
++      "file": "import-responsive.spec.ts",
++      "title": "rechaza archivos inválidos, permite volver a elegir el mismo PDF y no importa una vista vacía",
++      "project": "mobile",
++      "status": "expected",
++      "error": null
++    },
++    {
++      "file": "query-accounts.spec.ts",
++      "title": "paginar cuenta 1 pide solo una página de movimientos",
++      "project": "desktop",
++      "status": "expected",
++      "error": null
++    },
++    {
++      "file": "query-accounts.spec.ts",
++      "title": "paginar cuenta 3 pide solo una página de movimientos",
++      "project": "desktop",
++      "status": "expected",
++      "error": null
++    },
++    {
++      "file": "query-accounts.spec.ts",
++      "title": "cambiar de cuenta reinicia offset y no muestra filas anteriores bajo el nuevo título",
++      "project": "desktop",
++      "status": "expected",
++      "error": null
++    },
++    {
++      "file": "query-accounts.spec.ts",
++      "title": "navegar entre efectivo y movimientos reutiliza catálogos y saldo vigentes",
++      "project": "desktop",
++      "status": "expected",
++      "error": null
++    },
++    {
++      "file": "query-accounts.spec.ts",
++      "title": "paginar cuenta 1 pide solo una página de movimientos",
++      "project": "mobile",
++      "status": "expected",
++      "error": null
++    },
++    {
++      "file": "query-accounts.spec.ts",
++      "title": "paginar cuenta 3 pide solo una página de movimientos",
++      "project": "mobile",
++      "status": "expected",
++      "error": null
++    },
++    {
++      "file": "query-accounts.spec.ts",
++      "title": "cambiar de cuenta reinicia offset y no muestra filas anteriores bajo el nuevo título",
++      "project": "mobile",
++      "status": "expected",
++      "error": null
++    },
++    {
++      "file": "query-accounts.spec.ts",
++      "title": "navegar entre efectivo y movimientos reutiliza catálogos y saldo vigentes",
++      "project": "mobile",
++      "status": "expected",
++      "error": null
++    },
++    {
++      "file": "query-actions.spec.ts",
++      "title": "perfil cancela la exportación sin descargar ni mostrar un error",
++      "project": "desktop",
++      "status": "expected",
++      "error": null
++    },
++    {
++      "file": "query-actions.spec.ts",
++      "title": "acciones explícitas bloquean doble envío, no reintentan y liberan variables sensibles",
++      "project": "desktop",
++      "status": "expected",
++      "error": null
++    },
++    {
++      "file": "query-actions.spec.ts",
++      "title": "perfil cancela la exportación sin descargar ni mostrar un error",
++      "project": "mobile",
++      "status": "expected",
++      "error": null
++    },
++    {
++      "file": "query-actions.spec.ts",
++      "title": "acciones explícitas bloquean doble envío, no reintentan y liberan variables sensibles",
++      "project": "mobile",
++      "status": "expected",
++      "error": null
++    },
++    {
++      "file": "query-months.spec.ts",
++      "title": "Dashboard espera el período del servidor y comparte A, A+B y A con Análisis",
++      "project": "desktop",
++      "status": "expected",
++      "error": null
++    },
++    {
++      "file": "query-months.spec.ts",
++      "title": "un mes de varias páginas se publica completo y un fallo no cachea páginas parciales",
++      "project": "desktop",
++      "status": "expected",
++      "error": null
++    },
++    {
++      "file": "query-months.spec.ts",
++      "title": "máximo dos meses simultáneos; cancelar retira trabajos en espera y aborta páginas activas",
++      "project": "desktop",
++      "status": "expected",
++      "error": null
++    },
++    {
++      "file": "query-months.spec.ts",
++      "title": "Dashboard conserva resumen y mes juntos cuando falla el nuevo mes",
++      "project": "desktop",
++      "status": "expected",
++      "error": null
++    },
++    {
++      "file": "query-months.spec.ts",
++      "title": "Dashboard espera el período del servidor y comparte A, A+B y A con Análisis",
++      "project": "mobile",
++      "status": "expected",
++      "error": null
++    },
++    {
++      "file": "query-months.spec.ts",
++      "title": "un mes de varias páginas se publica completo y un fallo no cachea páginas parciales",
++      "project": "mobile",
++      "status": "expected",
++      "error": null
++    },
++    {
++      "file": "query-months.spec.ts",
++      "title": "máximo dos meses simultáneos; cancelar retira trabajos en espera y aborta páginas activas",
++      "project": "mobile",
++      "status": "expected",
++      "error": null
++    },
++    {
++      "file": "query-months.spec.ts",
++      "title": "Dashboard conserva resumen y mes juntos cuando falla el nuevo mes",
++      "project": "mobile",
++      "status": "expected",
++      "error": null
++    },
++    {
++      "file": "query-policies.spec.ts",
++      "title": "claves normalizan defaults sin mezclar filtros, formatos ni usuarios",
++      "project": "desktop",
++      "status": "expected",
++      "error": null
++    },
++    {
++      "file": "query-policies.spec.ts",
++      "title": "políticas y reintentos distinguen transitorios, cancelaciones y efectos laterales",
++      "project": "desktop",
++      "status": "expected",
++      "error": null
++    },
++    {
++      "file": "query-policies.spec.ts",
++      "title": "consultas equivalentes reutilizan datos y no dependen de mutar el objeto de filtros",
++      "project": "desktop",
++      "status": "expected",
++      "error": null
++    },
++    {
++      "file": "query-policies.spec.ts",
++      "title": "429 respeta Retry-After incluso con refetch explícito y otra fábrica de opciones",
++      "project": "desktop",
++      "status": "expected",
++      "error": null
++    },
++    {
++      "file": "query-policies.spec.ts",
++      "title": "datos vigentes no recargan por foco; datos obsoletos se revalidan por foco y reconexión",
++      "project": "desktop",
++      "status": "expected",
++      "error": null
++    },
++    {
++      "file": "query-policies.spec.ts",
++      "title": "claves normalizan defaults sin mezclar filtros, formatos ni usuarios",
++      "project": "mobile",
++      "status": "expected",
++      "error": null
++    },
++    {
++      "file": "query-policies.spec.ts",
++      "title": "políticas y reintentos distinguen transitorios, cancelaciones y efectos laterales",
++      "project": "mobile",
++      "status": "expected",
++      "error": null
++    },
++    {
++      "file": "query-policies.spec.ts",
++      "title": "consultas equivalentes reutilizan datos y no dependen de mutar el objeto de filtros",
++      "project": "mobile",
++      "status": "expected",
++      "error": null
++    },
++    {
++      "file": "query-policies.spec.ts",
++      "title": "429 respeta Retry-After incluso con refetch explícito y otra fábrica de opciones",
++      "project": "mobile",
++      "status": "expected",
++      "error": null
++    },
++    {
++      "file": "query-policies.spec.ts",
++      "title": "datos vigentes no recargan por foco; datos obsoletos se revalidan por foco y reconexión",
++      "project": "mobile",
++      "status": "expected",
++      "error": null
++    },
++    {
++      "file": "query-session.spec.ts",
++      "title": "aprovisiona antes de consultar finanzas y comparte /me al navegar y renovar token",
++      "project": "desktop",
++      "status": "expected",
++      "error": null
++    },
++    {
++      "file": "query-session.spec.ts",
++      "title": "/me fallido requiere reintento explícito",
++      "project": "desktop",
++      "status": "expected",
++      "error": null
++    },
++    {
++      "file": "query-session.spec.ts",
++      "title": "conserva códigos HTTP y Retry-After, y un aborto sigue siendo cancelación",
++      "project": "desktop",
++      "status": "expected",
++      "error": null
++    },
++    {
++      "file": "query-session.spec.ts",
++      "title": "cambio de usuario cancela lecturas y descarta un 401 tardío de escritura",
++      "project": "desktop",
++      "status": "expected",
++      "error": null
++    },
++    {
++      "file": "query-session.spec.ts",
++      "title": "aprovisiona antes de consultar finanzas y comparte /me al navegar y renovar token",
++      "project": "mobile",
++      "status": "expected",
++      "error": null
++    },
++    {
++      "file": "query-session.spec.ts",
++      "title": "/me fallido requiere reintento explícito",
++      "project": "mobile",
++      "status": "expected",
++      "error": null
++    },
++    {
++      "file": "query-session.spec.ts",
++      "title": "conserva códigos HTTP y Retry-After, y un aborto sigue siendo cancelación",
++      "project": "mobile",
++      "status": "expected",
++      "error": null
++    },
++    {
++      "file": "query-session.spec.ts",
++      "title": "cambio de usuario cancela lecturas y descarta un 401 tardío de escritura",
++      "project": "mobile",
++      "status": "expected",
++      "error": null
++    },
++    {
++      "file": "query-transactions.spec.ts",
++      "title": "dos filas concurrentes: rollback individual, bloqueo por ID y una reconciliación de dos páginas",
++      "project": "desktop",
++      "status": "expected",
++      "error": null
++    },
++    {
++      "file": "query-transactions.spec.ts",
++      "title": "dos filas concurrentes: dos éxitos, bloqueo por ID y una reconciliación de dos páginas",
++      "project": "desktop",
++      "status": "expected",
++      "error": null
++    },
++    {
++      "file": "query-transactions.spec.ts",
++      "title": "409 renueva la fila sin repetir la escritura ni aumentar expected_version",
++      "project": "desktop",
++      "status": "expected",
++      "error": null
++    },
++    {
++      "file": "query-transactions.spec.ts",
++      "title": "refetch durante una edición conserva la previsualización y una respuesta vieja no pisa una versión nueva",
++      "project": "desktop",
++      "status": "expected",
++      "error": null
++    },
++    {
++      "file": "query-transactions.spec.ts",
++      "title": "infinita deduplica fetchNextPage simultáneo y termina ante página vacía",
++      "project": "desktop",
++      "status": "expected",
++      "error": null
++    },
++    {
++      "file": "query-transactions.spec.ts",
++      "title": "categorizar retira la fila del filtro sin categoría y mantiene el total correcto",
++      "project": "desktop",
++      "status": "expected",
++      "error": null
++    },
++    {
++      "file": "query-transactions.spec.ts",
++      "title": "un fallo anterior sigue visible aunque otra fila se guarde después",
++      "project": "desktop",
++      "status": "expected",
++      "error": null
++    },
++    {
++      "file": "query-transactions.spec.ts",
++      "title": "la búsqueda espera 300 ms y consulta solo la última descripción",
++      "project": "desktop",
++      "status": "expected",
++      "error": null
++    },
++    {
++      "file": "query-transactions.spec.ts",
++      "title": "dos filas concurrentes: rollback individual, bloqueo por ID y una reconciliación de dos páginas",
++      "project": "mobile",
++      "status": "expected",
++      "error": null
++    },
++    {
++      "file": "query-transactions.spec.ts",
++      "title": "dos filas concurrentes: dos éxitos, bloqueo por ID y una reconciliación de dos páginas",
++      "project": "mobile",
++      "status": "expected",
++      "error": null
++    },
++    {
++      "file": "query-transactions.spec.ts",
++      "title": "409 renueva la fila sin repetir la escritura ni aumentar expected_version",
++      "project": "mobile",
++      "status": "expected",
++      "error": null
++    },
++    {
++      "file": "query-transactions.spec.ts",
++      "title": "refetch durante una edición conserva la previsualización y una respuesta vieja no pisa una versión nueva",
++      "project": "mobile",
++      "status": "expected",
++      "error": null
++    },
++    {
++      "file": "query-transactions.spec.ts",
++      "title": "infinita deduplica fetchNextPage simultáneo y termina ante página vacía",
++      "project": "mobile",
++      "status": "expected",
++      "error": null
++    },
++    {
++      "file": "query-transactions.spec.ts",
++      "title": "categorizar retira la fila del filtro sin categoría y mantiene el total correcto",
++      "project": "mobile",
++      "status": "expected",
++      "error": null
++    },
++    {
++      "file": "query-transactions.spec.ts",
++      "title": "un fallo anterior sigue visible aunque otra fila se guarde después",
++      "project": "mobile",
++      "status": "expected",
++      "error": null
++    },
++    {
++      "file": "query-transactions.spec.ts",
++      "title": "la búsqueda espera 300 ms y consulta solo la última descripción",
++      "project": "mobile",
++      "status": "expected",
++      "error": null
++    },
++    {
++      "file": "query-writes.spec.ts",
++      "title": "escrituras concurrentes: éxito parcial, un refetch activo, inactivos y otros usuarios",
++      "project": "desktop",
++      "status": "expected",
++      "error": null
++    },
++    {
++      "file": "query-writes.spec.ts",
++      "title": "respuestas confirmadas actualizan filas y borrar una cuenta retira sus detalles",
++      "project": "desktop",
++      "status": "expected",
++      "error": null
++    },
++    {
++      "file": "query-writes.spec.ts",
++      "title": "fallos y respuestas de sesiones anteriores no modifican la caché",
++      "project": "desktop",
++      "status": "expected",
++      "error": null
++    },
++    {
++      "file": "query-writes.spec.ts",
++      "title": "escrituras concurrentes: éxito parcial, un refetch activo, inactivos y otros usuarios",
++      "project": "mobile",
++      "status": "expected",
++      "error": null
++    },
++    {
++      "file": "query-writes.spec.ts",
++      "title": "respuestas confirmadas actualizan filas y borrar una cuenta retira sus detalles",
++      "project": "mobile",
++      "status": "expected",
++      "error": null
++    },
++    {
++      "file": "query-writes.spec.ts",
++      "title": "fallos y respuestas de sesiones anteriores no modifican la caché",
++      "project": "mobile",
++      "status": "expected",
++      "error": null
++    }
++  ]
++}
+\ No newline at end of file

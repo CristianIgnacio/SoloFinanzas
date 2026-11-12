@@ -26,6 +26,9 @@ type PdfImportFeedbackModalProps = {
 const issueTitles: Record<string, string> = {
   BANK_MISMATCH: "El banco es distinto",
   DOCUMENT_TYPE_MISMATCH: "El tipo de documento es distinto",
+  ACCOUNT_TYPE_MISMATCH: "El tipo de cuenta es distinto",
+  ACCOUNT_TYPE_UNVERIFIED: "No pudimos comprobar el tipo de cuenta",
+  PARSER_FALLBACK: "Se usó un formato alternativo",
   CARD_LAST4_MISMATCH: "La tarjeta es distinta",
   CARD_LAST4_UNREADABLE: "No pudimos comprobar la tarjeta",
   CARD_LAST4_NOT_CONFIGURED: "Falta identificar la tarjeta",
@@ -45,7 +48,7 @@ export function PdfImportFeedbackModal({
   onCloseRef.current = onClose;
   const hasIssues = issues.length > 0;
   const canChangeAccount = issues.some((issue) => [
-    "BANK_MISMATCH", "DOCUMENT_TYPE_MISMATCH", "CARD_LAST4_MISMATCH", "CARD_LAST4_NOT_CONFIGURED",
+    "BANK_MISMATCH", "DOCUMENT_TYPE_MISMATCH", "ACCOUNT_TYPE_MISMATCH", "ACCOUNT_TYPE_UNVERIFIED", "CARD_LAST4_MISMATCH", "CARD_LAST4_NOT_CONFIGURED",
   ].includes(issue.code));
 
   useEffect(() => {

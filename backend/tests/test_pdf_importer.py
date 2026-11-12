@@ -647,6 +647,18 @@ class PdfImporterTests(unittest.TestCase):
             ),
             ParserKey.BANCO_SANTANDER,
         )
+        for institution, kind, code, parser in (
+            (InstitutionCode.BANCO_DE_CHILE, "vista", "banco_de_chile_vista_general", ParserKey.BANCO_DE_CHILE),
+            (InstitutionCode.BANCO_DE_CHILE, "ahorro", "banco_de_chile_ahorro_general", ParserKey.BANCO_DE_CHILE),
+            (InstitutionCode.BANCO_SANTANDER, "vista", "banco_santander_vista_general", ParserKey.BANCO_SANTANDER),
+            (InstitutionCode.BANCO_ESTADO, "vista", "banco_estado_vista_general", ParserKey.BANCO_ESTADO),
+            (InstitutionCode.BANCO_ESTADO, "corriente", "banco_estado_corriente_tradicional", ParserKey.BANCO_ESTADO),
+            (InstitutionCode.BANCO_ESTADO, "ahorro", "banco_estado_ahorro_platino", ParserKey.BANCO_ESTADO),
+            (InstitutionCode.BANCO_ESTADO, "ahorro", "banco_estado_ahorro_general", ParserKey.BANCO_ESTADO),
+            (InstitutionCode.BANCO_SANTANDER, "corriente", "banco_santander_corriente_tradicional", ParserKey.BANCO_SANTANDER),
+        ):
+            with self.subTest(code=code):
+                self.assertEqual(resolve_pdf_parser(institution, kind, code), parser)
         self.assertEqual(
             resolve_pdf_parser(
                 InstitutionCode.BANCO_SANTANDER,

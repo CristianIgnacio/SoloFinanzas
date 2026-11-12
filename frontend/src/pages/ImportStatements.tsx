@@ -1,3 +1,9 @@
+import { useExplicitAction } from "../query/useExplicitAction";
+import { useQueryClient } from "@tanstack/react-query";
+import { financialResources } from "../query/invalidation";
+import { useQueryOwner } from "../query/shared";
+import { emptyList, useAccounts, useProducts, useCategories } from "../query/shared";
+import { useWriteActions } from "../query/writes";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 
@@ -23,10 +29,10 @@ import { AccountTablePagination } from "../components/AccountTablePagination";
 import { PdfImportFeedbackModal } from "../components/PdfImportFeedbackModal";
 import { getAccountPdfAvailability, groupCategories } from "../lib";
 import { ApiRequestError } from "../lib/apiClient";
-import { AccountService, CategoryService, StatementService } from "../services";
+import { StatementService } from "../services";
 import { CategoryType, InstitutionLabels } from "../types";
 import { TransactionType } from "../types";
-import type { Account, Category, FinancialProduct, PdfPreview, TransactionPreviewCandidate } from "../types";
+import type { PdfPreview, TransactionPreviewCandidate } from "../types";
 
 const MAX_PDF_SIZE = 10 * 1024 * 1024;
 const REVIEW_PAGE_SIZE = 20;
@@ -42,6 +48,10 @@ const currencyFormatter = new Intl.NumberFormat("es-CL", {
 const issueTitles: Record<string, string> = {
   BANK_MISMATCH: "El banco es distinto",
   DOCUMENT_TYPE_MISMATCH: "El tipo de documento es distinto",
+  ACCOUNT_TYPE_MISMATCH: "El tipo de cuenta es distinto",
+  ACCOUNT_TYPE_UNVERIFIED: "No pudimos comprobar el tipo de cuenta",
+  PARSER_FALLBACK: "Se usó un formato alternativo",
+  AMBIGUOUS_FORMAT: "No pudimos elegir un formato único",
   CARD_LAST4_MISMATCH: "La tarjeta es distinta",
   CARD_LAST4_UNREADABLE: "No pudimos comprobar la tarjeta",
   CARD_LAST4_NOT_CONFIGURED: "Falta identificar la tarjeta",
@@ -69,11 +79,22 @@ const matchesReviewFilter = (transaction: EditablePreviewTransaction, filter: Re
   || (filter === "warnings" && hasWarning(transaction)) || (filter === "modified" && isModified(transaction));
 
 export function ImportStatementsPage() {
-  const [accounts, setAccounts] = useState<Account[]>([]);
-  const [products, setProducts] = useState<FinancialProduct[]>([]);
-  const [categories, setCategories] = useState<Category[]>([]);
-  const [loadingAccounts, setLoadingAccounts] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const writes = useWriteActions();
+  const client = useQueryClient();
+  const owner = useQueryOwner();
+  const previewAction = useExplicitAction(StatementService.previewPdf.bind(StatementService));
+  const importAction = useExplicitAction(writes.statements.importReviewedPdf);
+  const operationPending = useRef(false);
+  const uncertainImport = useRef<{ accountId: number; checksum: string } | null>(null);
+  const accountsQuery = useAccounts();
+  const productsQuery = useProducts();
+  const categoriesQuery = useCategories();
+  const accounts = accountsQuery.data ?? emptyList;
+  const products = productsQuery.data ?? emptyList;
+  const categories = categoriesQuery.data ?? emptyList;
+  const loadingAccounts = [accountsQuery, productsQuery, categoriesQuery].some(query => query.isPending);
+  const [actionError, setError] = useState<string | null>(null);
+  const error = actionError ?? [accountsQuery, productsQuery, categoriesQuery].find(query => query.error)?.error?.message ?? null;
   const [codedError, setCodedError] = useState<ApiRequestError | null>(null);
   const [selectedAccount, setSelectedAccount] = useState("");
   const [password, setPassword] = useState("");
@@ -108,42 +129,14 @@ export function ImportStatementsPage() {
     if (error) feedbackRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
   }, [error]);
 
+  const initializedAccount = useRef<string | null | undefined>(undefined);
   useEffect(() => {
-    let cancelled = false;
-    async function loadAccounts() {
-      try {
-        const [payload, productsPayload, categoriesPayload] = await Promise.all([
-          AccountService.getAccounts(),
-          AccountService.getProducts(),
-          CategoryService.getCategories(),
-        ]);
-        if (!cancelled) {
-          const importableAccounts = payload.filter((account) =>
-            getAccountPdfAvailability(account, productsPayload).allowed,
-          );
-          setAccounts(payload);
-          setProducts(productsPayload);
-          setCategories(categoriesPayload);
-          if (payload.length > 0) {
-            const requestedAccount = payload.find(
-              (account) => String(account.id) === requestedAccountId,
-            );
-            setSelectedAccount(String(requestedAccount?.id ?? importableAccounts[0]?.id ?? ""));
-          }
-        }
-      } catch (err) {
-        if (!cancelled) {
-          setError(err instanceof Error ? err.message : "No fue posible cargar las cuentas.");
-        }
-      } finally {
-        if (!cancelled) setLoadingAccounts(false);
-      }
-    }
-    void loadAccounts();
-    return () => {
-      cancelled = true;
-    };
-  }, [requestedAccountId]);
+    if (loadingAccounts || error || initializedAccount.current === requestedAccountId) return;
+    initializedAccount.current = requestedAccountId;
+    const requested = accounts.find(account => String(account.id) === requestedAccountId);
+    const first = accounts.find(account => getAccountPdfAvailability(account, products).allowed);
+    setSelectedAccount(String(requested?.id ?? first?.id ?? ""));
+  }, [accounts, products, requestedAccountId, loadingAccounts, error]);
 
   const account = accounts.find((item) => String(item.id) === selectedAccount);
   const pdfAvailability = account ? getAccountPdfAvailability(account, products) : null;
@@ -240,11 +233,12 @@ export function ImportStatementsPage() {
   };
 
   const analyzeDocument = async () => {
-    if (busy || !selectedFile || !selectedAccount || !pdfAvailability?.allowed) return;
+    if (operationPending.current || busy || !selectedFile || !selectedAccount || !pdfAvailability?.allowed) return;
+    operationPending.current = true;
     setAnalyzing(true);
     resetAnalysis();
     try {
-      const payload = await StatementService.previewPdf(
+      const payload = await previewAction.run(
         Number(selectedAccount),
         selectedFile,
         password || undefined,
@@ -266,18 +260,39 @@ export function ImportStatementsPage() {
         : new ApiRequestError("No fue posible analizar el PDF.", "PROCESSING_FAILED", "Intenta nuevamente con otro archivo."));
       setFeedbackModal("error");
     } finally {
+      operationPending.current = false;
       setAnalyzing(false);
     }
   };
 
   const importDocument = async () => {
-    if (busy || editableTransactions.length === 0 || !selectedFile || !selectedAccount || !preview || !pdfAvailability?.allowed
+    if (operationPending.current || busy || editableTransactions.length === 0 || !selectedFile || !selectedAccount || !preview || !pdfAvailability?.allowed
       || (preview.issues.length > 0 && !issuesAccepted)) return;
+    operationPending.current = true;
     setImporting(true);
     setError(null);
     setCodedError(null);
     try {
-      const response = await StatementService.importReviewedPdf(
+      // A lost response may hide a committed import. Check its exact identity
+      // before another POST; if verification fails, keep the retry blocked.
+      if (uncertainImport.current) {
+        const pending = uncertainImport.current;
+        const statements = await StatementService.getStatements(pending.accountId);
+        const existing = statements.find(item => item.file_checksum === pending.checksum);
+        if (existing) {
+          await client.invalidateQueries({ predicate: query => query.queryKey[0] === "user"
+            && query.queryKey[1] === owner
+            && (financialResources as readonly string[]).includes(String(query.queryKey[2])) });
+          setPassword(""); setSelectedFile(null); setPreview(null); setEditableTransactions([]);
+          navigate(`/app/transactions?statement_id=${existing.id}`, {
+            state: { importMessage: "La cartola ya se importó. Se verificó el resultado anterior." },
+          });
+          return;
+        }
+        uncertainImport.current = null;
+      }
+      uncertainImport.current = { accountId: Number(selectedAccount), checksum: preview.file_checksum };
+      const response = await importAction.run(
         Number(selectedAccount),
         selectedFile,
         editableTransactions.map((transaction) => ({
@@ -290,6 +305,8 @@ export function ImportStatementsPage() {
         password || undefined,
         preview.issues.map((issue) => issue.code),
       );
+      uncertainImport.current = null;
+      setPassword(""); setSelectedFile(null); setPreview(null); setEditableTransactions([]);
       navigate(`/app/transactions?statement_id=${response.statement.id}`, {
         state: {
           importMessage: `${response.result.inserted_count} movimientos importados correctamente.`,
@@ -298,9 +315,10 @@ export function ImportStatementsPage() {
     } catch (err) {
       setCodedError(err instanceof ApiRequestError
         ? err
-        : new ApiRequestError("No fue posible importar la cartola.", "IMPORT_FAILED", "Revisa el PDF e inténtalo nuevamente."));
+        : new ApiRequestError("No fue posible confirmar el resultado de la importación.", "IMPORT_FAILED", "Al volver a confirmar verificaremos primero si la cartola ya se guardó."));
       setFeedbackModal("error");
     } finally {
+      operationPending.current = false;
       setImporting(false);
     }
   };

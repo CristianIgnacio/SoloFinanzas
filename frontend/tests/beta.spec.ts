@@ -1079,11 +1079,13 @@ test("movimientos no desborda el ancho móvil con descripciones largas", async (
   await page.route("**/api/v1/categories**", route => route.fulfill({ json: [
     { id: 1, name: "Compras", type: "expense", parent_id: null, is_active: true, sort_order: 1 },
   ] }));
+  let savedCategory: number | null = null;
+  let categoryVersion = 0;
   const description = "Transferencia_".repeat(12);
   await page.route("**/api/v1/transaction-pages**", route => route.fulfill({ json: {
     items: [
       { id: 2, account_id: 1, date: "2026-09-30", description: "Transf a CLEO CHILE",
-        amount_clp: -23600, transaction_type: "expense", origin: "pdf", category_id: null, is_internal_transfer: true },
+        amount_clp: -23600, transaction_type: "expense", origin: "pdf", category_id: savedCategory, category_version: categoryVersion, is_internal_transfer: true },
       { id: 1, account_id: 1, date: "2026-09-30", description,
         amount_clp: -123456789, transaction_type: "expense", origin: "pdf", category_id: null },
       { id: 3, account_id: 3, date: "2026-09-29", description: "Ingreso en efectivo",
@@ -1096,11 +1098,15 @@ test("movimientos no desborda el ancho móvil con descripciones largas", async (
   await page.route("**/api/v1/transactions/2/category", route => {
     const categoryId = route.request().postDataJSON().category_id as number | null;
     categoryUpdates.push(categoryId);
-    return route.fulfill({ json: { id: 2, category_id: categoryId,
+    savedCategory = categoryId; categoryVersion = 1;
+    return route.fulfill({ json: { id: 2, account_id: 1, date: "2026-09-30",
+      description: "Transf a CLEO CHILE", amount_clp: -23600, transaction_type: "expense",
+      origin: "pdf", is_internal_transfer: true, category_id: categoryId,
       category_version: 1, category_reviewed: true, category_event_id: 202 } });
   });
   await page.route("**/api/v1/transactions/2/category/undo", route => {
     undoEvents.push(route.request().postDataJSON().event_id);
+    savedCategory = null; categoryVersion = 2;
     return route.fulfill({ json: { id: 2, account_id: 1, date: "2026-09-30",
       description: "Transf a CLEO CHILE", amount_clp: -23600, transaction_type: "expense",
       origin: "pdf", is_internal_transfer: true, category_id: null, category_source: null,
@@ -1142,11 +1148,12 @@ test("movimientos no desborda el ancho móvil con descripciones largas", async (
   }, { times: 1 });
   await page.getByRole("button", { name: "Filtrar por categoría", exact: true }).click();
   await page.getByRole("dialog", { name: "Seleccionar categoría" }).getByRole("button", { name: "Compras", exact: true }).click();
-  await expect(page.getByRole("status").first()).toContainText("Actualizando…");
-  await expect(page.getByText("Transf a CLEO CHILE", { exact: true })).toBeVisible();
+  await expect(page.getByText("Cargando movimientos...", { exact: true })).toBeVisible();
+  await expect(page.getByText("Transf a CLEO CHILE", { exact: true })).toHaveCount(0);
   await expect.poll(() => typeof resumeFilter).toBe("function");
   resumeFilter();
-  await expect(page.getByRole("status").first()).not.toContainText("Actualizando…");
+  await expect(page.getByText("Cargando movimientos...", { exact: true })).toHaveCount(0);
+  await expect(page.getByText("Transf a CLEO CHILE", { exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "Quitar filtro: Compras" })).toBeVisible();
   await page.getByRole("button", { name: "Limpiar filtros", exact: true }).click();
   await expect(page.getByRole("button", { name: "Quitar filtro: Compras" })).toHaveCount(0);
@@ -1962,8 +1969,7 @@ test("alta de cuenta selecciona producto y deriva el tipo", async ({ page }, inf
   expect(await preview.evaluate((element) => getComputedStyle(element).backgroundImage)).not.toBe(institutionBackground);
   const productSelect = page.getByRole("combobox", { name: "Producto" });
   await expect(productSelect).toBeEnabled();
-  await productSelect.selectOption("banco_estado_visa_smart");
-  await expect(preview).toContainText("Visa SMART");
+  await expect(productSelect.locator('option[value="banco_estado_visa_smart"]')).toBeDisabled();
   await expect(accountDialog.getByRole("button", { name: "Agregar cuenta" })).toBeDisabled();
   await kindSelect.selectOption("vista");
   await expect(productSelect.locator("option")).toHaveCount(2);
@@ -2046,8 +2052,13 @@ test("alta de cuenta selecciona producto y deriva el tipo", async ({ page }, inf
 test("el formulario ofrece las nuevas cuentas según institución y tipo", async ({ page }) => {
   await mockApi(page);
   await page.route("**/api/v1/account-products", (route) => route.fulfill({ json: [
+    { code: "banco_de_chile_vista_general", institution: "banco_de_chile", name: "Cuenta Vista (sin plan específico)", kind: "vista", pdf_support: "pendiente_verificacion" },
+    { code: "banco_de_chile_ahorro_general", institution: "banco_de_chile", name: "Cuenta de Ahorro (sin plan específico)", kind: "ahorro", pdf_support: "pendiente_verificacion" },
     { code: "banco_de_chile_corriente_tradicional", institution: "banco_de_chile", name: "Cuenta Corriente (plan tradicional)", kind: "corriente", pdf_support: "pendiente_verificacion" },
+    { code: "banco_santander_vista_general", institution: "banco_santander", name: "Cuenta Vista (sin plan específico)", kind: "vista", pdf_support: "pendiente_verificacion" },
     { code: "banco_estado_cuenta_pro", institution: "banco_estado", name: "Cuenta Pro (Chequera Electrónica)", kind: "vista", pdf_support: "pendiente_verificacion" },
+    { code: "banco_estado_vista_general", institution: "banco_estado", name: "Cuenta Vista (sin plan específico)", kind: "vista", pdf_support: "pendiente_verificacion" },
+    { code: "banco_estado_ahorro_general", institution: "banco_estado", name: "Cuenta de Ahorro (sin plan específico)", kind: "ahorro", pdf_support: "pendiente_verificacion" },
     { code: "banco_falabella_vista", institution: "banco_falabella", name: "Cuenta Vista", kind: "vista", pdf_support: "pendiente_verificacion" },
   ] }));
   await page.addInitScript(
@@ -2061,8 +2072,13 @@ test("el formulario ofrece las nuevas cuentas según institución y tipo", async
   const product = page.getByRole("combobox", { name: "Producto" });
   const preview = page.getByRole("img", { name: /Vista previa de/ });
   for (const item of [
+    { institution: "banco_de_chile", kind: "vista", code: "banco_de_chile_vista_general", name: "Cuenta Vista (sin plan específico)" },
+    { institution: "banco_de_chile", kind: "ahorro", code: "banco_de_chile_ahorro_general", name: "Cuenta de Ahorro (sin plan específico)" },
     { institution: "banco_de_chile", kind: "corriente", code: "banco_de_chile_corriente_tradicional", name: "Cuenta Corriente (plan tradicional)" },
+    { institution: "banco_santander", kind: "vista", code: "banco_santander_vista_general", name: "Cuenta Vista (sin plan específico)" },
     { institution: "banco_estado", kind: "vista", code: "banco_estado_cuenta_pro", name: "Cuenta Pro (Chequera Electrónica)" },
+    { institution: "banco_estado", kind: "vista", code: "banco_estado_vista_general", name: "Cuenta Vista (sin plan específico)" },
+    { institution: "banco_estado", kind: "ahorro", code: "banco_estado_ahorro_general", name: "Cuenta de Ahorro (sin plan específico)" },
     { institution: "banco_falabella", kind: "vista", code: "banco_falabella_vista", name: "Cuenta Vista" },
   ]) {
     await institution.selectOption(item.institution);
@@ -2070,6 +2086,36 @@ test("el formulario ofrece las nuevas cuentas según institución y tipo", async
     await product.selectOption(item.code);
     await expect(preview).toContainText(item.name);
   }
+});
+
+test("edición de crédito bloquea cambiar a otro producto no soportado", async ({ page }) => {
+  await mockApi(page);
+  await page.route("**/api/v1/account-products", route => route.fulfill({ json: [
+    { code: "banco_estado_visa_smart", institution: "banco_estado", name: "Visa SMART", kind: "credito", pdf_support: "no_soportado" },
+    { code: "banco_estado_visa_smart_plus", institution: "banco_estado", name: "Visa SMART+", kind: "credito", pdf_support: "no_soportado" },
+    { code: "banco_de_chile_visa_signature", institution: "banco_de_chile", name: "Visa Signature", kind: "credito", pdf_support: "pendiente_verificacion" },
+  ] }));
+  const account = { id: 1, name: "Tarjeta antigua", institution: "banco_estado", account_type: "credito",
+    product_code: "banco_estado_visa_smart", account_last4: null, currency: "CLP", created_at: "2026-01-01T00:00:00Z" };
+  let updatedPayload: Record<string, unknown> | null = null;
+  await page.route("**/api/v1/accounts", route => route.fulfill({ json: [account] }));
+  await page.route("**/api/v1/accounts/1", route => {
+    updatedPayload = route.request().postDataJSON();
+    return route.fulfill({ json: { ...account, ...updatedPayload } });
+  });
+  await page.addInitScript(value => localStorage.setItem("sb-demo-auth-token", JSON.stringify(value)), session(ownerA));
+  await page.goto("/app/accounts");
+  await page.getByRole("button", { name: "Editar", exact: true }).click();
+  const product = page.getByRole("combobox", { name: "Producto" });
+  await expect(product.locator('option[value="banco_estado_visa_smart_plus"]')).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Guardar cambios" })).toBeEnabled();
+  await product.selectOption("");
+  await expect(page.getByRole("button", { name: "Guardar cambios" })).toBeDisabled();
+  await page.getByRole("combobox", { name: "Institución" }).selectOption("banco_de_chile");
+  await page.getByRole("combobox", { name: "Tipo de cuenta" }).selectOption("credito");
+  await product.selectOption("banco_de_chile_visa_signature");
+  await page.getByRole("button", { name: "Guardar cambios" }).click();
+  expect(updatedPayload).toMatchObject({ institution: "banco_de_chile", product_code: "banco_de_chile_visa_signature" });
 });
 
 test("cuenta heredada sin producto conserva su tipo al editar el nombre", async ({ page }) => {

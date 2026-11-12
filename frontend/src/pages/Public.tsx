@@ -334,7 +334,7 @@ export function InformationPage({ privacy = false }: { privacy?: boolean }) {
             </section>
             <section className="space-y-2" aria-labelledby="privacy-services">
               <h2 id="privacy-services" className="text-xl font-semibold">¿Qué servicios intervienen?</h2>
-              <p>Supabase gestiona el acceso con Google y la base de datos PostgreSQL; Render procesa las solicitudes y los PDFs; Vercel aloja la interfaz.</p>
+              <p>Supabase gestiona el acceso con Google y la base de datos PostgreSQL. Render procesa las solicitudes y los PDFs. Vercel aloja la interfaz y mide las visitas a las páginas con Web Analytics. Al contar las visitas, omitimos los parámetros y fragmentos de la URL y excluimos la página de retorno del inicio de sesión.</p>
             </section>
             <section className="space-y-2" aria-labelledby="privacy-pdf">
               <h2 id="privacy-pdf" className="text-xl font-semibold">¿Se conserva mi PDF o su contraseña?</h2>
